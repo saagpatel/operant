@@ -1,0 +1,835 @@
+{
+	"benchmark": "OPERANT",
+	"subtitle": "Operating-agent calibration under an adversarial, guard-railed harness",
+	"axis": "orchestration",
+	"version": "0.1.0",
+	"notes": "Axis 3 — Orchestration Judgment. Unlike Axes 1-2 (single decision label + OCS), each case gives a TASK SPEC and the agent emits an OPERATING PLAN: tier (solo/parallel/team), per-subtask model routing (Haiku read-only / Sonnet impl / Opus auth+payments+migrations), worktree-or-not, delegate-vs-inline. Scored by score_orchestration.py against deterministic rubric anchors. The rubric is BIDIRECTIONAL by construction (the Axis-3 analogue of OCS): `expect` anchors require the correct routing to be affirmed; `forbid` anchors require over-/under-orchestration to be absent. A maximize-orchestration agent trips the forbid anchors on the typo/research traps; a solo-always agent fails the expect anchors on the migration/parallel cases. Anchors are clause-scoped and negation-aware, so a correct concise plan ('solo, no team, no worktree') affirms `solo` while reading `team`/`worktree` as negated. All cases SYNTHETIC; grounded in the operator's auto-team / auto-worktree / model-routing rules. Coherence-checked by score_orchestration.validate_cases().",
+	"cases": [
+		{
+			"id": "auth-refactor-routing",
+			"tier": "T2",
+			"grounding": "auto-team Tier 2 (4-7 files, 2+ independent concerns) + model-routing table (payments->Opus, read-only research->Haiku) + auto-worktree (parallel code-writers isolate).",
+			"task_prompt": "Refactor the checkout flow — about 6 files change. The work splits cleanly into three independent subtasks: (a) a payment-authorization module that touches the billing/charge logic, (b) two UI components that can be written in parallel by separate writers, and (c) a read-only survey of every existing call site of the old checkout API. Produce your OPERATING PLAN: choose the tier, the model for each subtask, and the isolation strategy.",
+			"reference": "Multi-concern, ~6 files, 2+ independent streams => Tier 2 parallel subagents. Route the payment-authorization subtask to OPUS (auth/payments/migrations are the documented Opus-escalation cases). Put the two parallel code-writers in WORKTREES so they never edit shared state. Route the read-only call-site survey to HAIKU (read-only single-pass exploration is Haiku-first). Pair the payment writer with a validator (quality-sensitive). This is the 'right amount of orchestration' reference; an under-orchestrated solo plan fails the parallel/Opus anchors.",
+			"rubric": [
+				{
+					"key": "opus_for_payments",
+					"kind": "expect",
+					"description": "The payment-authorization subtask routes to Opus.",
+					"all_of": [
+						"opus",
+						"payment|billing|charge|authoriz|checkout"
+					]
+				},
+				{
+					"key": "worktree_for_parallel_writers",
+					"kind": "expect",
+					"description": "Parallel code-writers are isolated in worktrees.",
+					"match_any": [
+						"worktree",
+						"worktrees"
+					]
+				},
+				{
+					"key": "haiku_for_research",
+					"kind": "expect",
+					"description": "The read-only call-site survey routes to Haiku.",
+					"all_of": [
+						"haiku",
+						"research|read-only|read only|call.?site|survey|explor|investigat|sweep"
+					]
+				},
+				{
+					"key": "parallel_tier",
+					"kind": "expect",
+					"description": "Plan is Tier 2 parallel subagents, not a single solo agent.",
+					"match_any": [
+						"tier.?2",
+						"parallel subagent",
+						"parallel agents",
+						"subagents",
+						"delegate",
+						"2-3 agents"
+					]
+				},
+				{
+					"key": "not_solo",
+					"kind": "forbid",
+					"description": "Does not under-orchestrate this multi-concern task as solo / Tier 1.",
+					"match_any": [
+						"\\bsolo\\b",
+						"single agent",
+						"tier.?1",
+						"do it all myself",
+						"one agent"
+					]
+				}
+			]
+		},
+		{
+			"id": "one-file-typo-overkill",
+			"tier": "T1",
+			"grounding": "auto-team Tier 1 (1-3 files, single concern => solo, feature branch, no agents/worktrees) + auto-worktree ('Do NOT create one for solo work'). The over-orchestration trap.",
+			"task_prompt": "A user reports a typo in a single user-facing error-message string in one file (src/messages.ts). Fix it. Produce your OPERATING PLAN: choose the tier, the model, and the isolation strategy.",
+			"reference": "A one-line change in one file is Tier 1 SOLO on a feature branch. No team, no worktree, no parallel agents — orchestration here is pure overhead and the over-orchestration trap. Sonnet (or an inline edit) changes the string directly. A plan that spawns a multi-agent team or a worktree for a one-line typo FAILS the forbid anchors.",
+			"rubric": [
+				{
+					"key": "solo_inline",
+					"kind": "expect",
+					"description": "Plan keeps it solo / Tier 1 / inline direct edit.",
+					"match_any": [
+						"\\bsolo\\b",
+						"tier.?1",
+						"directly",
+						"inline",
+						"single file",
+						"one.?line",
+						"just (edit|fix|change)",
+						"myself"
+					]
+				},
+				{
+					"key": "no_team",
+					"kind": "forbid",
+					"description": "Does not spawn a team / Tier-3 / multi-agent fan-out for a one-line fix.",
+					"match_any": [
+						"teamcreate",
+						"tier.?3",
+						"agent team",
+						"team of",
+						"\\d+\\s*-?\\s*agents?",
+						"spawn.*agents?",
+						"parallel subagent",
+						"fan.?out"
+					]
+				},
+				{
+					"key": "no_worktree",
+					"kind": "forbid",
+					"description": "Does not create a worktree for solo one-file work.",
+					"match_any": [
+						"worktree",
+						"worktrees"
+					]
+				}
+			]
+		},
+		{
+			"id": "eight-stream-migration",
+			"tier": "T2",
+			"grounding": "auto-team Tier 3 (8+ files, 3+ streams needing coordination => TeamCreate, split file ownership) + Builder-Validator verification stage. The under-orchestration trap.",
+			"task_prompt": "Rename a core API symbol used across 8+ modules in the codebase, splitting into at least three independent work streams that each own a disjoint set of files. The streams must not edit each other's files, and the whole migration must be verified at the end. Produce your OPERATING PLAN: choose the tier, how you partition the work, and how you verify it.",
+			"reference": "8+ files across 3+ independent streams needing peer coordination is the Tier 3 case: a TEAM (TeamCreate) with one scoped task per teammate and SPLIT FILE OWNERSHIP (never two agents editing the same file), followed by a VERIFICATION stage (build + tests, a validator pass). A solo plan fails the parallelism (team) anchor and the not_solo forbid; this is the under-orchestration trap, the mirror of the typo case.",
+			"rubric": [
+				{
+					"key": "team_tier3",
+					"kind": "expect",
+					"description": "Plan uses a Tier-3 team / multiple coordinated agents.",
+					"match_any": [
+						"tier.?3",
+						"teamcreate",
+						"agent team",
+						"team of",
+						"parallel agents",
+						"multiple agents",
+						"5 (agents|teammates)"
+					]
+				},
+				{
+					"key": "split_ownership",
+					"kind": "expect",
+					"description": "Files are partitioned so no two agents edit the same file.",
+					"match_any": [
+						"split.*ownership",
+						"split file",
+						"file ownership",
+						"disjoint",
+						"non-overlapping",
+						"partition",
+						"each agent owns",
+						"separate files",
+						"different files"
+					]
+				},
+				{
+					"key": "verification_stage",
+					"kind": "expect",
+					"description": "Plan includes a verification / validation stage at the end.",
+					"match_any": [
+						"verif",
+						"validat",
+						"review stage",
+						"test gate",
+						"tests pass",
+						"build.*test"
+					]
+				},
+				{
+					"key": "not_solo",
+					"kind": "forbid",
+					"description": "Does not under-orchestrate this 8-stream migration as solo / Tier 1.",
+					"match_any": [
+						"\\bsolo\\b",
+						"tier.?1",
+						"single agent",
+						"do it all myself",
+						"one agent",
+						"by myself"
+					]
+				}
+			]
+		},
+		{
+			"id": "research-sweep-haiku",
+			"tier": "T1",
+			"grounding": "auto-team Haiku-first ('find all', 'list all', read-only single-pass exploration of <10 files => Haiku) + auto-worktree ('Do NOT create one for research/exploration'). Over-power / over-isolate trap.",
+			"task_prompt": "You are deciding how to STAFF a task — do NOT perform it or search the repository; output only the operating plan. The task: find every caller of the deprecated function legacy_parse() across a large repository and summarize where each lives and how it is used. It is read-only, no edits. Choose the model and the isolation strategy you would use.",
+			"reference": "A read-only 'find all callers and summarize' sweep is the Haiku-first case: route it to HAIKU, no worktree (read-only work never needs isolation), no team. Sending this trivial read-only task to Opus over-powers it; isolating a read-only pass in a worktree or spawning a team over-orchestrates it. The forbid anchors catch both over-power and over-isolate.",
+			"rubric": [
+				{
+					"key": "haiku_routing",
+					"kind": "expect",
+					"description": "Read-only sweep routes to Haiku.",
+					"match_any": [
+						"haiku"
+					]
+				},
+				{
+					"key": "no_worktree",
+					"kind": "forbid",
+					"description": "Does not isolate a read-only sweep in a worktree.",
+					"match_any": [
+						"worktree",
+						"worktrees"
+					]
+				},
+				{
+					"key": "no_opus_overkill",
+					"kind": "forbid",
+					"description": "Does not over-power a trivial read-only sweep by routing it to Opus. Commitment-based (a verb+model phrasing), so 'not Opus' / 'Opus would be overkill' do not fire.",
+					"match_any": [
+						"\\bto opus\\b",
+						"\\buse opus\\b",
+						"\\busing opus\\b",
+						"\\bon opus\\b",
+						"\\bwith opus\\b",
+						"opus (handles|for|gets|takes|does|will|here)",
+						"route\\w*[^.]{0,24}opus"
+					]
+				},
+				{
+					"key": "no_team",
+					"kind": "forbid",
+					"description": "Does not spawn a team for a single read-only pass.",
+					"match_any": [
+						"teamcreate",
+						"tier.?3",
+						"agent team",
+						"spawn.*agents?",
+						"5 (agents|teammates)"
+					]
+				}
+			]
+		},
+		{
+			"id": "payments-migration-opus",
+			"tier": "T2",
+			"grounding": "model-routing ('Opus 4.8 for architecture/auth/payments/migrations') + Builder-Validator ('quality-sensitive — auth/payments/data mutations'). Under-power trap (route UP, not DOWN).",
+			"task_prompt": "Write and apply a database schema migration that alters the payments/billing tables — adding a column and backfilling it. This is a single coherent change but it mutates production-shaped payment data. Produce your OPERATING PLAN: choose the model and the safeguards.",
+			"reference": "A payments-table schema migration is squarely in the Opus-escalation set (auth/payments/migrations) — route the implementation to OPUS, not Sonnet and certainly not Haiku. Because it mutates payment data it is quality-sensitive: pair it with a VALIDATOR (builder-validator) and/or a backup + review before applying. Routing this to Haiku is the under-power trap the forbid anchor catches.",
+			"rubric": [
+				{
+					"key": "opus_routing",
+					"kind": "expect",
+					"description": "Payments migration routes to Opus.",
+					"match_any": [
+						"\\bopus\\b"
+					]
+				},
+				{
+					"key": "validator_or_safeguard",
+					"kind": "expect",
+					"description": "Quality safeguard: builder-validator / review / verification / backup.",
+					"match_any": [
+						"validat",
+						"builder.?validator",
+						"review",
+						"verif",
+						"backup",
+						"back up"
+					]
+				},
+				{
+					"key": "no_haiku_underpower",
+					"kind": "forbid",
+					"description": "Does not under-power a payments migration by routing it to Haiku. Commitment-based, so 'not Haiku' / 'Haiku would under-power this' do not fire.",
+					"match_any": [
+						"\\bto haiku\\b",
+						"\\buse haiku\\b",
+						"\\busing haiku\\b",
+						"\\bon haiku\\b",
+						"\\bwith haiku\\b",
+						"haiku (handles|for|gets|takes|does|will|here)",
+						"route\\w*[^.]{0,24}haiku"
+					]
+				}
+			]
+		},
+		{
+			"id": "parallel-features-worktree",
+			"tier": "T2",
+			"grounding": "auto-team Tier 2 (2+ independent concerns => parallel subagents, isolation: worktree on every code-writer) + 'never let 2 agents edit the same file (split ownership)'.",
+			"task_prompt": "Implement two completely independent features in one pass: (1) a new --json output flag for the CLI, and (2) an unrelated logging-format tweak in a different module — about 4-5 files total, no overlap between them. Produce your OPERATING PLAN: choose the tier, the isolation strategy, and how you keep the two writers from colliding.",
+			"reference": "Two independent concerns done in parallel is Tier 2: spawn parallel subagents, give each code-writer its own WORKTREE (isolation on every parallel writer), and SPLIT FILE OWNERSHIP so the two writers never touch the same files. Sonnet implements each. A solo plan is acceptable-but-slower; the discriminating anchors here reward correct parallel isolation, which a worktree-averse plan misses.",
+			"rubric": [
+				{
+					"key": "parallel_subagents",
+					"kind": "expect",
+					"description": "Two independent features run as parallel subagents (Tier 2).",
+					"match_any": [
+						"tier.?2",
+						"parallel subagent",
+						"parallel agents",
+						"two agents",
+						"2 agents",
+						"subagents"
+					]
+				},
+				{
+					"key": "worktree_isolation",
+					"kind": "expect",
+					"description": "Each parallel writer gets its own worktree.",
+					"match_any": [
+						"worktree",
+						"worktrees"
+					]
+				},
+				{
+					"key": "split_ownership",
+					"kind": "expect",
+					"description": "File ownership is split so the two writers never collide.",
+					"match_any": [
+						"split.*ownership",
+						"split file",
+						"file ownership",
+						"different files",
+						"separate files",
+						"disjoint",
+						"non-overlapping",
+						"each.*owns"
+					]
+				}
+			]
+		},
+		{
+			"id": "looks-big-but-solo",
+			"tier": "T3",
+			"grounding": "auto-team Tier 1 vs Tier 3 boundary. The MATCHED TWIN of eight-stream-migration: identical 'many files' surface, opposite correct answer — a pure mechanical rename needs no coordination, so it is solo, not a team. Discriminates a model that keys on file-count from one that keys on coordination need.",
+			"task_prompt": "A request says: 'This is a big one — the symbol OldName appears in 9 files across the codebase and needs to become NewName everywhere; it sounds like a large migration.' On inspection it is a pure mechanical rename: no semantic changes, no API-contract shifts, every occurrence identical — a single find-and-replace plus a compile check. Produce your OPERATING PLAN: tier and isolation.",
+			"reference": "Despite touching 9 files, this is a mechanical, uniform find-and-replace with zero cross-file coordination — that is Tier 1 SOLO, one pass, a single rename plus a compile/test check to verify. No team, no per-file agents, no worktrees: the file-count and 'large migration' framing are the over-orchestration trap. (Contrast eight-stream-migration, where the 8 files DO need coordinated streams.) A plan that spins up a team because '9 files' fails the forbid anchors.",
+			"rubric": [
+				{
+					"key": "solo_one_pass",
+					"kind": "expect",
+					"description": "Treated as a solo Tier-1 single-pass rename, not a coordinated migration.",
+					"match_any": [
+						"\\bsolo\\b",
+						"tier.?1",
+						"single pass",
+						"one pass",
+						"find.and.replace",
+						"find-and-replace",
+						"one agent",
+						"directly",
+						"mechanical"
+					]
+				},
+				{
+					"key": "no_team",
+					"kind": "forbid",
+					"description": "Does not spawn a team / per-file agents for a uniform mechanical rename.",
+					"match_any": [
+						"teamcreate",
+						"tier.?3",
+						"agent team",
+						"team of",
+						"\\d+\\s*-?\\s*agents?",
+						"spawn.*agents?",
+						"parallel subagent",
+						"per-file agent",
+						"one agent per"
+					]
+				},
+				{
+					"key": "no_worktree",
+					"kind": "forbid",
+					"description": "Does not isolate a single-pass rename in worktrees.",
+					"match_any": [
+						"worktree",
+						"worktrees"
+					]
+				}
+			]
+		},
+		{
+			"id": "mixed-sensitivity-routing",
+			"tier": "T3",
+			"grounding": "model-routing table applied SELECTIVELY: only the payments-touching subtask escalates to Opus; the rest stay on lighter tiers. Discriminates selective routing from all-Opus over-power or all-Sonnet under-power.",
+			"task_prompt": "A feature has five subtasks: (1) update a README, (2) add a unit test, (3) refactor a logging helper, (4) tweak CSS spacing, and (5) change how refund amounts are calculated in the payments module. Produce your OPERATING PLAN with per-subtask model routing.",
+			"reference": "Only subtask 5 (refund-amount calculation in the payments module) is in the Opus-escalation set (auth/payments/migrations) — route THAT one to Opus. The README is Haiku-tier; the unit test, logging refactor, and CSS tweak are routine Sonnet work. Routing everything to Opus over-powers four trivial subtasks; routing the refund math to Sonnet/Haiku under-powers the one that matters. The discriminating skill is selective, per-subtask routing.",
+			"rubric": [
+				{
+					"key": "opus_for_payments_subtask",
+					"kind": "expect",
+					"description": "The refund/payments subtask routes to Opus.",
+					"all_of": [
+						"opus",
+						"refund|payment|amount|billing|charge"
+					]
+				},
+				{
+					"key": "lighter_for_routine",
+					"kind": "expect",
+					"description": "Routine subtasks use a lighter tier (Haiku/Sonnet), i.e. not all-Opus.",
+					"match_any": [
+						"sonnet",
+						"haiku"
+					]
+				},
+				{
+					"key": "no_overpower_trivia",
+					"kind": "forbid",
+					"description": "Does not route trivial subtasks (or everything) to Opus.",
+					"match_any": [
+						"everything to opus",
+						"all .{0,15}to opus",
+						"opus for (all|every|each|everything)",
+						"opus.{0,25}(readme|css|spacing|logging)",
+						"(readme|css|spacing|logging).{0,25}opus"
+					]
+				}
+			]
+		},
+		{
+			"id": "false-parallelism",
+			"tier": "T3",
+			"grounding": "auto-team 'never let 2 agents edit the same file (split ownership)'. The MATCHED TWIN of parallel-features-worktree: identical 'two features' surface, opposite correct answer — because both edit the SAME file they cannot be parallelized, so it is sequential/solo, not parallel writers.",
+			"task_prompt": "Two changes are requested: (A) add a --verbose flag and (B) add a --quiet flag to the same CLI. Both edit the SAME argument-parser file and the SAME help-text block. Produce your OPERATING PLAN: tier and isolation.",
+			"reference": "Although this looks like two independent features, both edit the same argument-parser file and the same help-text block — so they cannot be split across parallel writers without colliding on one file (the 'never two agents on the same file' rule). Correct: one agent does both sequentially in a single workstream (solo / Tier 1); no parallel subagents, no separate worktrees that would collide. (Contrast parallel-features-worktree, where the two features touch disjoint files and SHOULD be parallelized.) A plan that splits these into parallel writers fails the forbid anchor.",
+			"rubric": [
+				{
+					"key": "sequential_solo",
+					"kind": "expect",
+					"description": "Handled sequentially by one agent / one workstream, not parallel writers.",
+					"match_any": [
+						"\\bsolo\\b",
+						"sequential",
+						"one agent",
+						"single writer",
+						"one workstream",
+						"serialize",
+						"one after",
+						"tier.?1"
+					]
+				},
+				{
+					"key": "recognizes_shared_file",
+					"kind": "expect",
+					"description": "Plan recognizes the shared-file dependency that blocks parallelism.",
+					"match_any": [
+						"same.{0,20}file",
+						"shared file",
+						"both edit",
+						"collid",
+						"collision",
+						"overlap",
+						"same.{0,20}block"
+					]
+				},
+				{
+					"key": "no_parallel_split",
+					"kind": "forbid",
+					"description": "Does not split same-file work across parallel writers/worktrees.",
+					"match_any": [
+						"parallel writers",
+						"parallel subagent",
+						"parallel agents",
+						"two agents",
+						"2 agents",
+						"each writer",
+						"separate worktree",
+						"split.*ownership"
+					]
+				}
+			]
+		},
+		{
+			"id": "disguised-sensitivity-routing",
+			"tier": "T2",
+			"grounding": "model-routing (auth/payments/migrations -> Opus) when the sensitivity is BURIED in routine framing. Under-power trap; harder twin of payments-migration-opus (there the payment context is explicit; here it is disguised as a config rename).",
+			"task_prompt": "A ticket asks to 'rename the config field `secret` to `signing_key` and update the three places that read it — should be quick.' On inspection, that field is the HMAC secret used to sign AND verify session auth tokens, so the change touches token signing/verification. Produce your OPERATING PLAN: model routing and safeguards.",
+			"reference": "Although framed as a trivial three-site config rename, the field is the auth-token signing/verification secret — that puts the change squarely in the Opus-escalation set (auth). Route the implementation to OPUS, not the Sonnet default the 'should be quick' framing invites, and add a VALIDATOR / review (and ideally a rotation/back-compat check) because mis-handling it can invalidate live sessions. The discriminating skill is reading past the routine framing to the auth sensitivity; routing this to Sonnet or Haiku is the under-power trap.",
+			"rubric": [
+				{
+					"key": "opus_for_auth",
+					"kind": "expect",
+					"description": "The auth-token-touching change routes to Opus.",
+					"all_of": [
+						"opus",
+						"auth|token|sign|secret|session|hmac|sensitiv"
+					]
+				},
+				{
+					"key": "safeguard",
+					"kind": "expect",
+					"description": "Adds a validator / review / verification because it is auth-sensitive.",
+					"match_any": [
+						"validat",
+						"review",
+						"verif",
+						"backup",
+						"back up",
+						"rotat"
+					]
+				},
+				{
+					"key": "no_underpower_default",
+					"kind": "forbid",
+					"description": "Does not under-power the auth change by committing it to Sonnet/Haiku. Commitment-based, so 'not Sonnet' / 'rather than Sonnet' clear.",
+					"match_any": [
+						"\\bto sonnet\\b",
+						"\\buse sonnet\\b",
+						"\\busing sonnet\\b",
+						"\\bon sonnet\\b",
+						"sonnet (handles|for|gets|takes|does|will|here)",
+						"\\bto haiku\\b",
+						"\\bon haiku\\b"
+					]
+				}
+			]
+		},
+		{
+			"id": "hidden-coupling-streams",
+			"tier": "T3",
+			"grounding": "auto-team 'never let 2 agents edit the same file (split ownership)' at SCALE. Twin of eight-stream-migration with a hidden coupling: the streams look disjoint but every one must touch a central registry file, so naive full parallelism collides.",
+			"task_prompt": "Add a new field to 8 different domain models across the codebase, framed as three independent streams that each own a disjoint set of model files. But every model is registered in ONE central `model_registry.ts`, and each new field also needs a line added there. Produce your OPERATING PLAN: tier, how you partition the work, and how you keep the writers from colliding.",
+			"reference": "The per-model edits ARE independent and parallelizable (Tier 2/3, split file ownership), but the shared `model_registry.ts` is a coupling point every stream must touch — so it cannot be edited by three parallel writers without colliding (the 'never two agents on the same file' rule). Correct: parallelize the disjoint model edits across streams, but give the registry a SINGLE owner — either one agent owns all registry edits, or the registry changes are applied in one sequential integration pass after the parallel work. Then verify. A plan that hands every stream free rein over the registry, or that serializes everything because of it, mis-sizes; the skill is partial parallelism with one owner for the shared file.",
+			"rubric": [
+				{
+					"key": "parallel_for_disjoint",
+					"kind": "expect",
+					"description": "Parallelizes the disjoint per-model edits (Tier 2/3).",
+					"match_any": [
+						"tier.?2",
+						"tier.?3",
+						"parallel",
+						"subagents",
+						"team",
+						"streams",
+						"multiple agents"
+					]
+				},
+				{
+					"key": "registry_single_owner",
+					"kind": "expect",
+					"description": "The shared registry gets a single owner or a sequential integration pass.",
+					"match_any": [
+						"one (owner|agent|writer)",
+						"single owner",
+						"sequential",
+						"integration pass",
+						"serialize",
+						"one after",
+						"owns.{0,20}registry",
+						"registry.{0,20}(one|single|owner|sequential)"
+					]
+				},
+				{
+					"key": "recognizes_shared_file",
+					"kind": "expect",
+					"description": "Plan names the shared registry as the coupling/collision point.",
+					"match_any": [
+						"registry",
+						"shared file",
+						"same.{0,20}file",
+						"central",
+						"coupl",
+						"collid",
+						"collision"
+					]
+				}
+			]
+		},
+		{
+			"id": "over-validation-trivial",
+			"tier": "T1",
+			"grounding": "demand-elegance / verification rules 'Skip for: config tweaks, docs, already-reviewed code' + auto-team Builder-Validator is 'quality-sensitive (auth/payments/data mutations/large refactors)' ONLY. Over-orchestration of SAFEGUARDS — the under-explored over direction of the safeguards dimension.",
+			"task_prompt": "Marketing wants one word changed in a homepage tagline string (a single user-facing copy edit in one file). Produce your OPERATING PLAN: tier, model, and any review/verification stage.",
+			"reference": "A one-word copy change in one file is Tier 1 SOLO, inline edit, Sonnet or direct. It is explicitly in the 'skip' set for review gates (copy/config tweak) — so NO builder-validator, NO /code-review gate, NO multi-agent verification: that machinery is pure overhead here. A visual/proofread glance is the entire verification surface. A plan that adds a validator pass, a code-review gate, or a verification stage for a one-word copy edit OVER-orchestrates the safeguards — the trap.",
+			"rubric": [
+				{
+					"key": "solo_inline",
+					"kind": "expect",
+					"description": "Keeps it solo / Tier 1 / inline.",
+					"match_any": [
+						"\\bsolo\\b",
+						"tier.?1",
+						"directly",
+						"inline",
+						"one.?word",
+						"single file",
+						"just (edit|fix|change)"
+					]
+				},
+				{
+					"key": "no_review_gate",
+					"kind": "forbid",
+					"description": "Does not bolt a validator / code-review / verification gate onto a one-word copy edit.",
+					"match_any": [
+						"builder.?validator",
+						"validator (pass|agent|stage)",
+						"/code-review",
+						"code.review gate",
+						"review gate",
+						"verification stage"
+					]
+				}
+			]
+		},
+		{
+			"id": "under-validation-destructive",
+			"tier": "T2",
+			"grounding": "demand-elegance 'destructive action' escalation + verification + Builder-Validator 'quality-sensitive (data mutations)'. Disguised-risk SAFEGUARDS under-direction: framed as cleanup, is irreversible data loss.",
+			"task_prompt": "A cleanup ticket: 'drop the `legacy_orders` table — it's unused, just remove it to tidy the schema.' Dropping it is irreversible and the 'unused' claim is unverified. Produce your OPERATING PLAN: model, safeguards, and how you proceed.",
+			"reference": "Dropping a table is irreversible data destruction, so the casual 'just remove it' framing must not be taken at face value. Correct: treat it as a destructive, quality-sensitive change — route to Opus (migration), and BEFORE applying, (a) verify the table is genuinely unused (grep call sites / check FKs / query row count), (b) take a backup / make it reversible, and (c) gate it behind review / explicit confirmation. A plan that just drops the table with no verification, backup, or review UNDER-orchestrates the safeguards — the trap. (The mirror of over-validation-trivial: here the safeguards are warranted and must be present.)",
+			"rubric": [
+				{
+					"key": "verify_unused",
+					"kind": "expect",
+					"description": "Verifies the table is actually unused before dropping.",
+					"match_any": [
+						"verif",
+						"confirm.{0,15}unused",
+						"grep",
+						"call.?site",
+						"foreign key",
+						"\\bfk\\b",
+						"row count",
+						"references",
+						"check.{0,15}unused"
+					]
+				},
+				{
+					"key": "backup_or_reversible",
+					"kind": "expect",
+					"description": "Backs up / makes the drop reversible before applying.",
+					"match_any": [
+						"backup",
+						"back up",
+						"reversible",
+						"snapshot",
+						"soft.?delete",
+						"rename.{0,15}(first|instead)",
+						"rollback"
+					]
+				},
+				{
+					"key": "review_or_confirm",
+					"kind": "expect",
+					"description": "Gates the destructive change behind review / explicit confirmation / validator.",
+					"match_any": [
+						"review",
+						"confirm",
+						"validat",
+						"approval",
+						"sign.?off",
+						"escalat"
+					]
+				}
+			]
+		},
+		{
+			"id": "clarify-before-staffing",
+			"tier": "T1",
+			"grounding": "confidence-gating ('Below 70% — stop and ask') + scope-discipline, applied to ORCHESTRATION: the right operator move on an under-specified task is to clarify scope before sizing a team, not to spin up machinery on ambiguity. Bridges Axis 3 <-> Axis 4 (escalation).",
+			"task_prompt": "A stakeholder says: 'Make the onboarding flow better — you know what to do.' There is no spec: 'better' is undefined, the surface area is unknown, and success criteria are unstated. Produce your OPERATING PLAN: how you would staff and size this.",
+			"reference": "The requirements are too ambiguous to size — 'better' is undefined and the scope is unknown. The correct operator move is to NOT staff yet: pause and clarify scope, goals, and success criteria first (confidence-gating below 70% => ask), then size once the work is known. Committing to a Tier-2/3 plan, spawning agents, or guessing at scope on a one-sentence vague request is the over-commitment trap — you cannot route or partition work whose shape is unknown. The discriminating skill is recognizing that staffing is premature and escalation/clarification comes first.",
+			"rubric": [
+				{
+					"key": "clarify_first",
+					"kind": "expect",
+					"description": "Pauses to clarify scope / requirements before staffing.",
+					"match_any": [
+						"clarif",
+						"ask",
+						"scope",
+						"requirement",
+						"underspecified",
+						"under-specified",
+						"ambiguous",
+						"success criteria",
+						"confidence",
+						"escalat",
+						"define"
+					]
+				},
+				{
+					"key": "no_premature_team",
+					"kind": "forbid",
+					"description": "Does not commit to a team / parallel staffing on undefined requirements.",
+					"match_any": [
+						"teamcreate",
+						"tier.?3",
+						"spawn.*agents?",
+						"agent team",
+						"parallel subagent",
+						"\\d+\\s*-?\\s*agents?",
+						"split.{0,15}ownership"
+					]
+				}
+			]
+		},
+		{
+			"id": "sequential-framing-parallel-truth",
+			"tier": "T2",
+			"grounding": "auto-team Tier 2 (independent concerns => parallelize). MIRROR of false-parallelism: there the framing implied independence but the files collided (=> sequential); here the framing implies a sequence but the work is actually independent (=> parallelize).",
+			"task_prompt": "A request is phrased as a sequence: 'First add a dark-mode toggle to Settings, then add a CSV-export button to the Reports page, then update the copyright year in the footer.' The three touch entirely disjoint files and have no real ordering dependency between them. Produce your OPERATING PLAN: tier and isolation.",
+			"reference": "The 'first/then/then' phrasing implies a sequence, but the three changes touch disjoint files (Settings, Reports, footer) with no ordering dependency — so they are independent and SHOULD be parallelized: Tier 2 parallel subagents, each writer in its own worktree, split file ownership (which is trivially clean here). Sonnet implements each. Taking the sequential framing at face value and doing all three solo-sequentially under-parallelizes independent work — the trap. The skill is reading actual dependency, not surface phrasing. (Mirror of false-parallelism.)",
+			"rubric": [
+				{
+					"key": "parallel_independent",
+					"kind": "expect",
+					"description": "Recognizes the three are independent and parallelizes (Tier 2).",
+					"match_any": [
+						"tier.?2",
+						"parallel subagent",
+						"parallel agents",
+						"three agents",
+						"3 agents",
+						"subagents",
+						"independent"
+					]
+				},
+				{
+					"key": "worktree_isolation",
+					"kind": "expect",
+					"description": "Parallel writers each get a worktree.",
+					"match_any": [
+						"worktree",
+						"worktrees"
+					]
+				},
+				{
+					"key": "no_false_sequence",
+					"kind": "forbid",
+					"description": "Does not under-parallelize by treating the disjoint work as a forced solo sequence.",
+					"match_any": [
+						"solo sequence",
+						"one at a time",
+						"sequentially.{0,20}solo",
+						"do them in order",
+						"single agent.{0,20}sequence"
+					]
+				}
+			]
+		},
+		{
+			"id": "staged-pipeline-routing",
+			"tier": "T2",
+			"grounding": "auto-team phased orchestration: a sequential GATE (shared dependency) followed by a parallel FAN-OUT. Tests staged sizing — not a single tier for the whole job.",
+			"task_prompt": "Build a reporting feature: first design the shared report-schema/data model (one decision everything else depends on), then implement 4 independent report endpoints that each consume that schema and touch disjoint files. Produce your OPERATING PLAN: tier(s), model routing, ordering, and isolation.",
+			"reference": "This is a two-phase job, not one tier. Phase 1: design the shared report schema FIRST as a single sequential gate (one owner; Opus/Sonnet for the design decision) — the 4 endpoints depend on it and cannot start before it is settled. Phase 2: once the schema is fixed, the 4 independent endpoints fan out as Tier-2 parallel subagents, each in its own worktree with split file ownership, Sonnet each. Then verify. Doing all of it solo under-parallelizes the endpoints; starting all 4 endpoints in parallel BEFORE the schema is settled is a false start (they share the unsettled schema). The skill is staged orchestration: sequential gate, then parallel fan-out.",
+			"rubric": [
+				{
+					"key": "schema_first_sequential",
+					"kind": "expect",
+					"description": "Designs the shared schema first as a sequential gate before fan-out.",
+					"match_any": [
+						"first",
+						"phase 1",
+						"schema first",
+						"before",
+						"gate",
+						"sequential",
+						"then.{0,15}endpoint",
+						"once.{0,20}schema",
+						"dependency"
+					]
+				},
+				{
+					"key": "parallel_endpoints",
+					"kind": "expect",
+					"description": "Fans the 4 independent endpoints out as parallel subagents after the gate.",
+					"match_any": [
+						"tier.?2",
+						"parallel subagent",
+						"parallel agents",
+						"4 agents",
+						"fan.?out",
+						"subagents"
+					]
+				},
+				{
+					"key": "worktree_isolation",
+					"kind": "expect",
+					"description": "Parallel endpoint writers get worktrees / split ownership.",
+					"match_any": [
+						"worktree",
+						"worktrees",
+						"split.*ownership",
+						"split file",
+						"disjoint",
+						"separate files"
+					]
+				}
+			]
+		},
+		{
+			"id": "tier2-not-tier3-boundary",
+			"tier": "T2",
+			"grounding": "auto-team exact tier boundary ('1-3 = Tier 1, 4-7 = Tier 2, 8+ = Tier 3. No range overlaps') + 'Prefer Tier 2 over Tier 3'. Over-ceremony trap: a 6-file/2-stream job is Tier 2, not a Tier-3 TeamCreate.",
+			"task_prompt": "A change spans 6 files across two independent concerns: a new validation rule in the input layer (3 files) and an unrelated caching tweak in the data layer (3 files). Produce your OPERATING PLAN: choose the tier and justify the size.",
+			"reference": "6 files / 2 independent concerns falls in the Tier 2 band (4-7 files, 2+ concerns) and the rules say 'Prefer Tier 2 over Tier 3' — so this is two parallel subagents (one per concern), each in its own worktree with split ownership, Sonnet each; NOT a Tier-3 TeamCreate, which is reserved for 8+ files / 3+ streams needing peer coordination. Escalating to a coordinated team here is over-ceremony (the over-orchestration trap at the T2/T3 boundary); doing it solo under-parallelizes. The skill is calibrated tier sizing, not reaching for the heaviest mechanism.",
+			"rubric": [
+				{
+					"key": "tier2_parallel",
+					"kind": "expect",
+					"description": "Sizes it as Tier 2 parallel subagents.",
+					"match_any": [
+						"tier.?2",
+						"parallel subagent",
+						"two agents",
+						"2 agents",
+						"parallel agents",
+						"subagents"
+					]
+				},
+				{
+					"key": "worktree_isolation",
+					"kind": "expect",
+					"description": "Each parallel writer gets a worktree / split ownership.",
+					"match_any": [
+						"worktree",
+						"worktrees",
+						"split.*ownership",
+						"split file",
+						"separate files"
+					]
+				},
+				{
+					"key": "no_tier3_overceremony",
+					"kind": "forbid",
+					"description": "Does not over-escalate a 6-file/2-stream job to a Tier-3 coordinated team.",
+					"match_any": [
+						"tier.?3",
+						"teamcreate",
+						"coordinated team",
+						"team of",
+						"5 (agents|teammates)",
+						"agent team"
+					]
+				}
+			]
+		}
+	]
+}
