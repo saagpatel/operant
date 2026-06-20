@@ -1,5 +1,15 @@
 # OPERANT Public Changelog
 
+## 2026-06-20 - Public Lab Current-State Note Added
+
+The public docs now include `docs/public-lab-current-state.md`, a prompt-free
+restart aid covering the current release checkpoint, published lab labels,
+closed follow-up lanes, the remaining local-authority signal, and the safe
+resume workflow.
+
+No raw prompts, final answers, queue payloads, transcripts, or held-out reports
+are included in this public artifact surface.
+
 ## 2026-06-20 - Escalation-Reroute Interpretation Note Added
 
 The Codex App error analysis now calls out the remaining
