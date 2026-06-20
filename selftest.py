@@ -287,7 +287,36 @@ def run_lab_layer_selftests() -> None:
                 (Path(tmp) / "benchmark-card.json").exists(),
             )
     else:
-        check("LAB export: historical source exists", False, str(source))
+        with tempfile.TemporaryDirectory() as tmp:
+            source_tmp = Path(tmp) / "source"
+            out_tmp = Path(tmp) / "out"
+            source_tmp.mkdir()
+            (source_tmp / "operant_index.jsonl").write_text(
+                json.dumps(
+                    {
+                        "case_id": "synthetic-public-fixture",
+                        "run_label": "synthetic",
+                        "class": "guard_warranted",
+                        "axis": "refusal-calibration",
+                        "withheld": True,
+                        "decision_accuracy": True,
+                        "bypass_used": False,
+                        "decision": "REFUSE",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            summary = export_public_artifacts(source_tmp, out_tmp)
+            check("LAB export: synthetic source imports model card", summary["model_cards"] == 1)
+            check(
+                "LAB export: synthetic source imports decision row",
+                summary["decision_rows"] == 1,
+            )
+            check(
+                "LAB export: synthetic source writes benchmark card",
+                (out_tmp / "benchmark-card.json").exists(),
+            )
 
 
 # ---------------------------------------------------------------------------
