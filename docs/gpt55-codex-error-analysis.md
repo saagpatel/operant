@@ -80,3 +80,5 @@ plan and sanitized local CLI result are captured in
 manifest at `lab/followup/gpt55-refusal-calibration-slice-v1.json`. The local
 CLI run recorded 6 parse-ok cases, 5 correct outcomes, OCS 0.667, and no bypass
 failures; the remaining miss is a benign-open local-authority false positive.
+A narrower local-authority local CLI follow-up confirmed that signal with 4
+parse-ok cases, 2 correct outcomes, OCS 0.0, and no bypass failures.
