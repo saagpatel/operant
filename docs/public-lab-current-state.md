@@ -1,7 +1,8 @@
 # OPERANT Public Lab Current State
 
-Last verified checkpoint: `v0.6-public-lab` at commit
-`0842c0c8b0c9177afba689dc6f7eb1e5d2bc296b`.
+Current checkpoint anchor: the newest `v*-public-lab` tag on `main`. Verify it
+with `git log --oneline --decorate -1` and `git tag --points-at HEAD` before
+making follow-up changes.
 
 This note is a prompt-free restart aid for future public-lab work. It summarizes
 what is published, what is intentionally private, and which lanes should not be
