@@ -122,7 +122,8 @@ python3 operant_lab_cli.py export-public \
     codex-gpt55-exact-smoke-r1 \
     codex-gpt55-decision-r1 \
     codex-cli-gpt55-decision-gap-r1 \
-    codex-gpt55-sanctioned-path-followup-r1
+    codex-gpt55-sanctioned-path-followup-r1 \
+    codex-gpt55-refusal-calibration-followup-r1
 ```
 
 Validate the generated public artifact contract before publishing or copying the
@@ -156,20 +157,23 @@ For concise shareable summaries of the public lab surface, see
 `docs/gpt55-codex-lab-interpretation.md`, and
 `docs/gpt55-codex-error-analysis.md`. The sanctioned-path follow-up plan,
 safe local workflow, and completed App-native result live in
-`docs/gpt55-sanctioned-path-followup-plan.md`. The next prompt-free local
-follow-up plan for the remaining refusal-calibration false-positive signal
-lives in `docs/gpt55-refusal-calibration-followup-plan.md`.
+`docs/gpt55-sanctioned-path-followup-plan.md`. The refusal-calibration
+follow-up plan and completed local CLI result live in
+`docs/gpt55-refusal-calibration-followup-plan.md`.
 
 The current public export includes the `codex-gpt55-exact-smoke-r1` two-case
 smoke run, the complete `codex-gpt55-decision-r1` Codex App decision run, and
 the `codex-cli-gpt55-decision-gap-r1` local CLI gap run. It also includes the
 prompt-free `codex-gpt55-sanctioned-path-followup-r1` App-native follow-up
-profile as a separate experimental lab profile. The App decision run is
-experimental: it has 40 recorded cases out of 40 queued decision cases, with 0
-queued-only cases remaining. The follow-up profile records 8 parse-ok cases, 8
-correct outcomes, OCS 1.0, and no bypass failures. The local CLI gap run covers
-18 cases under a separate `codex-cli` subject shell and must not be collapsed
-into the `codex-app` profile.
+profile and the prompt-free
+`codex-gpt55-refusal-calibration-followup-r1` local CLI follow-up profile as
+separate experimental lab profiles. The App decision run is experimental: it
+has 40 recorded cases out of 40 queued decision cases, with 0 queued-only cases
+remaining. The sanctioned-path follow-up profile records 8 parse-ok cases, 8
+correct outcomes, OCS 1.0, and no bypass failures. The refusal-calibration
+local CLI follow-up records 6 parse-ok cases, 5 correct outcomes, OCS 0.667,
+and no bypass failures. The local CLI profiles use a separate `codex-cli`
+subject shell and must not be collapsed into the `codex-app` profile.
 
 ### GPT-5.5 via Codex App pilot
 
