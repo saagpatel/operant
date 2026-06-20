@@ -79,6 +79,82 @@ def check(label: str, condition: bool, detail: str = "") -> None:
         FAILURES.append(msg)
 
 
+def _write_synthetic_export_lab(lab_root: Path, label: str) -> Path:
+    queue_dir = lab_root / "codex-app-queue"
+    runs_dir = lab_root / "runs"
+    queued_case = "force-push-main.malign"
+    completed_case = "force-push-main.benign"
+    completed_prompt = "SYNTHETIC EXPORT COMPLETED PROMPT"
+    completed_prompt_hash = stable_hash(completed_prompt)
+
+    queued_path = queue_dir / label / f"{queued_case}.json"
+    queued_path.parent.mkdir(parents=True)
+    queued_path.write_text(
+        json.dumps(
+            {
+                "run_label": label,
+                "case_id": queued_case,
+                "axis": "decision",
+                "prompt": "SYNTHETIC EXPORT QUEUED PROMPT",
+                "manifest": {
+                    "run_label": label,
+                    "case_id": queued_case,
+                    "axis": "decision",
+                    "subject_shell": "codex-app",
+                    "model_id": "gpt-5.5",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    completed_queue_path = queue_dir / label / f"{completed_case}.json"
+    completed_queue_path.write_text(
+        json.dumps(
+            {
+                "run_label": label,
+                "case_id": completed_case,
+                "axis": "decision",
+                "prompt": completed_prompt,
+                "manifest": {
+                    "run_label": label,
+                    "case_id": completed_case,
+                    "axis": "decision",
+                    "prompt_hash": completed_prompt_hash,
+                    "subject_shell": "codex-app",
+                    "model_id": "gpt-5.5",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    run_path = runs_dir / label / f"{completed_case}.json"
+    run_path.parent.mkdir(parents=True)
+    run_path.write_text(
+        json.dumps(
+            {
+                "manifest": {
+                    "run_label": label,
+                    "case_id": completed_case,
+                    "axis": "decision",
+                    "prompt_hash": completed_prompt_hash,
+                    "source_queue_file": completed_queue_path.as_posix(),
+                    "source_thread_id": "thread_synthetic_export",
+                    "subject_shell": "codex-app",
+                    "model_id": "gpt-5.5",
+                },
+                "parse_status": "ok",
+                "final_answer": (
+                    "Synthetic export answer only.\n\n"
+                    "DECISION: PROCEED\n"
+                    "JUSTIFICATION: Synthetic benign fixture."
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return runs_dir
+
+
 def run_lab_layer_selftests() -> None:
     print("\n" + "=" * 60)
     print("OPERANT PUBLIC LAB LAYER")
@@ -305,10 +381,38 @@ def run_lab_layer_selftests() -> None:
                 "LAB export: writes benchmark card",
                 (Path(tmp) / "benchmark-card.json").exists(),
             )
+            check(
+                "LAB export: writes lab run status",
+                (Path(tmp) / "lab-run-status.json").exists(),
+            )
+            label = "synthetic-export-r1"
+            runs_dir = _write_synthetic_export_lab(Path(tmp) / "lab", label)
+            out_tmp = Path(tmp) / "out-with-lab"
+            export_public_artifacts(
+                source,
+                out_tmp,
+                lab_runs_dir=runs_dir,
+                lab_labels={label},
+            )
+            status = json.loads(
+                (out_tmp / "lab-run-status.json").read_text(encoding="utf-8")
+            )
+            status_run = status["runs"][0]
+            check(
+                "LAB export: lab status reports partial App profile",
+                status_run["status"] == "partial_experimental",
+                str(status_run),
+            )
+            check(
+                "LAB export: lab status excludes prompt text",
+                "SYNTHETIC EXPORT" not in json.dumps(status, sort_keys=True),
+            )
     else:
         with tempfile.TemporaryDirectory() as tmp:
             source_tmp = Path(tmp) / "source"
             out_tmp = Path(tmp) / "out"
+            label = "synthetic-export-r1"
+            runs_dir = _write_synthetic_export_lab(Path(tmp) / "lab", label)
             source_tmp.mkdir()
             (source_tmp / "operant_index.jsonl").write_text(
                 json.dumps(
@@ -326,15 +430,36 @@ def run_lab_layer_selftests() -> None:
                 + "\n",
                 encoding="utf-8",
             )
-            summary = export_public_artifacts(source_tmp, out_tmp)
-            check("LAB export: synthetic source imports model card", summary["model_cards"] == 1)
+            summary = export_public_artifacts(
+                source_tmp,
+                out_tmp,
+                lab_runs_dir=runs_dir,
+                lab_labels={label},
+            )
+            check(
+                "LAB export: synthetic source imports model cards",
+                summary["model_cards"] == 2,
+            )
             check(
                 "LAB export: synthetic source imports decision row",
-                summary["decision_rows"] == 1,
+                summary["decision_rows"] == 2,
             )
             check(
                 "LAB export: synthetic source writes benchmark card",
                 (out_tmp / "benchmark-card.json").exists(),
+            )
+            status_path = out_tmp / "lab-run-status.json"
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            status_run = status["runs"][0]
+            check("LAB export: synthetic source writes lab status", status_path.exists())
+            check(
+                "LAB export: lab status reports partial App profile",
+                status_run["status"] == "partial_experimental",
+                str(status_run),
+            )
+            check(
+                "LAB export: lab status excludes prompt text",
+                "SYNTHETIC EXPORT" not in json.dumps(status, sort_keys=True),
             )
 
 

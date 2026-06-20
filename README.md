@@ -118,19 +118,24 @@ ready for public surfacing:
 ```bash
 python3 operant_lab_cli.py export-public \
   --include-lab-runs \
-  --lab-labels codex-gpt55-exact-smoke-r1 codex-gpt55-decision-r1
+  --lab-labels codex-gpt55-exact-smoke-r1 codex-gpt55-decision-r1 codex-cli-gpt55-decision-gap-r1
 ```
 
 This writes:
 
 - `lab/public/benchmark-card.json`
 - `lab/public/calibration-profiles.json`
+- `lab/public/lab-run-status.json`
 - `lab/public/model-cards/*.json`
 - `lab/public/methodology.md`
 
 These artifacts are calibration-profile-first. Native-shell results and raw API
 results must stay labeled separately; do not collapse them into one unlabeled
 leaderboard.
+
+`lab-run-status.json` is the sanitized public coverage inventory. It summarizes
+included run labels, subject shells, recorded-vs-queued counts, parse/score
+status counts, and scoring policy without prompts or final answers.
 
 The current public export includes the `codex-gpt55-exact-smoke-r1` two-case
 smoke run, the partial `codex-gpt55-decision-r1` Codex App decision run, and the

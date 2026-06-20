@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import utc_now, write_json
+from .inventory import inventory_runs
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -190,6 +191,126 @@ def load_lab_decision_rows(
     return rows, metadata
 
 
+def _lab_status_kind(family: str, subject_shell: str, recorded: int, queued: int) -> str:
+    if "smoke" in family:
+        return "exact_smoke"
+    if subject_shell == "codex-cli":
+        return "local_gap_profile"
+    if queued and recorded < queued:
+        return "partial_experimental"
+    return "experimental"
+
+
+def _lab_scoring_policy(subject_shell: str) -> str:
+    if subject_shell == "codex-app":
+        return "queued-only cases excluded until recorded"
+    if subject_shell == "codex-cli":
+        return "scored separately from Codex App native-shell runs"
+    return "native-shell results are scored only under their own subject shell"
+
+
+def _lab_relation(family: str, subject_shell: str) -> str | None:
+    if subject_shell == "codex-cli" and "decision-gap" in family:
+        return (
+            "covers queued-only cases from codex-gpt55-decision-r1; "
+            "keep separate from codex-app"
+        )
+    return None
+
+
+def _lab_run_status(
+    *,
+    lab_rows: list[dict[str, Any]],
+    lab_metadata: dict[str, dict[str, Any]],
+    lab_runs_dir: Path | None,
+    lab_labels: set[str] | None,
+) -> dict[str, Any]:
+    """Summarize public lab run status without prompts or answers."""
+    labels = set(lab_labels or set())
+    labels.update(str(row["run_label"]) for row in lab_rows)
+
+    inventory: list[dict[str, Any]] = []
+    if lab_runs_dir is not None:
+        queue_dir = lab_runs_dir.parent / "codex-app-queue"
+        inventory = inventory_runs(
+            queue_dir=queue_dir,
+            runs_dir=lab_runs_dir,
+            labels=labels or None,
+        )
+        labels.update(str(row["run_label"]) for row in inventory)
+
+    rows_by_label: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in lab_rows:
+        rows_by_label[str(row["run_label"])].append(row)
+
+    inventory_by_label: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in inventory:
+        inventory_by_label[str(row["run_label"])].append(row)
+
+    runs = []
+    for label in sorted(labels):
+        family = _base_label(label)
+        label_rows = rows_by_label.get(label, [])
+        label_inventory = inventory_by_label.get(label, [])
+        meta = lab_metadata.get(family, {})
+        subject_shell = str(
+            meta.get("subject_shell")
+            or (label_rows[0].get("subject_shell") if label_rows else "unknown")
+        )
+        model_id = str(
+            meta.get("model_id")
+            or (label_rows[0].get("model_id") if label_rows else "unknown")
+        )
+        recorded_cases = len({row["case_id"] for row in label_rows})
+        total_queued_cases = len({row["case_id"] for row in label_inventory})
+        queued_only_cases = sum(
+            1 for row in label_inventory if row.get("score_outcome") == "queued"
+        )
+        parse_status_counts = Counter(
+            str(row.get("parse_status") or "missing") for row in label_rows
+        )
+        score_outcome_counts = Counter(
+            str(row.get("score_outcome") or "unknown") for row in label_inventory
+        )
+        status = _lab_status_kind(
+            family,
+            subject_shell,
+            recorded_cases,
+            total_queued_cases,
+        )
+        run = {
+            "run_label": label,
+            "run_family": family,
+            "display_name": meta.get(
+                "display_name",
+                _lab_display_name(model_id, subject_shell, family),
+            ),
+            "model_id": model_id,
+            "subject_shell": subject_shell,
+            "status": status,
+            "recorded_cases": recorded_cases,
+            "total_queued_cases": total_queued_cases,
+            "queued_only_cases": queued_only_cases,
+            "parse_status_counts": dict(sorted(parse_status_counts.items())),
+            "score_outcome_counts": dict(sorted(score_outcome_counts.items())),
+            "scoring_policy": _lab_scoring_policy(subject_shell),
+        }
+        relation = _lab_relation(family, subject_shell)
+        if relation:
+            run["relation"] = relation
+        runs.append(run)
+
+    return {
+        "generated_at": utc_now(),
+        "included_lab_labels": sorted(lab_labels) if lab_labels else [],
+        "public_status_policy": (
+            "This artifact summarizes lab run coverage and scoring status only; "
+            "it excludes raw prompts and final answers."
+        ),
+        "runs": runs,
+    }
+
+
 def model_card(
     *,
     base_label: str,
@@ -328,6 +449,12 @@ def export_public_artifacts(
             "excluded from public exports."
         ),
     }
+    lab_status = _lab_run_status(
+        lab_rows=lab_rows,
+        lab_metadata=lab_metadata,
+        lab_runs_dir=lab_runs_dir,
+        lab_labels=lab_labels,
+    )
     methodology = (
         "# OPERANT Methodology\n\n"
         "OPERANT measures operating-decision calibration rather than patch success. "
@@ -339,11 +466,13 @@ def export_public_artifacts(
 
     write_json(out_dir / "benchmark-card.json", benchmark_card)
     write_json(out_dir / "calibration-profiles.json", calibration)
+    write_json(out_dir / "lab-run-status.json", lab_status)
     (out_dir / "methodology.md").write_text(methodology, encoding="utf-8")
     return {
         "model_cards": len(model_cards),
         "decision_rows": len(decision_rows),
         "lab_decision_rows": len(lab_rows),
+        "lab_status_runs": len(lab_status["runs"]),
         "judge_rows": len(judge_rows),
         "out_dir": str(out_dir),
     }
