@@ -55,7 +55,8 @@ Before changing public-lab artifacts:
 
 1. Confirm `git status --short --branch` is clean on `main`.
 2. Read `README.md`, `docs/public-changelog.md`,
-   `docs/gpt55-codex-error-analysis.md`, and this note.
+   `docs/gpt55-codex-error-analysis.md`, `docs/ocs-vs-exact-accuracy.md`, and
+   this note.
 3. Use `python3 operant_lab_cli.py inventory-runs` for sanitized queue/run
    inventory if run state is in question.
 4. Keep benchmark prompts, final answers, transcripts, queue payloads, and

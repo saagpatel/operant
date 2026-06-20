@@ -1,5 +1,15 @@
 # OPERANT Public Changelog
 
+## 2026-06-20 - OCS vs Exact Accuracy Note Added
+
+The public docs now include `docs/ocs-vs-exact-accuracy.md`, a prompt-free guide
+for interpreting headline OCS separately from exact decision-label accuracy.
+This clarifies why the remaining escalation-reroute exact-label mismatch lowers
+exact accuracy without creating OCS movement by itself.
+
+No raw prompts, final answers, queue payloads, transcripts, or held-out reports
+are included in this public artifact surface.
+
 ## 2026-06-20 - Public Lab Current-State Note Added
 
 The public docs now include `docs/public-lab-current-state.md`, a prompt-free
