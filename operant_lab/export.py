@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import statistics
 from collections import Counter, defaultdict
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import utc_now, write_json
+
+ROOT = Path(__file__).resolve().parents[1]
 
 AXIS_LABELS = {
     "refusal-calibration": "Adversarial Refusal Calibration",
@@ -107,12 +110,91 @@ def aggregate_judge(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _load_score_operant():
+    spec = importlib.util.spec_from_file_location(
+        "score_operant", ROOT / "score_operant.py"
+    )
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+def _lab_display_name(model_id: str, subject_shell: str, family: str) -> str:
+    if model_id == "gpt-5.5" and subject_shell == "codex-app":
+        suffix = " exact smoke" if "smoke" in family else ""
+        return f"GPT-5.5 via Codex App{suffix}"
+    return f"{model_id} via {subject_shell}"
+
+
+def load_lab_decision_rows(
+    lab_runs_dir: Path,
+    labels: set[str] | None,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    if not lab_runs_dir.exists():
+        return [], {}
+
+    score_operant = _load_score_operant()
+    cases = score_operant.load_cases()
+    rows: list[dict[str, Any]] = []
+    metadata: dict[str, dict[str, Any]] = {}
+
+    for path in sorted(lab_runs_dir.glob("*/*.json")):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        manifest = data.get("manifest", {})
+        if manifest.get("axis") != "decision":
+            continue
+        label = manifest.get("run_label")
+        case_id = manifest.get("case_id")
+        if labels and label not in labels:
+            continue
+        if not label or case_id not in cases:
+            continue
+
+        row = score_operant.score_one(cases[case_id], data.get("final_answer", ""))
+        row.update(
+            {
+                "model": label,
+                "run_label": label,
+                "source": "lab_runs",
+                "source_artifact": str(path),
+                "subject_shell": manifest.get("subject_shell"),
+                "model_id": manifest.get("model_id"),
+                "thinking": manifest.get("thinking"),
+                "prompt_hash": manifest.get("prompt_hash"),
+                "parse_status": data.get("parse_status"),
+                "source_thread_id": manifest.get("source_thread_id"),
+                "source_queue_file": manifest.get("source_queue_file"),
+                "thread_container": manifest.get("thread_container"),
+            }
+        )
+        rows.append(row)
+
+        family = _base_label(label)
+        metadata.setdefault(
+            family,
+            {
+                "display_name": _lab_display_name(
+                    str(manifest.get("model_id")),
+                    str(manifest.get("subject_shell")),
+                    family,
+                ),
+                "model_id": manifest.get("model_id"),
+                "subject_shell": manifest.get("subject_shell"),
+                "data_source": "local_lab_runs",
+                "data_status": "exact_smoke" if "smoke" in family else "experimental",
+            },
+        )
+
+    return rows, metadata
+
+
 def model_card(
     *,
     base_label: str,
     decision_repeats: dict[str, list[dict[str, Any]]],
     judge_repeats: dict[str, list[dict[str, Any]]],
     opus_judge_repeats: dict[str, list[dict[str, Any]]],
+    metadata_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     decision_summaries = {
         label: aggregate_decision(rows) for label, rows in sorted(decision_repeats.items())
@@ -134,7 +216,7 @@ def model_card(
         label: aggregate_judge(rows) for label, rows in sorted(opus_judge_repeats.items())
     }
 
-    meta = MODEL_METADATA.get(
+    meta = metadata_override or MODEL_METADATA.get(
         base_label,
         {
             "display_name": base_label,
@@ -160,12 +242,24 @@ def model_card(
     }
 
 
-def export_public_artifacts(source_results: Path, out_dir: Path) -> dict[str, Any]:
+def export_public_artifacts(
+    source_results: Path,
+    out_dir: Path,
+    *,
+    lab_runs_dir: Path | None = None,
+    lab_labels: set[str] | None = None,
+) -> dict[str, Any]:
     decision_rows = read_jsonl(source_results / "operant_index.jsonl")
     judge_rows = read_jsonl(source_results / "operant_orchestration_judge_index.jsonl")
     opus_judge_rows = read_jsonl(
         source_results / "operant_orchestration_judge_opus_index.jsonl"
     )
+    lab_rows, lab_metadata = (
+        load_lab_decision_rows(lab_runs_dir, lab_labels)
+        if lab_runs_dir is not None
+        else ([], {})
+    )
+    decision_rows = [*decision_rows, *lab_rows]
 
     decision_by_family: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
         lambda: defaultdict(list)
@@ -193,6 +287,7 @@ def export_public_artifacts(source_results: Path, out_dir: Path) -> dict[str, An
             decision_repeats=decision_by_family[family],
             judge_repeats=judge_by_family.get(family, {}),
             opus_judge_repeats=opus_judge_by_family.get(family, {}),
+            metadata_override=lab_metadata.get(family),
         )
         write_json(out_dir / "model-cards" / f"{family}.json", card)
         model_cards.append(card)
@@ -200,6 +295,7 @@ def export_public_artifacts(source_results: Path, out_dir: Path) -> dict[str, An
     calibration = {
         "generated_at": utc_now(),
         "source_results": str(source_results),
+        "included_lab_labels": sorted(lab_labels) if lab_labels else [],
         "presentation": "calibration_profiles_not_flat_leaderboard",
         "models": [
             {
@@ -245,7 +341,7 @@ def export_public_artifacts(source_results: Path, out_dir: Path) -> dict[str, An
     return {
         "model_cards": len(model_cards),
         "decision_rows": len(decision_rows),
+        "lab_decision_rows": len(lab_rows),
         "judge_rows": len(judge_rows),
         "out_dir": str(out_dir),
     }
-

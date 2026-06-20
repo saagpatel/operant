@@ -92,6 +92,7 @@ def prepare(args: argparse.Namespace) -> None:
             prompt_contract="codex_app_prompt_embeds_operator_contract",
             tool_policy=ADAPTER.tool_policy,
             repeat_id=args.repeat,
+            thread_container=args.thread_container,
         )
         payload = {"manifest": manifest.__dict__, **record}
         if args.write_queue:
@@ -102,6 +103,12 @@ def prepare(args: argparse.Namespace) -> None:
             print(json.dumps(payload, indent=2, sort_keys=True))
 
 
+def _load_queue_payload(path: Path | None) -> dict | None:
+    if path is None:
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def record(args: argparse.Namespace) -> None:
     answer = args.answer_file.read_text(encoding="utf-8")
     system_prompt = _system_prompt(args.axis)
@@ -110,6 +117,18 @@ def record(args: argparse.Namespace) -> None:
         sys.exit(f"unknown case id: {args.case_id}")
     case = cases[args.case_id]
     prompt = ADAPTER.build_prompt(case, system_prompt, args.axis)
+    queue_payload = _load_queue_payload(args.queue_file)
+    queue_manifest = (queue_payload or {}).get("manifest", {})
+    queue_prompt = (queue_payload or {}).get("prompt")
+    if queue_payload:
+        if queue_payload.get("case_id") != args.case_id:
+            sys.exit(
+                f"queue case mismatch: {queue_payload.get('case_id')} != {args.case_id}"
+            )
+        if queue_payload.get("axis") != args.axis:
+            sys.exit(f"queue axis mismatch: {queue_payload.get('axis')} != {args.axis}")
+        if queue_prompt != prompt.full_prompt:
+            sys.exit("queue prompt no longer matches the adapter-built prompt")
     parsed = (
         parse_decision_block(answer)
         if args.axis == "decision"
@@ -127,11 +146,13 @@ def record(args: argparse.Namespace) -> None:
         subject_shell=ADAPTER.shell,
         model_id=args.model,
         thinking=args.thinking,
-        prompt_hash=stable_hash(prompt.full_prompt),
-        prompt_contract=prompt.prompt_contract,
-        tool_policy=prompt.tool_policy,
-        repeat_id=args.repeat,
+        prompt_hash=queue_manifest.get("prompt_hash", stable_hash(prompt.full_prompt)),
+        prompt_contract=queue_manifest.get("prompt_contract", prompt.prompt_contract),
+        tool_policy=queue_manifest.get("tool_policy", prompt.tool_policy),
+        repeat_id=queue_manifest.get("repeat_id", args.repeat),
         source_thread_id=args.thread_id,
+        source_queue_file=str(args.queue_file) if args.queue_file else None,
+        thread_container=args.thread_container or queue_manifest.get("thread_container"),
     )
     lab_path = write_run_report(
         HERE,
@@ -161,6 +182,11 @@ def main() -> None:
     prep.add_argument("--limit", type=int, default=5)
     prep.add_argument("--cases", nargs="*")
     prep.add_argument("--write-queue", action="store_true")
+    prep.add_argument(
+        "--thread-container",
+        default="projectless:operant-public-lab-runs",
+        help="Human-readable Codex App thread grouping target.",
+    )
     prep.set_defaults(func=prepare)
 
     rec = sub.add_parser("record", help="record a completed Codex App answer")
@@ -171,7 +197,9 @@ def main() -> None:
     rec.add_argument("--case-id", required=True)
     rec.add_argument("--thread-id", required=True)
     rec.add_argument("--answer-file", type=Path, required=True)
+    rec.add_argument("--queue-file", type=Path)
     rec.add_argument("--repeat", type=int, default=1)
+    rec.add_argument("--thread-container")
     rec.set_defaults(func=record)
 
     args = ap.parse_args()
@@ -180,4 +208,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,6 +1,17 @@
 {
-  "generated_at": "2026-06-20T07:03:42Z",
+  "generated_at": "2026-06-20T07:50:12Z",
+  "included_lab_labels": [
+    "codex-gpt55-exact-smoke-r1"
+  ],
   "models": [
+    {
+      "display_name": "GPT-5.5 via Codex App exact smoke",
+      "ocs_mean": 1.0,
+      "ocs_stdev": null,
+      "orchestration_mean": null,
+      "run_family": "codex-gpt55-exact-smoke",
+      "subject_shell": "codex-app"
+    },
     {
       "display_name": "Claude Haiku 4.5",
       "ocs_mean": 0.273,

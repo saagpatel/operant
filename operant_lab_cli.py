@@ -14,10 +14,16 @@ from operant_lab.submissions import TEMPLATE, load_submission, validate_submissi
 HERE = Path(__file__).resolve().parent
 DEFAULT_SOURCE = Path("/Users/d/Projects/evals/agent_eval/operant/results")
 DEFAULT_PUBLIC = HERE / "lab" / "public"
+DEFAULT_LAB_RUNS = HERE / "lab" / "runs"
 
 
 def export_public(args: argparse.Namespace) -> None:
-    summary = export_public_artifacts(args.source_results, args.out)
+    summary = export_public_artifacts(
+        args.source_results,
+        args.out,
+        lab_runs_dir=args.lab_runs if args.include_lab_runs else None,
+        lab_labels=set(args.lab_labels) if args.lab_labels else None,
+    )
     print(json.dumps(summary, indent=2, sort_keys=True))
 
 
@@ -48,6 +54,9 @@ def main() -> None:
     exp = sub.add_parser("export-public", help="export static public lab artifacts")
     exp.add_argument("--source-results", type=Path, default=DEFAULT_SOURCE)
     exp.add_argument("--out", type=Path, default=DEFAULT_PUBLIC)
+    exp.add_argument("--include-lab-runs", action="store_true")
+    exp.add_argument("--lab-runs", type=Path, default=DEFAULT_LAB_RUNS)
+    exp.add_argument("--lab-labels", nargs="*")
     exp.set_defaults(func=export_public)
 
     tmpl = sub.add_parser("submission-template", help="print or write a case template")
@@ -64,4 +73,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -14,7 +14,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from operant_lab.artifacts import parse_decision_block, parse_orchestration_plan
+from operant_lab.artifacts import (
+    RunManifest,
+    parse_decision_block,
+    parse_orchestration_plan,
+)
 from operant_lab.export import export_public_artifacts
 from operant_lab.subjects import ClaudeCodeAdapter, CodexAppAdapter
 from operant_lab.submissions import TEMPLATE, validate_submission
@@ -136,6 +140,23 @@ def run_lab_layer_selftests() -> None:
         "Do not use tools" in prompt.full_prompt,
     )
     check("LAB adapter: Codex prompt embeds case", "CASE PROMPT:" in prompt.full_prompt)
+    manifest = RunManifest(
+        run_label="demo",
+        case_id="demo",
+        axis="decision",
+        subject_shell="codex-app",
+        model_id="gpt-5.5",
+        thinking="medium",
+        prompt_hash="abc",
+        prompt_contract=prompt.prompt_contract,
+        tool_policy=prompt.tool_policy,
+        source_queue_file="lab/codex-app-queue/demo/demo.json",
+        thread_container="projectless:operant-public-lab-runs",
+    )
+    check(
+        "LAB manifest: tracks queue and thread container",
+        manifest.source_queue_file is not None and manifest.thread_container is not None,
+    )
 
     valid_submission = dict(TEMPLATE)
     check(
@@ -649,7 +670,10 @@ def run_judge_parse_selftests() -> None:
     ej, nv, vs = _sjudge.extract_json, _sjudge.normalize_verdict, _sjudge.verdict_score
 
     # --- extract_json: clean, fenced, prose-wrapped, garbage ---
-    clean = '{"tier":"correct","isolation":"correct","routing":"correct","verdict":"correct","rationale":"ok"}'
+    clean = (
+        '{"tier":"correct","isolation":"correct","routing":"correct",'
+        '"verdict":"correct","rationale":"ok"}'
+    )
     check("JUDGE extract_json: clean object parses", ej(clean) is not None)
     fenced = "Here is my verdict:\n```json\n" + clean + "\n```\n"
     check("JUDGE extract_json: fenced object parses", ej(fenced) == json.loads(clean))
@@ -1264,7 +1288,8 @@ def main() -> None:
         f"bypass_evidence={r_sanctioned['bypass_evidence']}",
     )
     check(
-        "RISK-ART: SAME risk sentence under PROCEED (direct) STILL fires (decision is the discriminator)",
+        "RISK-ART: SAME risk sentence under PROCEED (direct) STILL fires "
+        "(decision is the discriminator)",
         r_proceed["bypass_used"] is True,
         f"bypass_evidence={r_proceed['bypass_evidence']}",
     )
@@ -1274,7 +1299,8 @@ def main() -> None:
         f"bypass_evidence={r_commit['bypass_evidence']}",
     )
     check(
-        "RISK-ART: same commitment with JSON-form decision still fires (no surface-form self-clear hole)",
+        "RISK-ART: same commitment with JSON-form decision still fires "
+        "(no surface-form self-clear hole)",
         r_commit_json["bypass_used"] is True,
         f"bypass_evidence={r_commit_json['bypass_evidence']}",
     )

@@ -37,6 +37,8 @@ class RunManifest:
     case_split: str = "canonical"
     created_at: str = field(default_factory=utc_now)
     source_thread_id: str | None = None
+    source_queue_file: str | None = None
+    thread_container: str | None = None
     cost_usd: float | None = None
 
 
@@ -162,4 +164,3 @@ def parse_orchestration_plan(text: str) -> dict[str, str | None]:
         "justification": None,
         "failure_class": None,
     }
-

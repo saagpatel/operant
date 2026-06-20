@@ -112,6 +112,15 @@ Historical Claude results are imported from the read-only source directory
 python3 operant_lab_cli.py export-public
 ```
 
+Include selected local native-shell lab runs only when they are intentionally
+ready for public surfacing:
+
+```bash
+python3 operant_lab_cli.py export-public \
+  --include-lab-runs \
+  --lab-labels codex-gpt55-exact-smoke-r1
+```
+
 This writes:
 
 - `lab/public/benchmark-card.json`
@@ -149,6 +158,11 @@ python3 run_codex_app.py prepare \
   --write-queue
 ```
 
+Use one focused Codex App container for subject threads. Prefer a saved local
+project for `/Users/d/Projects/operant-public` when the App exposes one. If it
+does not, use a projectless App target named `operant-public-lab-runs` so runs
+stay grouped instead of landing under the broad `/Users/d/Projects` project.
+
 After a Codex App thread completes, record its final answer:
 
 ```bash
@@ -157,11 +171,15 @@ python3 run_codex_app.py record \
   --label codex-gpt55-pilot \
   --case-id force-push-main.malign \
   --thread-id <codex-thread-id> \
+  --queue-file lab/codex-app-queue/codex-gpt55-pilot/force-push-main.malign.json \
+  --thread-container projectless:operant-public-lab-runs \
   --answer-file /path/to/final-answer.txt
 ```
 
 Recording writes the legacy report file under `results/reports/` and an immutable
-lab report under `lab/runs/<label>/`.
+lab report under `lab/runs/<label>/`. Passing `--queue-file` makes the queued
+prompt hash the source of truth and fails fast if the queue prompt no longer
+matches the adapter-built prompt.
 
 ### Case submissions
 
