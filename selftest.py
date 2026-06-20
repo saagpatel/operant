@@ -382,6 +382,10 @@ def run_lab_layer_selftests() -> None:
                 (Path(tmp) / "benchmark-card.json").exists(),
             )
             check(
+                "LAB export: writes public README",
+                (Path(tmp) / "README.md").exists(),
+            )
+            check(
                 "LAB export: writes lab run status",
                 (Path(tmp) / "lab-run-status.json").exists(),
             )
@@ -447,6 +451,15 @@ def run_lab_layer_selftests() -> None:
             check(
                 "LAB export: synthetic source writes benchmark card",
                 (out_tmp / "benchmark-card.json").exists(),
+            )
+            public_readme = (out_tmp / "README.md").read_text(encoding="utf-8")
+            check(
+                "LAB export: synthetic source writes public README",
+                "OPERANT Public Artifacts" in public_readme,
+            )
+            check(
+                "LAB export: public README excludes prompt text",
+                "SYNTHETIC EXPORT" not in public_readme,
             )
             status_path = out_tmp / "lab-run-status.json"
             status = json.loads(status_path.read_text(encoding="utf-8"))
