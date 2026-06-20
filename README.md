@@ -147,6 +147,9 @@ status counts, and scoring policy without prompts or final answers. Use it for
 run coverage and interpretation policy; use `model-cards/*.json` for scored
 calibration profiles.
 
+For a concise shareable summary of the public lab surface, see
+`docs/public-release-note.md`.
+
 The current public export includes the `codex-gpt55-exact-smoke-r1` two-case
 smoke run, the partial `codex-gpt55-decision-r1` Codex App decision run, and the
 `codex-cli-gpt55-decision-gap-r1` local CLI gap run. The App decision run is
