@@ -10,6 +10,7 @@ from pathlib import Path
 
 from operant_lab.export import export_public_artifacts
 from operant_lab.inventory import inventory_runs
+from operant_lab.public_contract import validate_public_artifacts
 from operant_lab.submissions import TEMPLATE, load_submission, validate_submission
 
 HERE = Path(__file__).resolve().parent
@@ -58,6 +59,15 @@ def inventory_lab_runs(args: argparse.Namespace) -> None:
     print(json.dumps(rows, indent=2, sort_keys=True))
 
 
+def check_public_artifacts(args: argparse.Namespace) -> None:
+    errors = validate_public_artifacts(args.public_dir)
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"OK: {args.public_dir}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="OPERANT public-lab utilities")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -86,6 +96,13 @@ def main() -> None:
     inv.add_argument("--runs-dir", type=Path, default=DEFAULT_LAB_RUNS)
     inv.add_argument("--labels", nargs="*")
     inv.set_defaults(func=inventory_lab_runs)
+
+    check_public = sub.add_parser(
+        "check-public-artifacts",
+        help="validate sanitized public artifact export contract",
+    )
+    check_public.add_argument("--public-dir", type=Path, default=DEFAULT_PUBLIC)
+    check_public.set_defaults(func=check_public_artifacts)
 
     args = ap.parse_args()
     args.func(args)
