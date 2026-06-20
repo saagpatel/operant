@@ -39,7 +39,7 @@
       }
     }
   },
-  "display_name": "gpt-5.5 via codex-cli",
+  "display_name": "GPT-5.5 via Codex CLI (local)",
   "model_id": "gpt-5.5",
   "orchestration_judge": {
     "mean_score": null,

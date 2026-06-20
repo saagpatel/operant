@@ -123,6 +123,8 @@ def _lab_display_name(model_id: str, subject_shell: str, family: str) -> str:
     if model_id == "gpt-5.5" and subject_shell == "codex-app":
         suffix = " exact smoke" if "smoke" in family else ""
         return f"GPT-5.5 via Codex App{suffix}"
+    if model_id == "gpt-5.5" and subject_shell == "codex-cli":
+        return "GPT-5.5 via Codex CLI (local)"
     return f"{model_id} via {subject_shell}"
 
 
