@@ -4,7 +4,7 @@
     "orchestration": 17
   },
   "claim": "Coding benchmarks ask whether an agent completed the task; OPERANT asks whether the agent should have acted at all.",
-  "generated_at": "2026-06-20T11:50:10Z",
+  "generated_at": "2026-06-20T12:27:19Z",
   "metric_of_record": "OCS for decision axes; LLM judge for orchestration",
   "name": "OPERANT",
   "public_split_policy": "Public exemplars may be shown; held-out prompts and raw reports stay excluded from public exports."

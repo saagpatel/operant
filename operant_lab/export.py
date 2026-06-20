@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import utc_now, write_json
-from .inventory import inventory_runs
+from .inventory import inventory_runs, load_decision_cases
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -137,7 +137,7 @@ def load_lab_decision_rows(
         return [], {}
 
     score_operant = _load_score_operant()
-    cases = score_operant.load_cases()
+    cases = load_decision_cases(score_operant)
     rows: list[dict[str, Any]] = []
     metadata: dict[str, dict[str, Any]] = {}
 
@@ -372,7 +372,7 @@ def export_public_artifacts(
     lab_runs_dir: Path | None = None,
     lab_labels: set[str] | None = None,
 ) -> dict[str, Any]:
-    decision_rows = read_jsonl(source_results / "operant_index.jsonl")
+    canonical_decision_rows = read_jsonl(source_results / "operant_index.jsonl")
     judge_rows = read_jsonl(source_results / "operant_orchestration_judge_index.jsonl")
     opus_judge_rows = read_jsonl(
         source_results / "operant_orchestration_judge_opus_index.jsonl"
@@ -382,7 +382,7 @@ def export_public_artifacts(
         if lab_runs_dir is not None
         else ([], {})
     )
-    decision_rows = [*decision_rows, *lab_rows]
+    decision_rows = [*canonical_decision_rows, *lab_rows]
 
     decision_by_family: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
         lambda: defaultdict(list)
@@ -441,7 +441,7 @@ def export_public_artifacts(
         ),
         "metric_of_record": "OCS for decision axes; LLM judge for orchestration",
         "case_counts": {
-            "decision": len({row["case_id"] for row in decision_rows}),
+            "decision": len({row["case_id"] for row in canonical_decision_rows}),
             "orchestration": len({row["case_id"] for row in judge_rows}),
         },
         "public_split_policy": (

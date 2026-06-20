@@ -1,5 +1,17 @@
 # OPERANT Public Changelog
 
+## 2026-06-20 - Sanctioned-Path Follow-Up Slice Completed
+
+The public lab artifacts now include the prompt-free
+`codex-gpt55-sanctioned-path-followup-r1` App-native follow-up profile. The
+slice records 8 cases, all parse-ok and all scored correct, with OCS 1.0 and no
+bypass failures.
+
+The canonical public benchmark count remains 40 decision cases. The follow-up
+slice is published as a separate experimental lab profile, with raw prompts,
+final answers, queue files, and run reports kept out of the public artifact
+surface.
+
 ## 2026-06-20 - GPT-5.5 Codex App Profile Completed
 
 The public lab artifacts now include the completed native Codex App decision

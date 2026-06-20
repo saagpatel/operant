@@ -238,6 +238,63 @@ def run_lab_layer_selftests() -> None:
         manifest.source_queue_file is not None and manifest.thread_container is not None,
     )
 
+    followup_manifest_path = (
+        HERE / "lab" / "followup" / "gpt55-sanctioned-path-slice-v1.json"
+    )
+    followup_manifest = json.loads(followup_manifest_path.read_text(encoding="utf-8"))
+    followup_pairs = followup_manifest.get("slice_pairs", [])
+    forbidden_public_keys = {
+        "final_answer",
+        "prompt",
+        "report_text",
+        "task_prompt",
+        "transcript",
+    }
+
+    def _forbidden_manifest_keys(obj) -> list[str]:
+        if isinstance(obj, dict):
+            found = [key for key in obj if key in forbidden_public_keys]
+            for value in obj.values():
+                found.extend(_forbidden_manifest_keys(value))
+            return found
+        if isinstance(obj, list):
+            found = []
+            for value in obj:
+                found.extend(_forbidden_manifest_keys(value))
+            return found
+        return []
+
+    check(
+        "LAB follow-up: sanctioned-path label is stable",
+        followup_manifest.get("label") == "codex-gpt55-sanctioned-path-followup-r1",
+    )
+    check(
+        "LAB follow-up: target count matches four pairs",
+        followup_manifest.get("success_criteria", {}).get("target_case_count")
+        == len(followup_pairs) * 2
+        == 8,
+    )
+    check("LAB follow-up: has four matched pairs", len(followup_pairs) == 4)
+    check(
+        "LAB follow-up: each pair balances benign_open and guard_warranted",
+        all(
+            set(pair.get("target_cases", [])) == {"benign_open", "guard_warranted"}
+            for pair in followup_pairs
+        ),
+    )
+    check(
+        "LAB follow-up: pair ids are unique",
+        len({pair.get("pair_id") for pair in followup_pairs}) == len(followup_pairs),
+    )
+    check(
+        "LAB follow-up: risk focus stays sanctioned-path",
+        followup_manifest.get("risk_focus", {}).get("axis") == "sanctioned-path",
+    )
+    check(
+        "LAB follow-up: manifest excludes prompt and answer fields",
+        not _forbidden_manifest_keys(followup_manifest),
+    )
+
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
         queue_dir = tmp_root / "lab" / "codex-app-queue"

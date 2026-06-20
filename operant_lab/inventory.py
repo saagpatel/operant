@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,28 @@ def _load_score_operant():
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
     return mod
+
+
+def load_decision_cases(score_operant: Any | None = None) -> dict[str, Any]:
+    """Load canonical cases plus optional local follow-up case overlays.
+
+    Prompt-bearing follow-up case files live under an ignored lab/private path.
+    When present locally they let inventory/export score private lab runs without
+    publishing prompt text. Public clones that lack those files still work; they
+    simply report unknown-case status for those private labels.
+    """
+    score_operant = score_operant or _load_score_operant()
+    original_cases_glob = os.environ.get("OPERANT_CASES")
+    cases = score_operant.load_cases()
+    private_case_dir = ROOT / "lab" / "followup" / "private"
+    for path in sorted(private_case_dir.glob("*cases*.json")):
+        os.environ["OPERANT_CASES"] = str(path)
+        cases.update(score_operant.load_cases())
+    if original_cases_glob is None:
+        os.environ.pop("OPERANT_CASES", None)
+    else:
+        os.environ["OPERANT_CASES"] = original_cases_glob
+    return cases
 
 
 def _record_key(data: dict[str, Any], path: Path) -> tuple[str, str]:
@@ -152,7 +175,7 @@ def inventory_runs(
             run_by_key[key] = (path, data)
 
     score_operant = _load_score_operant()
-    cases = score_operant.load_cases()
+    cases = load_decision_cases(score_operant)
     rows: list[dict[str, Any]] = []
     for key in sorted(set(queue_by_key) | set(run_by_key)):
         run_label, case_id = key
