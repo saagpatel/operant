@@ -135,7 +135,9 @@ leaderboard.
 
 `lab-run-status.json` is the sanitized public coverage inventory. It summarizes
 included run labels, subject shells, recorded-vs-queued counts, parse/score
-status counts, and scoring policy without prompts or final answers.
+status counts, and scoring policy without prompts or final answers. Use it for
+run coverage and interpretation policy; use `model-cards/*.json` for scored
+calibration profiles.
 
 The current public export includes the `codex-gpt55-exact-smoke-r1` two-case
 smoke run, the partial `codex-gpt55-decision-r1` Codex App decision run, and the
