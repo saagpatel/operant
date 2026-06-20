@@ -1,5 +1,19 @@
 # OPERANT Public Changelog
 
+## 2026-06-20 - Self-Service Receipt And Pilot Language Added
+
+The public docs now include
+`docs/self-service-public-lab-certification-pilot.md`, covering the safe
+no-secret self-service runner path, receipt fields, badge wording,
+certification-pilot language, and current limits.
+
+The public docs also include `docs/control-plus-calibration.md`, clarifying how
+OPERANT's calibration receipt complements Cross-Provider Egress Guard's control
+receipt, MCPAudit's inspection layer, and mcpforge's build/package layer.
+
+No raw prompts, final answers, queue payloads, transcripts, or held-out reports
+are included in this public artifact surface.
+
 ## 2026-06-20 - OCS vs Exact Accuracy Note Added
 
 The public docs now include `docs/ocs-vs-exact-accuracy.md`, a prompt-free guide
