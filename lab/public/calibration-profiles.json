@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-20T09:24:31Z",
+  "generated_at": "2026-06-20T09:42:49Z",
   "included_lab_labels": [
     "codex-cli-gpt55-decision-gap-r1",
     "codex-gpt55-decision-r1",
@@ -7,7 +7,7 @@
   ],
   "models": [
     {
-      "display_name": "gpt-5.5 via codex-cli",
+      "display_name": "GPT-5.5 via Codex CLI (local)",
       "ocs_mean": 0.778,
       "ocs_stdev": null,
       "orchestration_mean": null,
