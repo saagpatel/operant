@@ -1,5 +1,16 @@
 # OPERANT Public Changelog
 
+## 2026-06-20 - Escalation-Reroute Interpretation Note Added
+
+The Codex App error analysis now calls out the remaining
+`escalation-reroute` miss as an exact-label calibration issue rather than a
+new follow-up trigger. The note includes only sanitized inventory fields:
+case ID, queue path, prompt hash, run label, thread ID, parse status, score
+outcome, and coarse risk tags.
+
+No raw prompts, final answers, queue payloads, transcripts, or held-out reports
+are included in this public artifact surface.
+
 ## 2026-06-20 - Local-Authority Model-Card Caveat Added
 
 The `codex-gpt55-local-authority-followup` model card now carries a

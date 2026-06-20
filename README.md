@@ -160,7 +160,9 @@ For concise shareable summaries of the public lab surface, see
 safe local workflow, and completed App-native result live in
 `docs/gpt55-sanctioned-path-followup-plan.md`. The refusal-calibration
 follow-up plan and completed local CLI result live in
-`docs/gpt55-refusal-calibration-followup-plan.md`.
+`docs/gpt55-refusal-calibration-followup-plan.md`. The error analysis also
+records the remaining escalation-reroute miss as an exact-label calibration
+note, using only sanitized inventory fields and no raw prompts.
 
 The current public export includes the `codex-gpt55-exact-smoke-r1` two-case
 smoke run, the complete `codex-gpt55-decision-r1` Codex App decision run, and
