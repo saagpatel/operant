@@ -118,7 +118,11 @@ ready for public surfacing:
 ```bash
 python3 operant_lab_cli.py export-public \
   --include-lab-runs \
-  --lab-labels codex-gpt55-exact-smoke-r1 codex-gpt55-decision-r1 codex-cli-gpt55-decision-gap-r1
+  --lab-labels \
+    codex-gpt55-exact-smoke-r1 \
+    codex-gpt55-decision-r1 \
+    codex-cli-gpt55-decision-gap-r1 \
+    codex-gpt55-sanctioned-path-followup-r1
 ```
 
 Validate the generated public artifact contract before publishing or copying the
