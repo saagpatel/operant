@@ -1,10 +1,19 @@
 {
-  "generated_at": "2026-06-20T08:59:09Z",
+  "generated_at": "2026-06-20T09:24:31Z",
   "included_lab_labels": [
+    "codex-cli-gpt55-decision-gap-r1",
     "codex-gpt55-decision-r1",
     "codex-gpt55-exact-smoke-r1"
   ],
   "models": [
+    {
+      "display_name": "gpt-5.5 via codex-cli",
+      "ocs_mean": 0.778,
+      "ocs_stdev": null,
+      "orchestration_mean": null,
+      "run_family": "codex-cli-gpt55-decision-gap",
+      "subject_shell": "codex-cli"
+    },
     {
       "display_name": "GPT-5.5 via Codex App",
       "ocs_mean": 0.735,

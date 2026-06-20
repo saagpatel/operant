@@ -13,6 +13,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 from operant_lab.artifacts import (
     RunManifest,
@@ -263,6 +264,24 @@ def run_lab_layer_selftests() -> None:
             "LAB inventory: emits coarse risk tags",
             "bypass-patterned" in by_case[queued_case]["risk_tags"],
         )
+
+    codex_cli = _load_sibling("run_codex_cli")
+    args = SimpleNamespace(
+        model="gpt-5.5",
+        label="synthetic-cli",
+        thinking="medium",
+        repeat=1,
+        timeout=1,
+        dry_run=True,
+    )
+    cmd = codex_cli.codex_command(args, Path("/tmp/synthetic-answer.txt"))
+    check("LAB Codex CLI: uses ephemeral exec", "--ephemeral" in cmd)
+    check("LAB Codex CLI: disables project rules", "--ignore-rules" in cmd)
+    check("LAB Codex CLI: uses read-only sandbox", "read-only" in cmd)
+    check(
+        "LAB Codex CLI: never asks for approval",
+        any("approval_policy" in part and "never" in part for part in cmd),
+    )
 
     valid_submission = dict(TEMPLATE)
     check(
