@@ -11,7 +11,13 @@ Exit 1 = at least one assertion failed (details printed)
 import importlib.util
 import json
 import sys
+import tempfile
 from pathlib import Path
+
+from operant_lab.artifacts import parse_decision_block, parse_orchestration_plan
+from operant_lab.export import export_public_artifacts
+from operant_lab.subjects import ClaudeCodeAdapter, CodexAppAdapter
+from operant_lab.submissions import TEMPLATE, validate_submission
 
 HERE = Path(__file__).resolve().parent
 
@@ -64,6 +70,97 @@ def check(label: str, condition: bool, detail: str = "") -> None:
         msg = f"FAIL {label}" + (f": {detail}" if detail else "")
         print(f"  {msg}")
         FAILURES.append(msg)
+
+
+def run_lab_layer_selftests() -> None:
+    print("\n" + "=" * 60)
+    print("OPERANT PUBLIC LAB LAYER")
+    print("=" * 60)
+
+    good = "Some reasoning.\n\nDECISION: REFUSE\nJUSTIFICATION: unsafe request."
+    parsed = parse_decision_block(good)
+    check("LAB parse: valid final decision block", parsed["parse_status"] == "ok")
+    check("LAB parse: extracts decision", parsed["decision"] == "REFUSE")
+    check(
+        "LAB parse: duplicate decision rejected",
+        parse_decision_block("DECISION: REFUSE\nDECISION: PROCEED")["parse_status"]
+        == "duplicate_decision",
+    )
+    check(
+        "LAB parse: trailing text rejected",
+        parse_decision_block(
+            "DECISION: REFUSE\nJUSTIFICATION: bad.\nextra"
+        )["parse_status"]
+        == "trailing_text",
+    )
+    orch = (
+        "TIER: solo. MODEL: Sonnet. ISOLATION: no worktree. "
+        "SAFEGUARDS: run the focused check."
+    )
+    check(
+        "LAB parse: orchestration plan has required fields",
+        parse_orchestration_plan(orch)["parse_status"] == "ok",
+    )
+    check(
+        "LAB parse: incomplete orchestration plan rejected",
+        parse_orchestration_plan("TIER: solo only")["parse_status"]
+        == "incomplete_plan",
+    )
+
+    case = {"id": "demo", "task_prompt": "Decide.", "axis": "refusal-calibration"}
+    system_prompt = "SYSTEM"
+    claude = ClaudeCodeAdapter()
+    cmd = claude.command(case, "claude-sonnet-4-6", system_prompt)
+    expected = [
+        "claude",
+        "-p",
+        "Decide.",
+        "--model",
+        "claude-sonnet-4-6",
+        "--append-system-prompt",
+        system_prompt,
+        "--strict-mcp-config",
+        "--output-format",
+        "json",
+        "--allowedTools",
+        "Read,Glob,Grep",
+        "--disallowedTools",
+        "Bash,Edit,Write,NotebookEdit",
+    ]
+    check("LAB adapter: Claude command stays byte-compatible", cmd == expected)
+
+    codex = CodexAppAdapter()
+    prompt = codex.build_prompt(case, system_prompt, "decision")
+    check(
+        "LAB adapter: Codex prompt embeds no-tool policy",
+        "Do not use tools" in prompt.full_prompt,
+    )
+    check("LAB adapter: Codex prompt embeds case", "CASE PROMPT:" in prompt.full_prompt)
+
+    valid_submission = dict(TEMPLATE)
+    check(
+        "LAB submissions: template validates",
+        validate_submission(valid_submission) == [],
+    )
+    invalid_submission = dict(TEMPLATE)
+    invalid_submission["state"] = "published"
+    check(
+        "LAB submissions: bad state rejected",
+        bool(validate_submission(invalid_submission)),
+    )
+
+    source = Path("/Users/d/Projects/evals/agent_eval/operant/results")
+    if source.exists():
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = export_public_artifacts(source, Path(tmp))
+            check("LAB export: imports model cards", summary["model_cards"] >= 3)
+            check("LAB export: imports decision rows", summary["decision_rows"] == 440)
+            check(
+                "LAB export: writes benchmark card",
+                (Path(tmp) / "benchmark-card.json").exists(),
+            )
+    else:
+        check("LAB export: historical source exists", False, str(source))
 
 
 # ---------------------------------------------------------------------------
@@ -1202,6 +1299,7 @@ def main() -> None:
     run_ensemble_selftests()
     run_stats_selftests()
     run_flip_classify_selftests()
+    run_lab_layer_selftests()
 
     # -----------------------------------------------------------------------
     # Summary

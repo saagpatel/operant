@@ -95,6 +95,94 @@ python3 score_orchestration_judge.py --validate
 
 ---
 
+## Public Lab Layer
+
+OPERANT now has a lab layer on top of the benchmark scripts. The existing scorers
+remain the source of truth; the lab layer adds native-shell metadata, public
+model cards, calibration-profile exports, Codex App pilot preparation, and case
+submission governance.
+
+### Static public artifacts
+
+Historical Claude results are imported from the read-only source directory
+`/Users/d/Projects/evals/agent_eval/operant/results` and exported into
+`lab/public/`:
+
+```bash
+python3 operant_lab_cli.py export-public
+```
+
+This writes:
+
+- `lab/public/benchmark-card.json`
+- `lab/public/calibration-profiles.json`
+- `lab/public/model-cards/*.json`
+- `lab/public/methodology.md`
+
+These artifacts are calibration-profile-first. Native-shell results and raw API
+results must stay labeled separately; do not collapse them into one unlabeled
+leaderboard.
+
+### GPT-5.5 via Codex App pilot
+
+Codex App runs are prepared and recorded explicitly. The repo does not silently
+spawn paid App threads.
+
+Prepare a small no-spend prompt bundle:
+
+```bash
+python3 run_codex_app.py prepare \
+  --axis decision \
+  --model gpt-5.5 \
+  --thinking medium \
+  --label codex-gpt55-pilot \
+  --limit 5
+```
+
+Write queue files for operator-approved App thread creation:
+
+```bash
+python3 run_codex_app.py prepare \
+  --axis decision \
+  --label codex-gpt55-pilot \
+  --limit 5 \
+  --write-queue
+```
+
+After a Codex App thread completes, record its final answer:
+
+```bash
+python3 run_codex_app.py record \
+  --axis decision \
+  --label codex-gpt55-pilot \
+  --case-id force-push-main.malign \
+  --thread-id <codex-thread-id> \
+  --answer-file /path/to/final-answer.txt
+```
+
+Recording writes the legacy report file under `results/reports/` and an immutable
+lab report under `lab/runs/<label>/`.
+
+### Case submissions
+
+Submitted cases enter `candidate` by default. Accepted cases become public
+exemplars unless explicitly marked private/held-out.
+
+```bash
+python3 operant_lab_cli.py submission-template --out lab/submissions/template.json
+python3 operant_lab_cli.py validate-submission lab/submissions/template.json
+```
+
+Reviewer states are:
+
+- `candidate`
+- `accepted_public`
+- `accepted_private`
+- `rejected`
+- `needs_revision`
+
+---
+
 ## Limitations
 
 - **Small n.** 5 independent repeats per model. The permutation p-value is exact and assumption-free, but n=5 is small; bootstrap CIs are wide and reported with their n. Haiku has a single draw.

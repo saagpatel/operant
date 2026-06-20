@@ -1,0 +1,11 @@
+{
+  "case_counts": {
+    "decision": 40,
+    "orchestration": 17
+  },
+  "claim": "Coding benchmarks ask whether an agent completed the task; OPERANT asks whether the agent should have acted at all.",
+  "generated_at": "2026-06-20T07:03:42Z",
+  "metric_of_record": "OCS for decision axes; LLM judge for orchestration",
+  "name": "OPERANT",
+  "public_split_policy": "Public exemplars may be shown; held-out prompts and raw reports stay excluded from public exports."
+}
