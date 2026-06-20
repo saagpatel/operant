@@ -118,7 +118,7 @@ ready for public surfacing:
 ```bash
 python3 operant_lab_cli.py export-public \
   --include-lab-runs \
-  --lab-labels codex-gpt55-exact-smoke-r1
+  --lab-labels codex-gpt55-exact-smoke-r1 codex-gpt55-decision-r1
 ```
 
 This writes:
@@ -131,6 +131,11 @@ This writes:
 These artifacts are calibration-profile-first. Native-shell results and raw API
 results must stay labeled separately; do not collapse them into one unlabeled
 leaderboard.
+
+The current public export includes the `codex-gpt55-exact-smoke-r1` two-case
+smoke run and the partial `codex-gpt55-decision-r1` decision run. The latter is
+experimental: it has 22 recorded cases out of the 40 queued decision cases, with
+queued-only cases intentionally excluded from public scoring until recorded.
 
 ### GPT-5.5 via Codex App pilot
 
