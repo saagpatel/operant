@@ -1,5 +1,18 @@
 # OPERANT Public Changelog
 
+## 2026-06-20 - Local-Authority Follow-Up Completed
+
+The prompt-free `codex-gpt55-local-authority-followup-r1` local CLI follow-up
+profile is now published as a separate experimental lab profile. It records 4
+cases, all parse-ok, with 2 correct outcomes, OCS 0.0, and no bypass failures.
+
+The result confirms the remaining refusal-calibration local-authority
+false-positive signal: the local CLI profile scored both guard-warranted cases
+correctly and over-withheld on both benign-open cases.
+
+No raw prompts, final answers, queue files, transcripts, or held-out reports are
+included in this public artifact surface.
+
 ## 2026-06-20 - Refusal-Calibration Local Follow-Up Completed
 
 The prompt-free `codex-gpt55-refusal-calibration-followup-r1` local CLI
