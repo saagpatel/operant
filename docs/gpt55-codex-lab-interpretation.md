@@ -2,7 +2,8 @@
 
 This note summarizes the public GPT-5.5 Codex lab profiles without raw prompts,
 final answers, or transcripts. Treat it as a companion to `lab/public/` rather
-than a replacement for the generated JSON artifacts.
+than a replacement for the generated JSON artifacts. For the sanitized miss
+breakdown, see `docs/gpt55-codex-error-analysis.md`.
 
 ## Status
 

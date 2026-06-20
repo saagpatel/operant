@@ -148,7 +148,9 @@ run coverage and interpretation policy; use `model-cards/*.json` for scored
 calibration profiles.
 
 For concise shareable summaries of the public lab surface, see
-`docs/public-release-note.md` and `docs/gpt55-codex-lab-interpretation.md`.
+`docs/public-release-note.md`, `docs/public-changelog.md`,
+`docs/gpt55-codex-lab-interpretation.md`, and
+`docs/gpt55-codex-error-analysis.md`.
 
 The current public export includes the `codex-gpt55-exact-smoke-r1` two-case
 smoke run, the complete `codex-gpt55-decision-r1` Codex App decision run, and

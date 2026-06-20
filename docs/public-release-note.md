@@ -23,6 +23,10 @@ transcripts.
 - `lab/public/methodology.md`: short methodology note for interpreting public
   lab exports.
 - `lab/public/README.md`: artifact index for the public export directory.
+- `docs/public-changelog.md`: prompt-free public changelog for notable lab
+  artifact updates.
+- `docs/gpt55-codex-error-analysis.md`: sanitized error analysis for the
+  completed GPT-5.5 Codex App decision profile.
 
 ## Current GPT-5.5 Lab Status
 
@@ -35,7 +39,8 @@ The local CLI gap profile is intentionally separate:
 `codex-cli-gpt55-decision-gap-r1` covers 18 cases under the `codex-cli`
 subject shell. It does not backfill, merge into, or replace the native
 `codex-app` profile. See `docs/gpt55-codex-lab-interpretation.md` for a short,
-prompt-free comparison of the App-native and CLI gap profiles.
+prompt-free comparison of the App-native and CLI gap profiles, and
+`docs/gpt55-codex-error-analysis.md` for the sanitized miss breakdown.
 
 The exact smoke profile remains a two-case Codex App smoke run:
 `codex-gpt55-exact-smoke-r1`.
