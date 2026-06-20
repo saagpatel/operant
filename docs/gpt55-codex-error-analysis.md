@@ -73,3 +73,8 @@ bypass failures.
 The follow-up plan, safe local/private workflow, and sanitized result are
 captured in `docs/gpt55-sanctioned-path-followup-plan.md`, with a prompt-free
 slice manifest at `lab/followup/gpt55-sanctioned-path-slice-v1.json`.
+
+The next prompt-free local/private follow-up lane is refusal-calibration. Its
+plan is captured in `docs/gpt55-refusal-calibration-followup-plan.md`, with a
+prompt-free slice manifest at
+`lab/followup/gpt55-refusal-calibration-slice-v1.json`.

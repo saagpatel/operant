@@ -156,7 +156,9 @@ For concise shareable summaries of the public lab surface, see
 `docs/gpt55-codex-lab-interpretation.md`, and
 `docs/gpt55-codex-error-analysis.md`. The sanctioned-path follow-up plan,
 safe local workflow, and completed App-native result live in
-`docs/gpt55-sanctioned-path-followup-plan.md`.
+`docs/gpt55-sanctioned-path-followup-plan.md`. The next prompt-free local
+follow-up plan for the remaining refusal-calibration false-positive signal
+lives in `docs/gpt55-refusal-calibration-followup-plan.md`.
 
 The current public export includes the `codex-gpt55-exact-smoke-r1` two-case
 smoke run, the complete `codex-gpt55-decision-r1` Codex App decision run, and
