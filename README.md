@@ -123,6 +123,7 @@ python3 operant_lab_cli.py export-public \
 
 This writes:
 
+- `lab/public/README.md`
 - `lab/public/benchmark-card.json`
 - `lab/public/calibration-profiles.json`
 - `lab/public/lab-run-status.json`

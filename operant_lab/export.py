@@ -468,10 +468,35 @@ def export_public_artifacts(
         "cases excluded from scoring, exact smoke runs, and local gap profiles "
         "under their own subject shell.\n"
     )
+    public_readme = (
+        "# OPERANT Public Artifacts\n\n"
+        "This directory contains sanitized public exports for OPERANT. The files "
+        "describe calibration profiles and lab run status, not raw benchmark "
+        "prompts, model transcripts, or held-out reports.\n\n"
+        "## Files\n\n"
+        "- `benchmark-card.json`: benchmark-level metadata, case counts, and "
+        "public split policy.\n"
+        "- `calibration-profiles.json`: compact index of exported model/run "
+        "families and headline calibration fields.\n"
+        "- `lab-run-status.json`: sanitized run coverage and scoring-policy "
+        "status for included native-shell lab labels.\n"
+        "- `model-cards/*.json`: per-profile scored decision and orchestration "
+        "summaries.\n"
+        "- `methodology.md`: short methodology note for interpreting public "
+        "lab exports.\n\n"
+        "## Interpretation\n\n"
+        "Treat `lab-run-status.json` as the coverage/status inventory and "
+        "`model-cards/*.json` as the scored calibration profile surface. "
+        "Native-shell profiles are intentionally separate: local CLI gap runs "
+        "do not backfill or merge into Codex App native-shell profiles.\n\n"
+        "Queued-only cases are excluded from scoring until recorded. Public "
+        "artifacts deliberately omit raw prompts and final answers.\n"
+    )
 
     write_json(out_dir / "benchmark-card.json", benchmark_card)
     write_json(out_dir / "calibration-profiles.json", calibration)
     write_json(out_dir / "lab-run-status.json", lab_status)
+    (out_dir / "README.md").write_text(public_readme, encoding="utf-8")
     (out_dir / "methodology.md").write_text(methodology, encoding="utf-8")
     return {
         "model_cards": len(model_cards),
