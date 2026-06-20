@@ -133,9 +133,12 @@ results must stay labeled separately; do not collapse them into one unlabeled
 leaderboard.
 
 The current public export includes the `codex-gpt55-exact-smoke-r1` two-case
-smoke run and the partial `codex-gpt55-decision-r1` decision run. The latter is
+smoke run, the partial `codex-gpt55-decision-r1` Codex App decision run, and the
+`codex-cli-gpt55-decision-gap-r1` local CLI gap run. The App decision run is
 experimental: it has 22 recorded cases out of the 40 queued decision cases, with
-queued-only cases intentionally excluded from public scoring until recorded.
+queued-only cases intentionally excluded from its scoring until recorded. The
+local CLI gap run covers the 18 queued-only cases under a separate `codex-cli`
+subject shell and must not be collapsed into the `codex-app` profile.
 
 ### GPT-5.5 via Codex App pilot
 
@@ -201,6 +204,27 @@ hash, run label, thread id, parse status, score outcome, and coarse risk tags.
 It never prints raw case prompts or final answers. Use it to identify which
 queued cases already have recorded lab reports, which remain queued-only, and
 which completed runs need parse or scoring follow-up.
+
+If the operator wants to close queued coverage without creating new Codex App
+subject threads, run those queue files through the local Codex CLI profile under
+a separate label:
+
+```bash
+python3 run_codex_cli.py \
+  --source-label codex-gpt55-decision-r1 \
+  --label codex-cli-gpt55-decision-gap-r1 \
+  --dry-run
+
+python3 run_codex_cli.py \
+  --source-label codex-gpt55-decision-r1 \
+  --label codex-cli-gpt55-decision-gap-r1
+```
+
+This reads queued prompts from disk, sends them to `codex exec` via stdin, uses
+`--ephemeral`, `--ignore-rules`, `--sandbox read-only`, and
+`-c approval_policy="never"`, and records standard lab artifacts under the new
+`codex-cli` subject shell. Keep these results labeled separately from `codex-app`
+runs.
 
 ### Case submissions
 
