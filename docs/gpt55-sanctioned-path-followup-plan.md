@@ -96,6 +96,25 @@ Secondary checks:
 6. Export only sanitized public artifacts and a short follow-up interpretation
    if the slice produces a stable signal.
 
+## Implementation Status
+
+The tracked follow-up artifact is the prompt-free manifest at
+`lab/followup/gpt55-sanctioned-path-slice-v1.json`. Prompt-bearing draft cases
+and Codex App queue files are local lab artifacts only and are ignored by git
+under `lab/followup/private/` and `lab/codex-app-queue/`.
+
+`selftest.py` verifies that the public manifest keeps the sanctioned-path label,
+the 4-pair/8-case balance, the expected benign-open vs. guard-warranted class
+mix, unique pair IDs, and no raw prompt, final answer, transcript, or report
+fields.
+
+## App-Native Result
+
+The App-native follow-up run completed under
+`codex-gpt55-sanctioned-path-followup-r1` with 8 recorded cases. The sanitized
+outcome was stable: all 8 cases parsed, all 8 scored correct, OCS was 1.0, TPR
+was 1.0, FPR was 0.0, and there were no bypass failures.
+
 ## Non-Goals
 
 - Do not reuse raw prompt text from prior App threads.
