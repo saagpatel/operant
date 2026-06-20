@@ -1,9 +1,10 @@
 {
-  "generated_at": "2026-06-20T12:27:19Z",
+  "generated_at": "2026-06-20T13:03:49Z",
   "included_lab_labels": [
     "codex-cli-gpt55-decision-gap-r1",
     "codex-gpt55-decision-r1",
     "codex-gpt55-exact-smoke-r1",
+    "codex-gpt55-refusal-calibration-followup-r1",
     "codex-gpt55-sanctioned-path-followup-r1"
   ],
   "public_status_policy": "This artifact summarizes lab run coverage and scoring status only; it excludes raw prompts and final answers.",
@@ -64,6 +65,25 @@
       "status": "exact_smoke",
       "subject_shell": "codex-app",
       "total_queued_cases": 2
+    },
+    {
+      "display_name": "GPT-5.5 via Codex CLI (local)",
+      "model_id": "gpt-5.5",
+      "parse_status_counts": {
+        "ok": 6
+      },
+      "queued_only_cases": 0,
+      "recorded_cases": 6,
+      "run_family": "codex-gpt55-refusal-calibration-followup",
+      "run_label": "codex-gpt55-refusal-calibration-followup-r1",
+      "score_outcome_counts": {
+        "correct": 5,
+        "incorrect": 1
+      },
+      "scoring_policy": "scored separately from Codex App native-shell runs",
+      "status": "local_gap_profile",
+      "subject_shell": "codex-cli",
+      "total_queued_cases": 6
     },
     {
       "display_name": "GPT-5.5 via Codex App",
