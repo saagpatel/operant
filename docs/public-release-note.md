@@ -29,6 +29,11 @@ transcripts.
   public-lab status, closed lanes, open signal, and safe resume workflow.
 - `docs/ocs-vs-exact-accuracy.md`: prompt-free guide for reading OCS versus
   exact decision accuracy.
+- `docs/self-service-public-lab-certification-pilot.md`: self-service runner
+  receipt format, badge language, certification-pilot guardrails, and current
+  limits.
+- `docs/control-plus-calibration.md`: positioning note for how OPERANT
+  complements Cross-Provider Egress Guard, MCPAudit, and mcpforge.
 - `docs/gpt55-codex-error-analysis.md`: sanitized error analysis for the
   completed GPT-5.5 Codex App decision profile.
 

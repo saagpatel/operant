@@ -95,6 +95,49 @@ python3 score_orchestration_judge.py --validate
 
 ---
 
+## Score your own agent (self-serve)
+
+OPERANT ships a bring-your-own-agent runner: point it at any agent and get a comparable
+OCS score plus a shareable report card. The scoring core is model-agnostic — it reads
+your agent's answer text and reuses the exact scorers that produced the reference Claude
+numbers above. The only thing you supply is how a prompt becomes your agent's answer.
+
+```bash
+# 1. A Python callable — respond(prompt: str) -> str (worked example included)
+python3 score_my_agent.py --adapter examples/heuristic_agent.py:respond --label my-agent
+
+# 2. Any CLI agent — prompt substituted into {prompt}, or piped via stdin
+python3 score_my_agent.py --cmd 'my-agent --quiet {prompt}' --label my-agent
+python3 score_my_agent.py --cmd 'my-agent --stdin' --cmd-stdin --label my-agent
+
+# 3. An HTTP endpoint — prompt JSON-escaped into the body, answer pulled by dotted path
+python3 score_my_agent.py --endpoint https://my-agent/run \
+    --http-body '{"input": "{prompt}"}' --answer-path output.text --label my-agent
+```
+
+It writes, under `results/self-serve/`:
+
+- `<label>-ocs-report.md` — a shareable OCS report card (score, per-axis OCS, confusion
+  matrix, comparison vs the published Claude reference bands, bypass + parse failures).
+- `<label>-ocs-summary.json` — the machine-readable summary.
+- `operant-ocs-badge.svg` + `operant-ocs-badge.md` — a self-contained badge and a
+  pasteable markdown/text snippet.
+
+Decision-axis OCS scores deterministically and free. The orchestration axis runs an LLM
+judge by default (needs a judge model); pass `--no-judge` to skip it, or `--axes decision`
+for the decision OCS only. When no judge model is reachable the run does **not** fail —
+the report says plainly that orchestration was not scored. Drop in a harder corpus with
+`--cases '/path/to/operant*_cases.json'` (e.g. an adversarial expansion) with no code
+change. The agent is scored *as an operator under a contract* (your `--operator-contract`
+file, else `$OPERANT_OPERATOR_CONTRACT`, else `~/.claude/CLAUDE.md`, else a bundled
+fallback); the report records which, since scores are comparable only across identical
+contracts. The score is **self-reported and open**, not a certification. For the demand
+context and how OCS differs from AgentDojo / τ-bench / OR-Bench / ODCV-Bench, see
+[`docs/why-operating-calibration.md`](docs/why-operating-calibration.md).
+
+Selftests for the runner are hermetic (no model calls, no network) and run as part of
+`python3 selftest.py`, or standalone via `python3 selftest_selfserve.py`.
+
 ## Public Lab Layer
 
 OPERANT now has a lab layer on top of the benchmark scripts. The existing scorers
@@ -158,8 +201,12 @@ For concise shareable summaries of the public lab surface, see
 `docs/gpt55-codex-lab-interpretation.md`, and
 `docs/gpt55-codex-error-analysis.md`. For future-session restart context, see
 `docs/public-lab-current-state.md`. For metric interpretation, see
-`docs/ocs-vs-exact-accuracy.md`. The sanctioned-path follow-up plan, safe local
-workflow, and completed App-native result live in
+`docs/ocs-vs-exact-accuracy.md`. For the self-service receipt format, badge
+language, and certification-pilot guardrails, see
+`docs/self-service-public-lab-certification-pilot.md`. For how OPERANT's
+calibration receipt complements Cross-Provider Egress Guard, MCPAudit, and
+mcpforge, see `docs/control-plus-calibration.md`. The sanctioned-path follow-up
+plan, safe local workflow, and completed App-native result live in
 `docs/gpt55-sanctioned-path-followup-plan.md`. The refusal-calibration
 follow-up plan and completed local CLI result live in
 `docs/gpt55-refusal-calibration-followup-plan.md`. The error analysis also

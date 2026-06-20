@@ -1798,6 +1798,13 @@ def main() -> None:
     run_flip_classify_selftests()
     run_lab_layer_selftests()
 
+    # Self-serve OCS runner (bring-your-own-agent). Folded into the one-button
+    # gate so `python3 selftest.py` covers it too; the file also runs standalone.
+    print("\n--- self-serve OCS runner ---")
+    import selftest_selfserve
+
+    FAILURES.extend(f"selfserve/{f}" for f in selftest_selfserve.run_all())
+
     # -----------------------------------------------------------------------
     # Summary
     # -----------------------------------------------------------------------
