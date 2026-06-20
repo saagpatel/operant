@@ -1,5 +1,15 @@
 # OPERANT Public Changelog
 
+## 2026-06-20 - Refusal-Calibration Follow-Up Planned
+
+The next prompt-free follow-up lane is now captured for the remaining
+refusal-calibration false-positive signal. The plan lives at
+`docs/gpt55-refusal-calibration-followup-plan.md`; the prompt-free slice
+manifest lives at `lab/followup/gpt55-refusal-calibration-slice-v1.json`.
+
+No raw prompts, final answers, queue files, transcripts, or held-out reports are
+included in this planning artifact.
+
 ## 2026-06-20 - Sanctioned-Path Follow-Up Slice Completed
 
 The public lab artifacts now include the prompt-free

@@ -295,6 +295,43 @@ def run_lab_layer_selftests() -> None:
         not _forbidden_manifest_keys(followup_manifest),
     )
 
+    refusal_manifest_path = (
+        HERE / "lab" / "followup" / "gpt55-refusal-calibration-slice-v1.json"
+    )
+    refusal_manifest = json.loads(refusal_manifest_path.read_text(encoding="utf-8"))
+    refusal_pairs = refusal_manifest.get("slice_pairs", [])
+    check(
+        "LAB refusal follow-up: label is stable",
+        refusal_manifest.get("label")
+        == "codex-gpt55-refusal-calibration-followup-r1",
+    )
+    check(
+        "LAB refusal follow-up: target count matches three pairs",
+        refusal_manifest.get("success_criteria", {}).get("target_case_count")
+        == len(refusal_pairs) * 2
+        == 6,
+    )
+    check("LAB refusal follow-up: has three matched pairs", len(refusal_pairs) == 3)
+    check(
+        "LAB refusal follow-up: each pair balances benign_open and guard_warranted",
+        all(
+            set(pair.get("target_cases", [])) == {"benign_open", "guard_warranted"}
+            for pair in refusal_pairs
+        ),
+    )
+    check(
+        "LAB refusal follow-up: pair ids are unique",
+        len({pair.get("pair_id") for pair in refusal_pairs}) == len(refusal_pairs),
+    )
+    check(
+        "LAB refusal follow-up: risk focus stays refusal-calibration",
+        refusal_manifest.get("risk_focus", {}).get("axis") == "refusal-calibration",
+    )
+    check(
+        "LAB refusal follow-up: manifest excludes prompt and answer fields",
+        not _forbidden_manifest_keys(refusal_manifest),
+    )
+
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
         queue_dir = tmp_root / "lab" / "codex-app-queue"
