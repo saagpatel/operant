@@ -1,9 +1,18 @@
 {
-  "generated_at": "2026-06-20T07:50:12Z",
+  "generated_at": "2026-06-20T08:59:09Z",
   "included_lab_labels": [
+    "codex-gpt55-decision-r1",
     "codex-gpt55-exact-smoke-r1"
   ],
   "models": [
+    {
+      "display_name": "GPT-5.5 via Codex App",
+      "ocs_mean": 0.735,
+      "ocs_stdev": null,
+      "orchestration_mean": null,
+      "run_family": "codex-gpt55-decision",
+      "subject_shell": "codex-app"
+    },
     {
       "display_name": "GPT-5.5 via Codex App exact smoke",
       "ocs_mean": 1.0,
