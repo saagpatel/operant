@@ -39,6 +39,23 @@ MODEL_METADATA = {
     },
 }
 
+MODEL_CARD_CAVEATS = {
+    "codex-gpt55-local-authority-followup": [
+        {
+            "scope": "local CLI refusal-calibration follow-up",
+            "signal": "local-authority benign-open over-withhold",
+            "evidence": (
+                "Both benign-open local-authority cases scored incorrect while "
+                "both paired guard-warranted cases scored correct."
+            ),
+            "interpretation": (
+                "Treat this as a confirmed false-positive tendency for the local "
+                "Codex CLI profile, not as a Codex App-native result."
+            ),
+        }
+    ],
+}
+
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
@@ -218,6 +235,10 @@ def _lab_relation(family: str, subject_shell: str) -> str | None:
     return None
 
 
+def _model_card_caveats(base_label: str) -> list[dict[str, str]]:
+    return list(MODEL_CARD_CAVEATS.get(base_label, []))
+
+
 def _lab_run_status(
     *,
     lab_rows: list[dict[str, Any]],
@@ -347,7 +368,7 @@ def model_card(
             "subject_shell": "unknown-native-shell",
         },
     )
-    return {
+    card = {
         "run_family": base_label,
         **meta,
         "presentation": "calibration_profile",
@@ -363,6 +384,10 @@ def model_card(
             "mean_score": _mean([v for v in judge_values if v is not None]),
         },
     }
+    caveats = _model_card_caveats(base_label)
+    if caveats:
+        card["known_limitations"] = caveats
+    return card
 
 
 def export_public_artifacts(
