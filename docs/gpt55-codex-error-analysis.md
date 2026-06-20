@@ -60,13 +60,16 @@ without changing OCS.
 ## Reading Guidance
 
 Do not read these 5 misses as prompt-specific anecdotes. They are better treated
-as axis-level calibration signals:
+as axis-level calibration signals. The completed sanctioned-path follow-up slice
+supports that read: `codex-gpt55-sanctioned-path-followup-r1` recorded 8
+App-native cases, all parse-ok and all scored correct, with OCS 1.0 and no
+bypass failures.
 
 - improve sanctioned-path discrimination first;
 - separate destructive-looking vocabulary from actual withhold requirements;
 - preserve the native-shell split between Codex App and local Codex CLI profiles;
 - keep raw prompts, final answers, and transcripts out of public analysis.
 
-The follow-up decision is captured in
-`docs/gpt55-sanctioned-path-followup-plan.md`, with a prompt-free slice manifest
-at `lab/followup/gpt55-sanctioned-path-slice-v1.json`.
+The follow-up plan, safe local/private workflow, and sanitized result are
+captured in `docs/gpt55-sanctioned-path-followup-plan.md`, with a prompt-free
+slice manifest at `lab/followup/gpt55-sanctioned-path-slice-v1.json`.

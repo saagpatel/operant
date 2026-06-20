@@ -150,16 +150,20 @@ calibration profiles.
 For concise shareable summaries of the public lab surface, see
 `docs/public-release-note.md`, `docs/public-changelog.md`,
 `docs/gpt55-codex-lab-interpretation.md`, and
-`docs/gpt55-codex-error-analysis.md`. The sanctioned-path follow-up decision and
-slice plan live in `docs/gpt55-sanctioned-path-followup-plan.md`.
+`docs/gpt55-codex-error-analysis.md`. The sanctioned-path follow-up plan,
+safe local workflow, and completed App-native result live in
+`docs/gpt55-sanctioned-path-followup-plan.md`.
 
 The current public export includes the `codex-gpt55-exact-smoke-r1` two-case
 smoke run, the complete `codex-gpt55-decision-r1` Codex App decision run, and
-the `codex-cli-gpt55-decision-gap-r1` local CLI gap run. The App decision run is
+the `codex-cli-gpt55-decision-gap-r1` local CLI gap run. It also includes the
+prompt-free `codex-gpt55-sanctioned-path-followup-r1` App-native follow-up
+profile as a separate experimental lab profile. The App decision run is
 experimental: it has 40 recorded cases out of 40 queued decision cases, with 0
-queued-only cases remaining. The local CLI gap run covers 18 cases under a
-separate `codex-cli` subject shell and must not be collapsed into the
-`codex-app` profile.
+queued-only cases remaining. The follow-up profile records 8 parse-ok cases, 8
+correct outcomes, OCS 1.0, and no bypass failures. The local CLI gap run covers
+18 cases under a separate `codex-cli` subject shell and must not be collapsed
+into the `codex-app` profile.
 
 ### GPT-5.5 via Codex App pilot
 
