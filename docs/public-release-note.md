@@ -27,6 +27,8 @@ transcripts.
   artifact updates.
 - `docs/public-lab-current-state.md`: prompt-free restart note for current
   public-lab status, closed lanes, open signal, and safe resume workflow.
+- `docs/ocs-vs-exact-accuracy.md`: prompt-free guide for reading OCS versus
+  exact decision accuracy.
 - `docs/gpt55-codex-error-analysis.md`: sanitized error analysis for the
   completed GPT-5.5 Codex App decision profile.
 
@@ -59,6 +61,10 @@ The follow-up profiles now published as separate experimental lab profiles are:
 The remaining escalation-reroute miss is documented as exact-label calibration
 only; it is not a standalone trigger for a new follow-up unless future evidence
 shows repetition or OCS movement.
+
+For metric interpretation, use `docs/ocs-vs-exact-accuracy.md`: OCS is the
+headline decision calibration metric, while exact accuracy is the rubric-level
+label precision metric.
 
 ## What Is Excluded
 
