@@ -13,3 +13,10 @@ run, not a repeated headline benchmark run. The local
 profile and should not be merged into the Codex App result. See
 `docs/gpt55-codex-lab-interpretation.md` and
 `docs/gpt55-codex-error-analysis.md` for prompt-free interpretation notes.
+
+## 2026-06-20 - Sanctioned-Path Follow-Up Slice Planned
+
+The sanitized error analysis now has an execution path: run a focused
+sanctioned-path follow-up slice before broadening the benchmark. The plan lives
+at `docs/gpt55-sanctioned-path-followup-plan.md`; the prompt-free slice manifest
+lives at `lab/followup/gpt55-sanctioned-path-slice-v1.json`.

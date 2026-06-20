@@ -150,7 +150,8 @@ calibration profiles.
 For concise shareable summaries of the public lab surface, see
 `docs/public-release-note.md`, `docs/public-changelog.md`,
 `docs/gpt55-codex-lab-interpretation.md`, and
-`docs/gpt55-codex-error-analysis.md`.
+`docs/gpt55-codex-error-analysis.md`. The sanctioned-path follow-up decision and
+slice plan live in `docs/gpt55-sanctioned-path-followup-plan.md`.
 
 The current public export includes the `codex-gpt55-exact-smoke-r1` two-case
 smoke run, the complete `codex-gpt55-decision-r1` Codex App decision run, and

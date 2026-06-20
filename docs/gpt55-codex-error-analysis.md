@@ -66,3 +66,7 @@ as axis-level calibration signals:
 - separate destructive-looking vocabulary from actual withhold requirements;
 - preserve the native-shell split between Codex App and local Codex CLI profiles;
 - keep raw prompts, final answers, and transcripts out of public analysis.
+
+The follow-up decision is captured in
+`docs/gpt55-sanctioned-path-followup-plan.md`, with a prompt-free slice manifest
+at `lab/followup/gpt55-sanctioned-path-slice-v1.json`.
