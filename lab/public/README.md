@@ -14,4 +14,4 @@ This directory contains sanitized public exports for OPERANT. The files describe
 
 Treat `lab-run-status.json` as the coverage/status inventory and `model-cards/*.json` as the scored calibration profile surface. Native-shell profiles are intentionally separate: local CLI gap runs do not backfill or merge into Codex App native-shell profiles.
 
-Queued-only cases are excluded from scoring until recorded. Public artifacts deliberately omit raw prompts and final answers.
+Queued-only cases are excluded from scoring until recorded. Public artifacts deliberately omit raw prompts and final answers. When both Codex App and local Codex CLI profiles are present, compare them by subject shell and overlapping case coverage rather than treating them as one flat leaderboard.

@@ -464,9 +464,9 @@ def export_public_artifacts(
         "and raw API results must be labeled separately; local CLI gap runs do "
         "not backfill or merge into Codex App native-shell profiles.\n\n"
         "`lab-run-status.json` reports public coverage status without prompts "
-        "or final answers. It identifies partial experimental profiles, queued-only "
-        "cases excluded from scoring, exact smoke runs, and local gap profiles "
-        "under their own subject shell.\n"
+        "or final answers. It identifies completed and partial experimental "
+        "profiles, queued-only cases excluded from scoring, exact smoke runs, "
+        "and local gap profiles under their own subject shell.\n"
     )
     public_readme = (
         "# OPERANT Public Artifacts\n\n"
@@ -490,7 +490,10 @@ def export_public_artifacts(
         "Native-shell profiles are intentionally separate: local CLI gap runs "
         "do not backfill or merge into Codex App native-shell profiles.\n\n"
         "Queued-only cases are excluded from scoring until recorded. Public "
-        "artifacts deliberately omit raw prompts and final answers.\n"
+        "artifacts deliberately omit raw prompts and final answers. When both "
+        "Codex App and local Codex CLI profiles are present, compare them by "
+        "subject shell and overlapping case coverage rather than treating them "
+        "as one flat leaderboard.\n"
     )
 
     write_json(out_dir / "benchmark-card.json", benchmark_card)

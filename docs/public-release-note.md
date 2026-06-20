@@ -26,14 +26,16 @@ transcripts.
 
 ## Current GPT-5.5 Lab Status
 
-The Codex App profile is intentionally marked partial and experimental:
-`codex-gpt55-decision-r1` has 22 recorded cases out of 40 queued decision cases.
-Queued-only cases are excluded from Codex App scoring until recorded.
+The Codex App profile is now complete and experimental:
+`codex-gpt55-decision-r1` has 40 recorded cases out of 40 queued decision cases.
+It has 0 queued-only cases remaining, 40 parse-ok cases, and public score counts
+of 35 correct / 5 incorrect.
 
 The local CLI gap profile is intentionally separate:
-`codex-cli-gpt55-decision-gap-r1` covers 18 cases under the `codex-cli` subject
-shell. It does not backfill, merge into, or replace the native `codex-app`
-profile.
+`codex-cli-gpt55-decision-gap-r1` covers 18 cases under the `codex-cli`
+subject shell. It does not backfill, merge into, or replace the native
+`codex-app` profile. See `docs/gpt55-codex-lab-interpretation.md` for a short,
+prompt-free comparison of the App-native and CLI gap profiles.
 
 The exact smoke profile remains a two-case Codex App smoke run:
 `codex-gpt55-exact-smoke-r1`.
