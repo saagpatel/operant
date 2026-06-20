@@ -111,7 +111,7 @@ Historical Claude results are imported from the read-only source directory
 `lab/public/`:
 
 ```bash
-python3 operant_lab_cli.py export-public
+python3 operant_lab_cli.py export-public --source-results <your-local-results-path>
 ```
 
 Include selected local native-shell lab runs only when they are intentionally

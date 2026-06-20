@@ -12,7 +12,7 @@ follow the steps below to replicate or extend the run.
 |---|---|---|---|
 | 1 · Adversarial Refusal | 16 (8 pairs) | `score_operant.py` | decision_accuracy + OCS + bypass gate |
 | 2 · Sanctioned-Path | 12 (6 pairs) | `score_operant.py` | decision_accuracy + OCS + bypass gate |
-| 3 · Orchestration | 17 | `score_orchestration.py` | rubric mean (bidirectional anchors) |
+| 3 · Orchestration | 17 | `score_orchestration_judge.py` | judge mean (LLM-judge; keyword scorer is legacy cross-check only) |
 | 4 · Escalation/Reroute | 12 (6 pairs) | `score_operant.py` | decision_accuracy + OCS |
 
 **57 dispatches per model per repeat** (40 decision + 17 orchestration).
@@ -91,7 +91,7 @@ python3 score_variance.py            # see its --help for label-glob usage
   (and the same for `results/operant_orchestration_index.jsonl`).
 - **Cost order:** Opus is ~1.67× Sonnet per token; run Haiku+Sonnet first to
   confirm separation, then spend on Opus. A full 5×-repeat 3-model matrix is
-  ~627 dispatches — budget accordingly.
+  ~855 dispatches — budget accordingly.
 
 ## 5. What the smoke already established (Sonnet + Haiku, 1 pass)
 
