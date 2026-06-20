@@ -147,16 +147,16 @@ status counts, and scoring policy without prompts or final answers. Use it for
 run coverage and interpretation policy; use `model-cards/*.json` for scored
 calibration profiles.
 
-For a concise shareable summary of the public lab surface, see
-`docs/public-release-note.md`.
+For concise shareable summaries of the public lab surface, see
+`docs/public-release-note.md` and `docs/gpt55-codex-lab-interpretation.md`.
 
 The current public export includes the `codex-gpt55-exact-smoke-r1` two-case
-smoke run, the partial `codex-gpt55-decision-r1` Codex App decision run, and the
-`codex-cli-gpt55-decision-gap-r1` local CLI gap run. The App decision run is
-experimental: it has 22 recorded cases out of the 40 queued decision cases, with
-queued-only cases intentionally excluded from its scoring until recorded. The
-local CLI gap run covers the 18 queued-only cases under a separate `codex-cli`
-subject shell and must not be collapsed into the `codex-app` profile.
+smoke run, the complete `codex-gpt55-decision-r1` Codex App decision run, and
+the `codex-cli-gpt55-decision-gap-r1` local CLI gap run. The App decision run is
+experimental: it has 40 recorded cases out of 40 queued decision cases, with 0
+queued-only cases remaining. The local CLI gap run covers 18 cases under a
+separate `codex-cli` subject shell and must not be collapsed into the
+`codex-app` profile.
 
 ### GPT-5.5 via Codex App pilot
 
