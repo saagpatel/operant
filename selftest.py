@@ -23,6 +23,7 @@ from operant_lab.artifacts import (
 )
 from operant_lab.export import export_public_artifacts
 from operant_lab.inventory import inventory_runs
+from operant_lab.public_contract import validate_public_artifacts
 from operant_lab.subjects import ClaudeCodeAdapter, CodexAppAdapter
 from operant_lab.submissions import TEMPLATE, validate_submission
 
@@ -374,20 +375,25 @@ def run_lab_layer_selftests() -> None:
     source = Path("/Users/d/Projects/evals/agent_eval/operant/results")
     if source.exists():
         with tempfile.TemporaryDirectory() as tmp:
-            summary = export_public_artifacts(source, Path(tmp))
+            out_dir = Path(tmp)
+            summary = export_public_artifacts(source, out_dir)
             check("LAB export: imports model cards", summary["model_cards"] >= 3)
             check("LAB export: imports decision rows", summary["decision_rows"] == 440)
             check(
                 "LAB export: writes benchmark card",
-                (Path(tmp) / "benchmark-card.json").exists(),
+                (out_dir / "benchmark-card.json").exists(),
             )
             check(
                 "LAB export: writes public README",
-                (Path(tmp) / "README.md").exists(),
+                (out_dir / "README.md").exists(),
             )
             check(
                 "LAB export: writes lab run status",
-                (Path(tmp) / "lab-run-status.json").exists(),
+                (out_dir / "lab-run-status.json").exists(),
+            )
+            check(
+                "LAB public contract: historical export passes",
+                validate_public_artifacts(out_dir) == [],
             )
             label = "synthetic-export-r1"
             runs_dir = _write_synthetic_export_lab(Path(tmp) / "lab", label)
@@ -410,6 +416,10 @@ def run_lab_layer_selftests() -> None:
             check(
                 "LAB export: lab status excludes prompt text",
                 "SYNTHETIC EXPORT" not in json.dumps(status, sort_keys=True),
+            )
+            check(
+                "LAB public contract: lab export passes",
+                validate_public_artifacts(out_tmp) == [],
             )
     else:
         with tempfile.TemporaryDirectory() as tmp:
@@ -474,6 +484,59 @@ def run_lab_layer_selftests() -> None:
                 "LAB export: lab status excludes prompt text",
                 "SYNTHETIC EXPORT" not in json.dumps(status, sort_keys=True),
             )
+            check(
+                "LAB public contract: synthetic export passes",
+                validate_public_artifacts(out_tmp) == [],
+            )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        bad_public = Path(tmp)
+        (bad_public / "model-cards").mkdir()
+        (bad_public / "README.md").write_text("index", encoding="utf-8")
+        (bad_public / "methodology.md").write_text("method", encoding="utf-8")
+        (bad_public / "benchmark-card.json").write_text(
+            json.dumps({"name": "OPERANT", "case_counts": {"decision": 1}}),
+            encoding="utf-8",
+        )
+        (bad_public / "calibration-profiles.json").write_text(
+            json.dumps({"models": [{"run_family": "synthetic"}]}),
+            encoding="utf-8",
+        )
+        (bad_public / "lab-run-status.json").write_text(
+            json.dumps(
+                {
+                    "runs": [
+                        {
+                            "run_label": "synthetic-r1",
+                            "subject_shell": "codex-app",
+                            "status": "experimental",
+                            "recorded_cases": 1,
+                            "total_queued_cases": 1,
+                            "scoring_policy": "queued-only cases excluded until recorded",
+                            "prompt": "SYNTHETIC FORBIDDEN PROMPT FIELD",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        (bad_public / "model-cards" / "synthetic.json").write_text(
+            json.dumps(
+                {
+                    "run_family": "synthetic",
+                    "display_name": "Synthetic",
+                    "subject_shell": "synthetic",
+                    "decision": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        errors = validate_public_artifacts(bad_public)
+        check(
+            "LAB public contract: rejects forbidden public prompt key",
+            any("forbidden public key 'prompt'" in error for error in errors),
+            str(errors),
+        )
 
 
 # ---------------------------------------------------------------------------

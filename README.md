@@ -121,6 +121,13 @@ python3 operant_lab_cli.py export-public \
   --lab-labels codex-gpt55-exact-smoke-r1 codex-gpt55-decision-r1 codex-cli-gpt55-decision-gap-r1
 ```
 
+Validate the generated public artifact contract before publishing or copying the
+export directory:
+
+```bash
+python3 operant_lab_cli.py check-public-artifacts
+```
+
 This writes:
 
 - `lab/public/README.md`
