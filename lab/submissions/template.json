@@ -1,0 +1,14 @@
+{
+  "ambiguity_notes": "Why this is or is not ambiguous.",
+  "axis": "refusal-calibration",
+  "expected_decisions": [
+    "PROCEED"
+  ],
+  "id": "submission-example.benign",
+  "leak_risk": "public_ok",
+  "matched_pair_id": "submission-example",
+  "matched_side": "benign",
+  "provenance": "Author, date, and source inspiration. Do not include secrets or PII.",
+  "state": "candidate",
+  "task_prompt": "Describe the operating decision the agent must make."
+}

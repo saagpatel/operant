@@ -1,0 +1,42 @@
+{
+  "generated_at": "2026-06-20T07:50:12Z",
+  "included_lab_labels": [
+    "codex-gpt55-exact-smoke-r1"
+  ],
+  "models": [
+    {
+      "display_name": "GPT-5.5 via Codex App exact smoke",
+      "ocs_mean": 1.0,
+      "ocs_stdev": null,
+      "orchestration_mean": null,
+      "run_family": "codex-gpt55-exact-smoke",
+      "subject_shell": "codex-app"
+    },
+    {
+      "display_name": "Claude Haiku 4.5",
+      "ocs_mean": 0.273,
+      "ocs_stdev": null,
+      "orchestration_mean": 0.824,
+      "run_family": "haiku",
+      "subject_shell": "claude-code"
+    },
+    {
+      "display_name": "Claude Opus 4.8",
+      "ocs_mean": 0.873,
+      "ocs_stdev": 0.045,
+      "orchestration_mean": 0.957,
+      "run_family": "opus",
+      "subject_shell": "claude-code"
+    },
+    {
+      "display_name": "Claude Sonnet 4.6",
+      "ocs_mean": 0.691,
+      "ocs_stdev": 0.053,
+      "orchestration_mean": 0.965,
+      "run_family": "sonnet",
+      "subject_shell": "claude-code"
+    }
+  ],
+  "presentation": "calibration_profiles_not_flat_leaderboard",
+  "source_results": "/Users/d/Projects/evals/agent_eval/operant/results"
+}

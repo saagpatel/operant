@@ -39,6 +39,15 @@ import importlib.util
 import json
 from pathlib import Path
 
+from operant_lab.artifacts import (
+    RunManifest,
+    RunReport,
+    parse_decision_block,
+    parse_orchestration_plan,
+    stable_hash,
+    write_run_report,
+)
+
 HERE = Path(__file__).resolve().parent
 REPORTS = HERE / "results" / "reports"
 DECISION_INDEX = HERE / "results" / "operant_index.jsonl"
@@ -134,6 +143,36 @@ def run_axis(
         row["model"] = label
         row["run_label"] = label
         rows.append(row)
+        adapter = getattr(runner, "ADAPTER", None)
+        prompt = adapter.build_prompt(case, system_prompt, case.get("axis", prefix))
+        parsed = (
+            parse_decision_block(text)
+            if prefix == "operant"
+            else parse_orchestration_plan(text)
+        )
+        manifest = RunManifest(
+            run_label=label,
+            case_id=cid,
+            axis=case.get("axis", "orchestration" if prefix != "operant" else "decision"),
+            subject_shell=getattr(adapter, "shell", "unknown-native-shell"),
+            model_id=model,
+            prompt_hash=stable_hash(prompt.full_prompt + system_prompt),
+            prompt_contract=prompt.prompt_contract,
+            tool_policy=prompt.tool_policy,
+        )
+        write_run_report(
+            HERE,
+            RunReport(
+                manifest=manifest,
+                parse_status=str(parsed["parse_status"]),
+                final_answer=text,
+                extracted_decision=parsed["decision"],
+                extracted_justification=parsed["justification"],
+                failure_class=parsed["failure_class"],
+                score_row=row,
+                source_report=str(report_path.relative_to(HERE.parent)),
+            ),
+        )
 
     if rows:
         index_path.parent.mkdir(parents=True, exist_ok=True)

@@ -33,9 +33,19 @@ import sys
 import time
 from pathlib import Path
 
+from operant_lab.artifacts import (
+    RunManifest,
+    RunReport,
+    parse_decision_block,
+    stable_hash,
+    write_run_report,
+)
+from operant_lab.subjects import ClaudeCodeAdapter
+
 HERE = Path(__file__).resolve().parent
 REPORTS = HERE / "results" / "reports"
 RUNS_LOG = HERE / "results" / "operant_runs.jsonl"
+ADAPTER = ClaudeCodeAdapter()
 
 # The operator contract read from the global CLAUDE.md.  If absent (CI, fresh
 # checkout), fall back to this minimal inline contract so the runner is always
@@ -120,31 +130,12 @@ def run_case(
     dry_run: bool = False,
 ) -> dict:
     cid = case["id"]
-    dispatch_prompt = case["task_prompt"]
-
-    cmd = [
-        "claude",
-        "-p",
-        dispatch_prompt,
-        "--model",
-        model,
-        "--append-system-prompt",
-        system_prompt,
-        "--strict-mcp-config",
-        "--output-format",
-        "json",
-        "--allowedTools",
-        "Read,Glob,Grep",
-        "--disallowedTools",
-        "Bash,Edit,Write,NotebookEdit",
-    ]
+    prompt = ADAPTER.build_prompt(case, system_prompt, case.get("axis", "decision"))
+    cmd = ADAPTER.command(case, model, system_prompt)
 
     if dry_run:
         # Print the command in a shell-inspectable form; don't execute.
-        import shlex
-
-        printable = " ".join(shlex.quote(t) for t in cmd)
-        print(f"[DRY-RUN] {cid}\n{printable}\n")
+        print(f"[DRY-RUN] {cid}\n{ADAPTER.printable_command(case, model, system_prompt)}\n")
         return {
             "case_id": cid,
             "label": label,
@@ -162,7 +153,7 @@ def run_case(
             timeout=900,
         )
     except subprocess.TimeoutExpired:
-        return {
+        meta = {
             "case_id": cid,
             "label": label,
             "requested_model": model,
@@ -170,6 +161,24 @@ def run_case(
             "error": "TimeoutExpired",
             "duration_s": 900,
         }
+        manifest = RunManifest(
+            run_label=label,
+            case_id=cid,
+            axis=case.get("axis", "decision"),
+            subject_shell=ADAPTER.shell,
+            model_id=model,
+            prompt_hash=stable_hash(prompt.full_prompt + system_prompt),
+            prompt_contract=prompt.prompt_contract,
+            tool_policy=prompt.tool_policy,
+        )
+        report = RunReport(
+            manifest=manifest,
+            parse_status="timeout",
+            final_answer="",
+            failure_class="TimeoutExpired",
+        )
+        meta["lab_report"] = str(write_run_report(HERE, report).relative_to(HERE))
+        return meta
 
     meta: dict = {
         "case_id": cid,
@@ -196,6 +205,29 @@ def run_case(
         out = REPORTS / f"operant__{label}__{cid}.txt"
         out.write_text(report_text, encoding="utf-8")
         meta["report"] = str(out.relative_to(HERE.parent))
+
+    parsed = parse_decision_block(report_text)
+    manifest = RunManifest(
+        run_label=label,
+        case_id=cid,
+        axis=case.get("axis", "decision"),
+        subject_shell=ADAPTER.shell,
+        model_id=model,
+        prompt_hash=stable_hash(prompt.full_prompt + system_prompt),
+        prompt_contract=prompt.prompt_contract,
+        tool_policy=prompt.tool_policy,
+        cost_usd=meta.get("cost_usd"),
+    )
+    run_report = RunReport(
+        manifest=manifest,
+        parse_status=str(parsed["parse_status"]),
+        final_answer=report_text,
+        extracted_decision=parsed["decision"],
+        extracted_justification=parsed["justification"],
+        failure_class=parsed["failure_class"],
+        source_report=meta.get("report"),
+    )
+    meta["lab_report"] = str(write_run_report(HERE, run_report).relative_to(HERE))
 
     return meta
 

@@ -5,3 +5,5 @@ __pycache__/
 .ruff_cache/
 results/
 runlogs/
+lab/runs/
+lab/codex-app-queue/
