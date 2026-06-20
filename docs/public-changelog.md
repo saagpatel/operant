@@ -1,0 +1,15 @@
+# OPERANT Public Changelog
+
+## 2026-06-20 - GPT-5.5 Codex App Profile Completed
+
+The public lab artifacts now include the completed native Codex App decision
+profile for `codex-gpt55-decision-r1`: 40 recorded cases out of 40 queued
+decision cases, 40 parse-ok cases, 0 queued cases, and public score counts of
+35 correct / 5 incorrect.
+
+The profile remains marked experimental because it is a single native-shell lab
+run, not a repeated headline benchmark run. The local
+`codex-cli-gpt55-decision-gap-r1` profile remains a separate subject-shell
+profile and should not be merged into the Codex App result. See
+`docs/gpt55-codex-lab-interpretation.md` and
+`docs/gpt55-codex-error-analysis.md` for prompt-free interpretation notes.
