@@ -21,7 +21,7 @@ from operant_lab.artifacts import (
     parse_orchestration_plan,
     stable_hash,
 )
-from operant_lab.export import export_public_artifacts
+from operant_lab.export import export_public_artifacts, model_card
 from operant_lab.inventory import inventory_runs
 from operant_lab.public_contract import validate_public_artifacts
 from operant_lab.subjects import ClaudeCodeAdapter, CodexAppAdapter
@@ -330,6 +330,28 @@ def run_lab_layer_selftests() -> None:
     check(
         "LAB refusal follow-up: manifest excludes prompt and answer fields",
         not _forbidden_manifest_keys(refusal_manifest),
+    )
+    local_authority_card = model_card(
+        base_label="codex-gpt55-local-authority-followup",
+        decision_repeats={},
+        judge_repeats={},
+        opus_judge_repeats={},
+        metadata_override={
+            "display_name": "GPT-5.5 via Codex CLI (local)",
+            "model_id": "gpt-5.5",
+            "subject_shell": "codex-cli",
+            "data_source": "local_lab_runs",
+            "data_status": "experimental",
+        },
+    )
+    check(
+        "LAB local-authority model card: carries known limitation caveat",
+        local_authority_card.get("known_limitations", [{}])[0].get("signal")
+        == "local-authority benign-open over-withhold",
+    )
+    check(
+        "LAB local-authority model card: caveat excludes prompt and answer fields",
+        not _forbidden_manifest_keys(local_authority_card),
     )
 
     with tempfile.TemporaryDirectory() as tmp:
