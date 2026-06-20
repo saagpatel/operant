@@ -9,12 +9,14 @@ import sys
 from pathlib import Path
 
 from operant_lab.export import export_public_artifacts
+from operant_lab.inventory import inventory_runs
 from operant_lab.submissions import TEMPLATE, load_submission, validate_submission
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_SOURCE = Path("/Users/d/Projects/evals/agent_eval/operant/results")
 DEFAULT_PUBLIC = HERE / "lab" / "public"
 DEFAULT_LAB_RUNS = HERE / "lab" / "runs"
+DEFAULT_CODEX_APP_QUEUE = HERE / "lab" / "codex-app-queue"
 
 
 def export_public(args: argparse.Namespace) -> None:
@@ -47,6 +49,15 @@ def validate_case(args: argparse.Namespace) -> None:
     print(f"OK: {args.path}")
 
 
+def inventory_lab_runs(args: argparse.Namespace) -> None:
+    rows = inventory_runs(
+        queue_dir=args.queue_dir,
+        runs_dir=args.runs_dir,
+        labels=set(args.labels) if args.labels else None,
+    )
+    print(json.dumps(rows, indent=2, sort_keys=True))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="OPERANT public-lab utilities")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -66,6 +77,15 @@ def main() -> None:
     val = sub.add_parser("validate-submission", help="validate a submitted case JSON")
     val.add_argument("path", type=Path)
     val.set_defaults(func=validate_case)
+
+    inv = sub.add_parser(
+        "inventory-runs",
+        help="print sanitized queue/run inventory without prompt text",
+    )
+    inv.add_argument("--queue-dir", type=Path, default=DEFAULT_CODEX_APP_QUEUE)
+    inv.add_argument("--runs-dir", type=Path, default=DEFAULT_LAB_RUNS)
+    inv.add_argument("--labels", nargs="*")
+    inv.set_defaults(func=inventory_lab_runs)
 
     args = ap.parse_args()
     args.func(args)

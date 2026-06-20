@@ -18,8 +18,10 @@ from operant_lab.artifacts import (
     RunManifest,
     parse_decision_block,
     parse_orchestration_plan,
+    stable_hash,
 )
 from operant_lab.export import export_public_artifacts
+from operant_lab.inventory import inventory_runs
 from operant_lab.subjects import ClaudeCodeAdapter, CodexAppAdapter
 from operant_lab.submissions import TEMPLATE, validate_submission
 
@@ -157,6 +159,110 @@ def run_lab_layer_selftests() -> None:
         "LAB manifest: tracks queue and thread container",
         manifest.source_queue_file is not None and manifest.thread_container is not None,
     )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        queue_dir = tmp_root / "lab" / "codex-app-queue"
+        runs_dir = tmp_root / "lab" / "runs"
+        label = "synthetic-r1"
+        queued_case = "force-push-main.malign"
+        completed_case = "force-push-main.benign"
+        synthetic_prompt = "SYNTHETIC OPERANT QUEUE PROMPT. No benchmark text here."
+        synthetic_answer = (
+            "Synthetic reasoning only.\n\n"
+            "DECISION: PROCEED\n"
+            "JUSTIFICATION: Synthetic benign fixture."
+        )
+
+        queued_payload = {
+            "run_label": label,
+            "case_id": queued_case,
+            "axis": "decision",
+            "prompt": synthetic_prompt,
+            "manifest": {
+                "run_label": label,
+                "case_id": queued_case,
+                "axis": "decision",
+                "source_thread_id": None,
+            },
+        }
+        queued_path = queue_dir / label / f"{queued_case}.json"
+        queued_path.parent.mkdir(parents=True)
+        queued_path.write_text(json.dumps(queued_payload), encoding="utf-8")
+
+        completed_prompt_hash = stable_hash("SYNTHETIC COMPLETED PROMPT")
+        completed_payload = {
+            "run_label": label,
+            "case_id": completed_case,
+            "axis": "decision",
+            "prompt": "SYNTHETIC COMPLETED PROMPT",
+            "manifest": {
+                "run_label": label,
+                "case_id": completed_case,
+                "axis": "decision",
+                "prompt_hash": completed_prompt_hash,
+                "source_thread_id": "thread_synthetic_123",
+            },
+        }
+        completed_queue_path = queue_dir / label / f"{completed_case}.json"
+        completed_queue_path.write_text(
+            json.dumps(completed_payload),
+            encoding="utf-8",
+        )
+
+        run_payload = {
+            "manifest": {
+                "run_label": label,
+                "case_id": completed_case,
+                "axis": "decision",
+                "prompt_hash": completed_prompt_hash,
+                "source_thread_id": "thread_synthetic_123",
+                "source_queue_file": completed_queue_path.as_posix(),
+            },
+            "parse_status": "ok",
+            "final_answer": synthetic_answer,
+        }
+        run_path = runs_dir / label / f"{completed_case}.json"
+        run_path.parent.mkdir(parents=True)
+        run_path.write_text(json.dumps(run_payload), encoding="utf-8")
+
+        inventory = inventory_runs(
+            queue_dir=queue_dir,
+            runs_dir=runs_dir,
+            root=tmp_root,
+            labels={label},
+        )
+        by_case = {row["case_id"]: row for row in inventory}
+        serialized_inventory = json.dumps(inventory, sort_keys=True)
+        check("LAB inventory: includes queued and completed rows", len(inventory) == 2)
+        check(
+            "LAB inventory: queued row uses prompt hash fallback",
+            by_case[queued_case]["prompt_hash"] == stable_hash(synthetic_prompt),
+        )
+        check(
+            "LAB inventory: completed row reports parse status",
+            by_case[completed_case]["parse_status"] == "ok",
+        )
+        check(
+            "LAB inventory: completed row reports score outcome",
+            by_case[completed_case]["score_outcome"] == "correct",
+            str(by_case[completed_case]),
+        )
+        check(
+            "LAB inventory: exposes thread id only",
+            by_case[completed_case]["thread_id"] == "thread_synthetic_123",
+        )
+        check(
+            "LAB inventory: omits raw prompt and final answer text",
+            synthetic_prompt not in serialized_inventory
+            and synthetic_answer not in serialized_inventory
+            and "final_answer" not in serialized_inventory
+            and '"prompt"' not in serialized_inventory,
+        )
+        check(
+            "LAB inventory: emits coarse risk tags",
+            "bypass-patterned" in by_case[queued_case]["risk_tags"],
+        )
 
     valid_submission = dict(TEMPLATE)
     check(

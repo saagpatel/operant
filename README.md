@@ -181,6 +181,22 @@ lab report under `lab/runs/<label>/`. Passing `--queue-file` makes the queued
 prompt hash the source of truth and fails fast if the queue prompt no longer
 matches the adapter-built prompt.
 
+### Safe resume inventory
+
+When resuming a Codex App lab run, inspect sanitized queue/run status before
+opening any queue files or creating new App subject threads:
+
+```bash
+python3 operant_lab_cli.py inventory-runs \
+  --labels codex-gpt55-exact-smoke-r1
+```
+
+The inventory intentionally reports only `case_id`, queue file path, prompt
+hash, run label, thread id, parse status, score outcome, and coarse risk tags.
+It never prints raw case prompts or final answers. Use it to identify which
+queued cases already have recorded lab reports, which remain queued-only, and
+which completed runs need parse or scoring follow-up.
+
 ### Case submissions
 
 Submitted cases enter `candidate` by default. Accepted cases become public
