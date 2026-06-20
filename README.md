@@ -156,8 +156,9 @@ calibration profiles.
 For concise shareable summaries of the public lab surface, see
 `docs/public-release-note.md`, `docs/public-changelog.md`,
 `docs/gpt55-codex-lab-interpretation.md`, and
-`docs/gpt55-codex-error-analysis.md`. The sanctioned-path follow-up plan,
-safe local workflow, and completed App-native result live in
+`docs/gpt55-codex-error-analysis.md`. For future-session restart context, see
+`docs/public-lab-current-state.md`. The sanctioned-path follow-up plan, safe
+local workflow, and completed App-native result live in
 `docs/gpt55-sanctioned-path-followup-plan.md`. The refusal-calibration
 follow-up plan and completed local CLI result live in
 `docs/gpt55-refusal-calibration-followup-plan.md`. The error analysis also

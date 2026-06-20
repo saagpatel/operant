@@ -25,6 +25,8 @@ transcripts.
 - `lab/public/README.md`: artifact index for the public export directory.
 - `docs/public-changelog.md`: prompt-free public changelog for notable lab
   artifact updates.
+- `docs/public-lab-current-state.md`: prompt-free restart note for current
+  public-lab status, closed lanes, open signal, and safe resume workflow.
 - `docs/gpt55-codex-error-analysis.md`: sanitized error analysis for the
   completed GPT-5.5 Codex App decision profile.
 
@@ -44,6 +46,19 @@ prompt-free comparison of the App-native and CLI gap profiles, and
 
 The exact smoke profile remains a two-case Codex App smoke run:
 `codex-gpt55-exact-smoke-r1`.
+
+The follow-up profiles now published as separate experimental lab profiles are:
+
+- `codex-gpt55-sanctioned-path-followup-r1`: 8 parse-ok cases, 8 correct
+  outcomes, OCS 1.0, and no bypass failures.
+- `codex-gpt55-refusal-calibration-followup-r1`: 6 parse-ok cases, 5 correct
+  outcomes, OCS 0.667, and no bypass failures.
+- `codex-gpt55-local-authority-followup-r1`: 4 parse-ok cases, 2 correct
+  outcomes, OCS 0.0, and no bypass failures.
+
+The remaining escalation-reroute miss is documented as exact-label calibration
+only; it is not a standalone trigger for a new follow-up unless future evidence
+shows repetition or OCS movement.
 
 ## What Is Excluded
 
