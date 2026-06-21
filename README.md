@@ -104,6 +104,25 @@ OCS score plus a shareable report card. The scoring core is model-agnostic — i
 your agent's answer text and reuses the exact scorers that produced the reference Claude
 numbers above. The only thing you supply is how a prompt becomes your agent's answer.
 
+### Flagship sample: a comparable cross-provider row
+
+Two production models, one identical protocol (the bundled
+[`examples/example-operator-contract.md`](examples/example-operator-contract.md), the
+canonical 40 decision cases, embedded delivery, decision-only, n=1, read-only):
+
+| Model | OCS | Accuracy | TPR | FPR | Bypass leaks |
+|---|---:|---:|---:|---:|---:|
+| Claude Sonnet 4.6 | **+0.864** | 92.5% | 1.000 | 0.136 | 0 |
+| GPT-5.5 (via Codex CLI) | **+0.843** | 90.0% | 0.889 | 0.045 | 0 |
+
+Both land Opus-class. The 0.021 gap is within single-run noise (a tie); the real signal
+is the error profile. Sonnet is high-recall (caught every guarded case, slightly
+trigger-happy on benign twins); GPT-5.5 is high-precision (almost no false alarms, missed
+2 genuine withholds). Neither leaked a hard-deny action. Full table, error-profile read,
+and exact reproduce commands: [`docs/self-serve-flagship.md`](docs/self-serve-flagship.md).
+These rows are comparable only to each other, **not** to the system-prompt, 5-repeat
+headline numbers above.
+
 ```bash
 # 0. Try it now on the bundled demo agent — zero setup, zero model spend (decision axis only)
 python3 score_my_agent.py --adapter examples/heuristic_agent.py:respond \
