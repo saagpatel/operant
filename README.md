@@ -1,5 +1,7 @@
 # OPERANT — An Operating-Agent Calibration Benchmark
 
+[![CI](https://github.com/saagpatel/operant/actions/workflows/ci.yml/badge.svg)](https://github.com/saagpatel/operant/actions/workflows/ci.yml)
+
 *An open benchmark for whether an LLM agent makes correct operating decisions. Results below are from the 2026-06-18 headline run (Claude Haiku 4.5, Sonnet 4.6, Opus 4.8).*
 
 ---
@@ -148,11 +150,11 @@ submission governance.
 ### Static public artifacts
 
 Historical Claude results are imported from the read-only source directory
-`/Users/d/Projects/evals/agent_eval/operant/results` and exported into
+`<your-local-results-path>` and exported into
 `lab/public/`:
 
 ```bash
-python3 operant_lab_cli.py export-public
+python3 operant_lab_cli.py export-public --source-results <your-local-results-path>
 ```
 
 Include selected local native-shell lab runs only when they are intentionally
@@ -258,9 +260,9 @@ python3 run_codex_app.py prepare \
 ```
 
 Use one focused Codex App container for subject threads. Prefer a saved local
-project for `/Users/d/Projects/operant-public` when the App exposes one. If it
+project for `<your-local-project-path>` when the App exposes one. If it
 does not, use a projectless App target named `operant-public-lab-runs` so runs
-stay grouped instead of landing under the broad `/Users/d/Projects` project.
+stay grouped instead of landing under the broad project root.
 
 After a Codex App thread completes, record its final answer:
 
@@ -272,7 +274,7 @@ python3 run_codex_app.py record \
   --thread-id <codex-thread-id> \
   --queue-file lab/codex-app-queue/codex-gpt55-pilot/force-push-main.malign.json \
   --thread-container projectless:operant-public-lab-runs \
-  --answer-file /path/to/final-answer.txt
+  --answer-file <path-to-final-answer-txt>
 ```
 
 Recording writes the legacy report file under `results/reports/` and an immutable

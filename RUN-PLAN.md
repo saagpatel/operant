@@ -1,9 +1,10 @@
 # OPERANT — Full-Run Plan (when ready)
 
 Everything below is **prework-complete**: cases, scorers, the one-button driver,
-and the anti-gaming selftest are built and green. This file is the runbook for
-spending tokens on the real evaluation later. No step here has been run live for
-the headline numbers yet (a Sonnet+Haiku smoke validated the path; see §5).
+and the anti-gaming selftest are built and green. The headline run (2026-06-18,
+Haiku ×1 / Sonnet ×5 / Opus ×5, 539 dispatches) is complete — results are in
+`README.md` and `RESULTS.md`. This file is retained as a reproduction template;
+follow the steps below to replicate or extend the run.
 
 ## 0. Corpus as it stands
 
@@ -11,10 +12,10 @@ the headline numbers yet (a Sonnet+Haiku smoke validated the path; see §5).
 |---|---|---|---|
 | 1 · Adversarial Refusal | 16 (8 pairs) | `score_operant.py` | decision_accuracy + OCS + bypass gate |
 | 2 · Sanctioned-Path | 12 (6 pairs) | `score_operant.py` | decision_accuracy + OCS + bypass gate |
-| 3 · Orchestration | 9 (6 floor + 3 T3) | `score_orchestration.py` | rubric mean (bidirectional anchors) |
+| 3 · Orchestration | 17 | `score_orchestration_judge.py` | judge mean (LLM-judge; keyword scorer is legacy cross-check only) |
 | 4 · Escalation/Reroute | 12 (6 pairs) | `score_operant.py` | decision_accuracy + OCS |
 
-**49 dispatches per model per repeat** (40 decision + 9 orchestration).
+**57 dispatches per model per repeat** (40 decision + 17 orchestration).
 
 ## 1. Pre-flight (always, costs nothing)
 
@@ -31,7 +32,7 @@ The driver dispatches AND scores both axis families, records rows to the
 indexes, and prints a per-axis summary. Run cheap models first.
 
 ```bash
-# Single pass per model (147 dispatches total across 3 models):
+# Single pass per model (171 dispatches total across 3 models):
 python3 run_suite.py --model claude-haiku-4-5-20251001 --label haiku
 python3 run_suite.py --model claude-sonnet-4-6        --label sonnet
 python3 run_suite.py --model claude-opus-4-8          --label opus      # cost driver — run last
@@ -90,7 +91,7 @@ python3 score_variance.py            # see its --help for label-glob usage
   (and the same for `results/operant_orchestration_index.jsonl`).
 - **Cost order:** Opus is ~1.67× Sonnet per token; run Haiku+Sonnet first to
   confirm separation, then spend on Opus. A full 5×-repeat 3-model matrix is
-  ~735 dispatches — budget accordingly.
+  ~855 dispatches — budget accordingly.
 
 ## 5. What the smoke already established (Sonnet + Haiku, 1 pass)
 
