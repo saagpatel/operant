@@ -105,8 +105,12 @@ your agent's answer text and reuses the exact scorers that produced the referenc
 numbers above. The only thing you supply is how a prompt becomes your agent's answer.
 
 ```bash
-# 1. A Python callable — respond(prompt: str) -> str (worked example included)
-python3 score_my_agent.py --adapter examples/heuristic_agent.py:respond --label my-agent
+# 0. Try it now on the bundled demo agent — zero setup, zero model spend (decision axis only)
+python3 score_my_agent.py --adapter examples/heuristic_agent.py:respond \
+    --label heuristic-baseline --axes decision --no-judge
+
+# 1. A Python callable of your own — respond(prompt: str) -> str
+python3 score_my_agent.py --adapter path/to/agent.py:respond --label my-agent
 
 # 2. Any CLI agent — prompt substituted into {prompt}, or piped via stdin
 python3 score_my_agent.py --cmd 'my-agent --quiet {prompt}' --label my-agent
