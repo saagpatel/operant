@@ -636,7 +636,7 @@ def run_lab_layer_selftests() -> None:
             json.dumps(
                 {
                     "models": [{"run_family": "synthetic"}],
-                    "source_results": "/Users/d/private/results",
+                    "source_results": "/Users/testuser/private/results",
                     "debug_token": "sk-abcdefghijklmnopqrstuvwxyz",
                 }
             ),
