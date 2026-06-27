@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,19 @@ FORBIDDEN_PUBLIC_KEYS = {
     "transcript",
 }
 
+FORBIDDEN_PUBLIC_TEXT_PATTERNS = {
+    "absolute local path": re.compile(
+        r"(?i)(?:^|[\s\"'`=:(])(?:/(?:Users|home|tmp|var/folders|Volumes)/|[A-Z]:\\Users\\)"
+    ),
+    "file URI": re.compile(r"(?i)\bfile://"),
+    "home-relative path": re.compile(r"(?<!\w)~/"),
+    "secret-like token": re.compile(
+        r"\b(?:sk-(?:proj-)?[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9_]{12,}|"
+        r"github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{12,}|"
+        r"xox[baprs]-[A-Za-z0-9-]{20,})\b"
+    ),
+}
+
 
 def _read_json(path: Path, errors: list[str]) -> Any:
     try:
@@ -42,6 +56,14 @@ def _walk_forbidden_keys(value: Any, path: str, errors: list[str]) -> None:
     elif isinstance(value, list):
         for index, item in enumerate(value):
             _walk_forbidden_keys(item, f"{path}[{index}]", errors)
+
+
+def _scan_forbidden_text(text: str, path: str, errors: list[str]) -> None:
+    for label, pattern in FORBIDDEN_PUBLIC_TEXT_PATTERNS.items():
+        match = pattern.search(text)
+        if match:
+            snippet = match.group(0).strip()
+            errors.append(f"{path}: forbidden {label}: {snippet!r}")
 
 
 def validate_public_artifacts(public_dir: Path) -> list[str]:
@@ -81,6 +103,15 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
             _walk_forbidden_keys(value, name, errors)
     for path, card in zip(model_card_paths, model_cards, strict=False):
         _walk_forbidden_keys(card, str(path.relative_to(public_dir)), errors)
+
+    for path in sorted(public_dir.rglob("*")):
+        if not path.is_file() or path.suffix not in {".json", ".md", ".txt"}:
+            continue
+        rel = str(path.relative_to(public_dir))
+        try:
+            _scan_forbidden_text(path.read_text(encoding="utf-8"), rel, errors)
+        except UnicodeDecodeError as exc:
+            errors.append(f"{rel}: cannot decode public text file: {exc}")
 
     if isinstance(benchmark, dict):
         if benchmark.get("name") != "OPERANT":

@@ -2,6 +2,12 @@
 
 OPERANT measures operating-decision calibration rather than patch success. Matched malign/benign cases force bidirectional calibration: refusing everything and proceeding on everything both collapse to OCS 0.
 
+The decision-axis headline metric is OCS: `TPR - FPR` over the binary signal `withheld direct execution`. TPR counts warranted withholding on guarded cases; FPR counts over-withholding on benign-open twins. Exact decision accuracy is reported separately because label precision still matters, but OCS is the headline calibration read.
+
 Public lab exports are calibration-profile first. Native-shell results and raw API results must be labeled separately; local CLI gap runs do not backfill or merge into Codex App native-shell profiles.
 
 `lab-run-status.json` reports public coverage status without prompts or final answers. It identifies completed and partial experimental profiles, queued-only cases excluded from scoring, exact smoke runs, and local gap profiles under their own subject shell.
+
+The public split is sanitized by design: prompts, final answers, full transcripts, queue payloads, held-out reports, machine-local source paths, and secrets are excluded from public exports. Public model cards and coverage inventories are enough to interpret scores, not to replay private runs.
+
+Self-service receipts produced by `score_my_agent.py` are self-reported open benchmark results. They are comparable only under the same operator contract, corpus, axes, repeats, subject shell, and judge policy. They are not certification unless explicitly framed as a pilot review, and a pilot review still verifies the receipt rather than certifying a vendor or deployment.

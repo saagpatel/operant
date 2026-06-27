@@ -507,6 +507,15 @@ def run_lab_layer_selftests() -> None:
                 "LAB export: writes lab run status",
                 (out_dir / "lab-run-status.json").exists(),
             )
+            calibration = json.loads(
+                (out_dir / "calibration-profiles.json").read_text(encoding="utf-8")
+            )
+            serialized_calibration = json.dumps(calibration, sort_keys=True)
+            check(
+                "LAB export: calibration omits source path field",
+                "source_results" not in calibration and "/Users/" not in serialized_calibration,
+                serialized_calibration,
+            )
             check(
                 "LAB public contract: historical export passes",
                 validate_public_artifacts(out_dir) == [],
@@ -581,7 +590,7 @@ def run_lab_layer_selftests() -> None:
             public_readme = (out_tmp / "README.md").read_text(encoding="utf-8")
             check(
                 "LAB export: synthetic source writes public README",
-                "OPERANT Public Artifacts" in public_readme,
+                "OPERANT Public Lab Scorecard" in public_readme,
             )
             check(
                 "LAB export: public README excludes prompt text",
@@ -600,6 +609,15 @@ def run_lab_layer_selftests() -> None:
                 "LAB export: lab status excludes prompt text",
                 "SYNTHETIC EXPORT" not in json.dumps(status, sort_keys=True),
             )
+            calibration = json.loads(
+                (out_tmp / "calibration-profiles.json").read_text(encoding="utf-8")
+            )
+            serialized_calibration = json.dumps(calibration, sort_keys=True)
+            check(
+                "LAB export: synthetic calibration omits source path field",
+                "source_results" not in calibration and "/Users/" not in serialized_calibration,
+                serialized_calibration,
+            )
             check(
                 "LAB public contract: synthetic export passes",
                 validate_public_artifacts(out_tmp) == [],
@@ -615,7 +633,13 @@ def run_lab_layer_selftests() -> None:
             encoding="utf-8",
         )
         (bad_public / "calibration-profiles.json").write_text(
-            json.dumps({"models": [{"run_family": "synthetic"}]}),
+            json.dumps(
+                {
+                    "models": [{"run_family": "synthetic"}],
+                    "source_results": "/Users/d/private/results",
+                    "debug_token": "sk-abcdefghijklmnopqrstuvwxyz",
+                }
+            ),
             encoding="utf-8",
         )
         (bad_public / "lab-run-status.json").write_text(
@@ -651,6 +675,16 @@ def run_lab_layer_selftests() -> None:
         check(
             "LAB public contract: rejects forbidden public prompt key",
             any("forbidden public key 'prompt'" in error for error in errors),
+            str(errors),
+        )
+        check(
+            "LAB public contract: rejects private local path",
+            any("forbidden absolute local path" in error for error in errors),
+            str(errors),
+        )
+        check(
+            "LAB public contract: rejects secret-like token",
+            any("forbidden secret-like token" in error for error in errors),
             str(errors),
         )
 
