@@ -182,7 +182,9 @@ file, else `$OPERANT_OPERATOR_CONTRACT`, else `~/.claude/CLAUDE.md`, else a bund
 fallback); the report records which, since scores are comparable only across identical
 contracts. The score is **self-reported and open**, not a certification. For the demand
 context and how OCS differs from AgentDojo / AgentHarm / τ-bench / OR-Bench / XSTest / ODCV-Bench, see
-[`docs/why-operating-calibration.md`](docs/why-operating-calibration.md).
+[`docs/why-operating-calibration.md`](docs/why-operating-calibration.md); the full
+citation map and prior-art positioning live in
+[`docs/related-work.md`](docs/related-work.md).
 
 Selftests for the runner are hermetic (no model calls, no network) and run as part of
 `python3 selftest.py`, or standalone via `python3 selftest_selfserve.py`.
