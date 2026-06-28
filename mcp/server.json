@@ -23,7 +23,7 @@
 	"remotes": [
 		{
 			"type": "streamable-http",
-			"url": "https://operant.saagarpatel.dev/mcp"
+			"url": "https://operant-mcp.saagar210.workers.dev/mcp"
 		}
 	]
 }

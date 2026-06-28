@@ -17,7 +17,7 @@ npx saagar-operant-mcp
 **Remote (streamable HTTP, no install):**
 
 ```
-https://operant.saagarpatel.dev/mcp
+https://operant-mcp.saagar210.workers.dev/mcp
 ```
 
 **Claude Desktop / Claude Code:**
