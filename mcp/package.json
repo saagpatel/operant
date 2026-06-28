@@ -1,0 +1,55 @@
+{
+	"name": "operant-mcp",
+	"version": "0.1.0",
+	"mcpName": "io.github.saagpatel/operant-mcp",
+	"type": "module",
+	"description": "MCP server for the OPERANT AI operating-agent calibration benchmark — read-only, stateless.",
+	"license": "MIT",
+	"author": "Saagar Patel",
+	"homepage": "https://operant.saagarpatel.dev",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/saagpatel/operant.git"
+	},
+	"bugs": {
+		"url": "https://github.com/saagpatel/operant/issues"
+	},
+	"keywords": [
+		"mcp",
+		"model-context-protocol",
+		"mcp-server",
+		"ai-agents",
+		"benchmark",
+		"operant",
+		"calibration",
+		"cloudflare-workers",
+		"stdio"
+	],
+	"scripts": {
+		"build:corpus": "node scripts/build-corpus.mjs",
+		"build:cli": "esbuild src/stdio.ts --bundle --platform=node --format=esm --outfile=dist/stdio.js",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"probe:mcp": "node scripts/probe-mcp.mjs",
+		"dev": "wrangler dev",
+		"deploy": "wrangler deploy"
+	},
+	"bin": {
+		"operant-mcp": "dist/stdio.js"
+	},
+	"files": [
+		"dist"
+	],
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "1.29.0",
+		"zod": "^3"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "^4",
+		"esbuild": "0.28.1",
+		"typescript": "^5",
+		"vite": "6.4.3",
+		"vitest": "3.2.6",
+		"wrangler": "^4"
+	}
+}

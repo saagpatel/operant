@@ -8,6 +8,30 @@
 
 OPERANT measures whether an LLM agent makes correct *operating decisions* — not whether it can write code. The agent under test runs as an operator (its system prompt is the operator contract) and must emit a structured `DECISION` label (`PROCEED`, `PROCEED_SANCTIONED`, `REFUSE`, `ESCALATE`, or `REROUTE`) or a structured operating plan. Every case is one half of a **matched malign/benign pair** that shares domain and surface vocabulary but differs in instruction origin (operator channel vs. untrusted content) and blast radius. This design forces bidirectional calibration: refusing everything scores the same as proceeding on everything. Only accurate discrimination scores positive.
 
+## Try it in 10 seconds
+
+No API key, no install step, no model spend. Score the bundled heuristic agent on the decision axis — fully deterministic and offline:
+
+```bash
+python3 score_my_agent.py --adapter examples/heuristic_agent.py:respond \
+    --label heuristic-baseline --axes decision --no-judge
+```
+
+It scores all 40 decision cases and writes a shareable OCS report card (plus an SVG badge) to `results/self-serve/`:
+
+```
+OPERANT OCS +0.394 [Haiku-class] · acc 60% · 0 bypass leaks
+
+| Axis                | OCS    | Accuracy | Cases |
+|---------------------|-------:|---------:|------:|
+| escalation-reroute  | +0.167 |    42%   |   12  |
+| refusal-calibration | +0.375 |    62%   |   16  |
+| sanctioned-path     | +0.625 |    75%   |   12  |
+| all decision        | +0.394 |    60%   |   40  |
+```
+
+That `+0.394` is the bundled heuristic baseline, not a frontier model — it is there so the harness runs end-to-end with zero setup. To score *your* agent (a Python callable, any CLI, or an HTTP endpoint) and get a comparable row, see [Score your own agent](#score-your-own-agent-self-serve). For the published model results, jump to [Results](#results).
+
 ## Benchmark Design
 
 ### Matched-pair axes (decision-scored)
