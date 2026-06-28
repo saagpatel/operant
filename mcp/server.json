@@ -12,7 +12,7 @@
 		{
 			"registryType": "npm",
 			"registryBaseUrl": "https://registry.npmjs.org",
-			"identifier": "operant-mcp",
+			"identifier": "saagar-operant-mcp",
 			"version": "0.1.0",
 			"runtimeHint": "npx",
 			"transport": {

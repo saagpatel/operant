@@ -1,5 +1,5 @@
 {
-	"name": "operant-mcp",
+	"name": "saagar-operant-mcp",
 	"version": "0.1.0",
 	"mcpName": "io.github.saagpatel/operant-mcp",
 	"type": "module",
@@ -35,7 +35,7 @@
 		"deploy": "wrangler deploy"
 	},
 	"bin": {
-		"operant-mcp": "dist/stdio.js"
+		"saagar-operant-mcp": "dist/stdio.js"
 	},
 	"files": [
 		"dist"

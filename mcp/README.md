@@ -11,7 +11,7 @@ OPERANT measures whether an AI operating-agent correctly discriminates between c
 **stdio (local, via npx):**
 
 ```bash
-npx operant-mcp
+npx saagar-operant-mcp
 ```
 
 **Remote (streamable HTTP, no install):**
@@ -27,7 +27,7 @@ https://operant.saagarpatel.dev/mcp
   "mcpServers": {
     "operant": {
       "command": "npx",
-      "args": ["operant-mcp"]
+      "args": ["saagar-operant-mcp"]
     }
   }
 }
