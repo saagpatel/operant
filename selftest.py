@@ -1426,6 +1426,71 @@ def run_stats_selftests() -> None:
     check("BOOTSTRAP: n==0 -> (nan, nan), never raises", lo_nan != lo_nan)
 
 
+def run_design_aware_selftests() -> None:
+    """Deterministic core of the design-aware stats: the OCS-from-outcomes confusion
+    helper, an exact McNemar PAIRED test, the pair-cluster OCS bootstrap, and the
+    within-pair discrimination diagnostic. All pure (bootstrap RNG seeded), so they
+    lock here without any model calls."""
+    print("\n" + "=" * 60)
+    print("DESIGN-AWARE STATS (McNemar + pair-cluster bootstrap)")
+    print("=" * 60)
+    svar = _load_sibling("score_variance")
+
+    # --- _ocs_from_outcomes: known confusion -> known OCS ---
+    perfect = svar._ocs_from_outcomes([(True, True), (True, True), (False, False), (False, False)])
+    check("OCS-OUTCOMES: perfect discrimination -> +1.0", perfect == 1.0, f"{perfect}")
+    refuse_all = svar._ocs_from_outcomes([(True, True), (True, True), (False, True), (False, True)])
+    check("OCS-OUTCOMES: refuse-all -> 0.0", refuse_all == 0.0, f"{refuse_all}")
+    skipped = svar._ocs_from_outcomes([(True, None), (False, None)])
+    check("OCS-OUTCOMES: all-None -> 0.0, never raises", skipped == 0.0, f"{skipped}")
+
+    # --- mcnemar_exact: known discordant counts ---
+    a_all = {f"c{i}": True for i in range(6)}
+    b_all = {f"c{i}": False for i in range(6)}
+    bb, cc, p = svar.mcnemar_exact(a_all, b_all)
+    check(
+        "MCNEMAR: b=6 c=0 -> p = 2/64 = 0.03125",
+        bb == 6 and cc == 0 and abs(p - 0.03125) < 1e-9,
+        f"b={bb} c={cc} p={p}",
+    )
+    _b2, _c2, p_sym = svar.mcnemar_exact({"x": True, "y": False}, {"x": False, "y": True})
+    check("MCNEMAR: b=1 c=1 -> p == 1.0", p_sym == 1.0, f"p={p_sym}")
+    same = {"x": True, "y": False}
+    _b3, _c3, p_same = svar.mcnemar_exact(same, dict(same))
+    check("MCNEMAR: no discordant -> p == 1.0", p_same == 1.0, f"p={p_same}")
+
+    # --- cluster_bootstrap_ocs_ci: determinism + bounds + degenerate-n ---
+    co = {
+        "p1.m": {"guard": True, "pair_id": "p1", "withheld_modal": True, "correct_modal": True},
+        "p1.b": {"guard": False, "pair_id": "p1", "withheld_modal": False, "correct_modal": True},
+        "p2.m": {"guard": True, "pair_id": "p2", "withheld_modal": True, "correct_modal": True},
+        "p2.b": {"guard": False, "pair_id": "p2", "withheld_modal": False, "correct_modal": True},
+    }
+    ci_a = svar.cluster_bootstrap_ocs_ci(co, num_resamples=2000, seed=0)
+    ci_b = svar.cluster_bootstrap_ocs_ci(co, num_resamples=2000, seed=0)
+    check("CLUSTER-BOOT: seeded run reproducible", ci_a == ci_b, f"{ci_a} vs {ci_b}")
+    check(
+        "CLUSTER-BOOT: perfect corpus -> CI in [-1,1], n_pairs=2",
+        -1.0 <= ci_a[0] <= ci_a[1] <= 1.0 and ci_a[2] == 2,
+        f"{ci_a}",
+    )
+    ci_one = svar.cluster_bootstrap_ocs_ci(
+        {"p1.m": {"guard": True, "pair_id": "p1", "withheld_modal": True, "correct_modal": True}},
+        seed=0,
+    )
+    check("CLUSTER-BOOT: single pair -> n_pairs=1", ci_one[2] == 1, f"{ci_one}")
+    ci_e = svar.cluster_bootstrap_ocs_ci({}, seed=0)
+    check(
+        "CLUSTER-BOOT: empty -> nan, n_pairs=0, never raises",
+        ci_e[0] != ci_e[0] and ci_e[2] == 0,
+        f"{ci_e}",
+    )
+
+    # --- within_pair_discrimination ---
+    both, dec = svar.within_pair_discrimination(co)
+    check("WITHIN-PAIR: 2/2 pairs both-correct", both == 2 and dec == 2, f"{both}/{dec}")
+
+
 def run_flip_classify_selftests() -> None:
     """Deterministic core of the Thread-2 variance characterizer: classify_flip tags
     a non-unanimous decision case by where its spread lands relative to the SAFETY
@@ -1829,6 +1894,7 @@ def main() -> None:
     run_suite_judge_wiring_selftests()
     run_ensemble_selftests()
     run_stats_selftests()
+    run_design_aware_selftests()
     run_flip_classify_selftests()
     run_lab_layer_selftests()
 
