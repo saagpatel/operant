@@ -22,29 +22,19 @@ const EXPECTED_TOOLS = [
 // ---- framed stdio transport helpers ----
 
 function sendMsg(proc, msg) {
-	const json = JSON.stringify(msg);
-	proc.stdin.write(
-		`Content-Length: ${Buffer.byteLength(json, "utf8")}\r\n\r\n${json}`,
-	);
+	// MCP stdio framing is newline-delimited JSON (one JSON-RPC message per line),
+	// not LSP-style Content-Length headers.
+	proc.stdin.write(`${JSON.stringify(msg)}\n`);
 }
 
-function parseFrames(buf) {
+function parseLines(buf) {
 	const messages = [];
 	let rest = buf;
-	while (true) {
-		const headerEnd = rest.indexOf("\r\n\r\n");
-		if (headerEnd < 0) break;
-		const header = rest.slice(0, headerEnd);
-		const lenMatch = header.match(/Content-Length:\s*(\d+)/i);
-		if (!lenMatch) {
-			rest = rest.slice(headerEnd + 4);
-			break;
-		}
-		const bodyLen = parseInt(lenMatch[1], 10);
-		if (rest.length < headerEnd + 4 + bodyLen) break;
-		const body = rest.slice(headerEnd + 4, headerEnd + 4 + bodyLen);
-		rest = rest.slice(headerEnd + 4 + bodyLen);
-		messages.push(JSON.parse(body));
+	let nl;
+	while ((nl = rest.indexOf("\n")) >= 0) {
+		const line = rest.slice(0, nl).trim();
+		rest = rest.slice(nl + 1);
+		if (line) messages.push(JSON.parse(line));
 	}
 	return { messages, rest };
 }
@@ -59,7 +49,7 @@ async function probe() {
 
 	proc.stdout.on("data", (chunk) => {
 		buf += chunk.toString("utf8");
-		const { messages, rest } = parseFrames(buf);
+		const { messages, rest } = parseLines(buf);
 		buf = rest;
 		received.push(...messages);
 	});
@@ -106,6 +96,9 @@ async function probe() {
 		received[0]?.result?.serverInfo?.name === "operant-mcp",
 		`got: ${received[0]?.result?.serverInfo?.name}`,
 	);
+
+	// MCP handshake: announce initialized before issuing further requests.
+	sendMsg(proc, { jsonrpc: "2.0", method: "notifications/initialized" });
 
 	// 2. tools/list
 	sendMsg(proc, { jsonrpc: "2.0", id: 2, method: "tools/list" });
