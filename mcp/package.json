@@ -28,6 +28,9 @@
 	"scripts": {
 		"build:corpus": "node scripts/build-corpus.mjs",
 		"build:cli": "esbuild src/stdio.ts --bundle --platform=node --format=esm --outfile=dist/stdio.js",
+		"build:wellknown": "node scripts/build-wellknown.mjs",
+		"sign:manifest": "node scripts/sign-manifest.mjs sign",
+		"verify:manifest": "node scripts/sign-manifest.mjs verify",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"probe:mcp": "node scripts/probe-mcp.mjs",

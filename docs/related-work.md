@@ -175,6 +175,32 @@ ODCV-Bench rewards escalation under pressure but is unidirectional. The integrat
 instrument is, to our knowledge, novel; the parts are not, and we name them here so the
 contribution is read at the right altitude.
 
+## 9. Concurrent work (2026)
+
+Three 2026 papers — concurrent with or slightly later than OPERANT's June 2026 run, and so
+not prior art it could have cited at design time — independently converge on its thesis.
+They both validate the direction and show the niche now has other entrants:
+
+- **OpenSec** (Barnes 2026; https://arxiv.org/abs/2601.21083) frames incident-response
+  agents almost exactly as OPERANT does — "existing benchmarks measure capability (can the
+  model do X?) but not calibration (does the model know *when* to do X?)" — and reports
+  over-action directly (false-positive containment rates) in a dual-control RL
+  environment. Same over-action-as-failure concern as OCS's FPR term, but within one
+  security domain rather than across matched operating decisions.
+- **RefusalBench** (Weidener et al. 2026; https://arxiv.org/abs/2605.21545) is a
+  *matched-triple* (benign / borderline / dual-use) refusal-calibration benchmark for
+  biosecurity, arguing that a raw refusal rate misranks models because it cannot separate
+  over- from under-refusal — the critique OCS answers with matched twins, in a different
+  domain.
+- **Learning When to Act or Refuse** (Agarwal et al. 2026;
+  https://arxiv.org/abs/2603.03205) makes refusal a first-class, learnable action in
+  multi-step agentic tool use (the MOSAIC framework), trained on Agent-SafetyBench.
+
+OPERANT stays distinct from all three by scoring **matched malign/benign twins that differ
+specifically in instruction origin and blast radius**, across a **five-way operating
+decision** with a single bidirectional OCS — rather than within one security or biosecurity
+domain, or as a training objective.
+
 ---
 
 ## References
@@ -214,3 +240,9 @@ contribution is read at the right altitude.
 - Zhang et al. (2025). *FalseReject.* https://arxiv.org/abs/2505.08054
 - Zhao et al. (2021). *Calibrating Predictions to Decisions (decision calibration).* NeurIPS. https://arxiv.org/abs/2107.05719
 - Youden (1950). *Index for rating diagnostic tests.* Cancer. DOI 10.1002/1097-0142(1950)3:1<32::AID-CNCR2820030106>3.0.CO;2-3
+
+**Concurrent work (2026):**
+
+- Agarwal et al. (2026). *Learning When to Act or Refuse: Guarding Agentic Reasoning Models for Safe Multi-Step Tool Use.* https://arxiv.org/abs/2603.03205
+- Barnes (2026). *OpenSec: Measuring Incident Response Agent Calibration Under Adversarial Evidence.* https://arxiv.org/abs/2601.21083
+- Weidener et al. (2026). *RefusalBench: Why Refusal Rate Misranks Frontier LLMs on Biological Research Prompts.* https://arxiv.org/abs/2605.21545
