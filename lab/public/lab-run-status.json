@@ -1,6 +1,7 @@
 {
-  "generated_at": "2026-06-27T06:24:28Z",
+  "generated_at": "2026-07-03T06:35:00Z",
   "included_lab_labels": [
+    "cc-fable-interactive-batch-r1",
     "codex-cli-gpt55-decision-gap-r1",
     "codex-gpt55-decision-r1",
     "codex-gpt55-exact-smoke-r1",
@@ -10,6 +11,26 @@
   ],
   "public_status_policy": "This artifact summarizes lab run coverage and scoring status only; it excludes raw prompts and final answers.",
   "runs": [
+    {
+      "display_name": "Claude Fable 5 via Claude Code interactive batch",
+      "model_id": "claude-fable-5",
+      "parse_status_counts": {
+        "ok": 40
+      },
+      "queued_only_cases": 0,
+      "recorded_cases": 40,
+      "relation": "single-session batch delivery; keep separate from self-serve flagship and per-case native-shell profiles",
+      "run_family": "cc-fable-interactive-batch",
+      "run_label": "cc-fable-interactive-batch-r1",
+      "score_outcome_counts": {
+        "correct": 39,
+        "incorrect": 1
+      },
+      "scoring_policy": "scored separately from self-serve flagship and other native-shell profiles",
+      "status": "experimental_batch_profile",
+      "subject_shell": "cc-fable-interactive-batch",
+      "total_queued_cases": 40
+    },
     {
       "display_name": "GPT-5.5 via Codex CLI (local)",
       "model_id": "gpt-5.5",

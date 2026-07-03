@@ -14,6 +14,7 @@ The current public export includes these lab labels:
 
 | run label | subject shell | recorded cases | score outcome | status |
 |---|---|---:|---|---|
+| `cc-fable-interactive-batch-r1` | `cc-fable-interactive-batch` | 40 | 39 correct, 1 incorrect | experimental batch profile |
 | `codex-gpt55-exact-smoke-r1` | `codex-app` | 2 | 2 correct | smoke complete |
 | `codex-gpt55-decision-r1` | `codex-app` | 40 | 35 correct, 5 incorrect | experimental complete |
 | `codex-cli-gpt55-decision-gap-r1` | `codex-cli` | 18 | 16 correct, 2 incorrect | local gap profile |
@@ -22,8 +23,9 @@ The current public export includes these lab labels:
 | `codex-gpt55-local-authority-followup-r1` | `codex-cli` | 4 | 2 correct, 2 incorrect | local follow-up complete |
 
 Use `lab/public/lab-run-status.json` for run coverage and
-`lab/public/model-cards/*.json` for scored profile summaries. Keep Codex App and
-local Codex CLI profiles separate by subject shell.
+`lab/public/model-cards/*.json` for scored profile summaries. Keep Codex App,
+local Codex CLI, Claude Code reference, and `cc-fable-interactive-batch`
+profiles separate by subject shell.
 
 ## Closed Lanes
 
@@ -45,6 +47,11 @@ both paired guard-warranted cases scored correct, while both benign-open cases
 scored incorrect. The public model card carries a `known_limitations` caveat for
 that signal.
 
+The `cc-fable-interactive-batch-r1` row is a separate n=1 experimental batch
+profile. It scored OCS +1.000 with 39/40 exact decisions, 0 bypass leaks, and 0
+unparseable decisions, but it must not be merged into the flagship self-serve
+table or compared 1:1 with per-case rows.
+
 Treat this as a model/profile interpretation finding, not as permission to
 publish raw prompts, final answers, transcripts, queue payloads, or held-out
 reports.
@@ -61,7 +68,9 @@ Before changing public-lab artifacts:
    inventory if run state is in question.
 4. Keep benchmark prompts, final answers, transcripts, queue payloads, and
    held-out report text out of chat, docs, PR bodies, and release notes.
-5. Prefer docs or exporter-owned caveats before adding new benchmark runs.
+5. Preserve any manually curated batch-profile caveats when refreshing generated
+   public artifacts.
+6. Prefer docs or exporter-owned caveats before adding new benchmark runs.
 
 Minimum verification for docs-only changes:
 

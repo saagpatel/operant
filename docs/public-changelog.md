@@ -1,5 +1,21 @@
 # OPERANT Public Changelog
 
+## 2026-07-03 - Fable Interactive Batch Profile Added
+
+The public lab artifacts now include the prompt-free
+`cc-fable-interactive-batch-r1` profile as a separate experimental batch
+subject shell. The profile records 40 decision cases, all parse-ok, with 39
+correct outcomes, OCS 1.0, TPR 1.0, FPR 0.0, and no bypass failures.
+
+This row is intentionally separate from the self-serve flagship table and from
+per-case native-shell profiles. Its public model card carries `known_limitations`
+for n=1, batch-vs-per-case delivery, and the protocol caveat that the CC harness
+system prompt and the operator's real CLAUDE.md were present alongside the
+embedded example contract.
+
+No raw prompts, final answers, queue files, transcripts, or held-out reports are
+included in this public artifact surface.
+
 ## 2026-06-20 - Self-Service Receipt And Pilot Language Added
 
 The public docs now include
