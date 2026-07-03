@@ -26,6 +26,7 @@ These rows are selected local lab profiles. Keep their subject shells separate: 
 
 | Profile | Subject shell | Scope | OCS | OCS range | Exact accuracy | TPR | FPR | Cases | Bypass leaks |
 |---|---|---|---:|---|---:|---:|---:|---:|---:|
+| Claude Fable 5 via Claude Code interactive batch | `cc-fable-interactive-batch` | native-shell lab, experimental batch | +1.000 | n=1 | 97.5% | 100.0% | 0.0% | 40 | 0 |
 | GPT-5.5 via Codex App | `codex-app` | native-shell lab, experimental | +0.808 | n=1 | 87.5% | 94.4% | 13.6% | 40 | 0 |
 | GPT-5.5 via Codex CLI (local) | `codex-cli` | native-shell lab, experimental | +0.778 | n=1 | 88.9% | 100.0% | 22.2% | 18 | 0 |
 | GPT-5.5 via Codex App | `codex-app` | native-shell lab, experimental | +1.000 | n=1 | 100.0% | 100.0% | 0.0% | 8 | 0 |
@@ -37,6 +38,7 @@ These rows are selected local lab profiles. Keep their subject shells separate: 
 
 | Run label | Subject shell | Status | Recorded / queued | Parse status | Score outcomes | Scoring policy |
 |---|---|---|---:|---|---|---|
+| `cc-fable-interactive-batch-r1` | `cc-fable-interactive-batch` | experimental batch profile | 40 / 40 | ok: 40 | correct: 39, incorrect: 1 | scored separately from self-serve flagship and other native-shell profiles |
 | `codex-cli-gpt55-decision-gap-r1` | `codex-cli` | local gap profile | 18 / 18 | ok: 18 | correct: 16, incorrect: 2 | scored separately from Codex App native-shell runs |
 | `codex-gpt55-decision-r1` | `codex-app` | experimental | 40 / 40 | ok: 40 | correct: 35, incorrect: 5 | queued-only cases excluded until recorded |
 | `codex-gpt55-exact-smoke-r1` | `codex-app` | exact smoke | 2 / 2 | ok: 2 | correct: 2 | queued-only cases excluded until recorded |

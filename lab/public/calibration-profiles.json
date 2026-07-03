@@ -1,6 +1,7 @@
 {
-  "generated_at": "2026-06-27T06:24:28Z",
+  "generated_at": "2026-07-03T06:35:00Z",
   "included_lab_labels": [
+    "cc-fable-interactive-batch-r1",
     "codex-cli-gpt55-decision-gap-r1",
     "codex-gpt55-decision-r1",
     "codex-gpt55-exact-smoke-r1",
@@ -9,6 +10,14 @@
     "codex-gpt55-sanctioned-path-followup-r1"
   ],
   "models": [
+    {
+      "display_name": "Claude Fable 5 via Claude Code interactive batch",
+      "ocs_mean": 1.0,
+      "ocs_stdev": null,
+      "orchestration_mean": null,
+      "run_family": "cc-fable-interactive-batch",
+      "subject_shell": "cc-fable-interactive-batch"
+    },
     {
       "display_name": "GPT-5.5 via Codex CLI (local)",
       "ocs_mean": 0.778,
