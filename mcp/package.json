@@ -29,11 +29,12 @@
 		"build:corpus": "node scripts/build-corpus.mjs",
 		"build:cli": "esbuild src/stdio.ts --bundle --platform=node --format=esm --outfile=dist/stdio.js",
 		"build:wellknown": "node scripts/build-wellknown.mjs",
-		"sign:manifest": "node scripts/sign-manifest.mjs sign",
-		"verify:manifest": "node scripts/sign-manifest.mjs verify",
+		"sign:manifest": "mcp-kit-sign sign --manifest=.well-known/mcp.json",
+		"verify:manifest": "mcp-kit-sign verify --manifest=.well-known/mcp.json",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"probe:mcp": "node scripts/probe-mcp.mjs",
+		"parity": "mcp-kit-parity",
 		"dev": "wrangler dev",
 		"deploy": "wrangler deploy"
 	},
@@ -50,6 +51,7 @@
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4",
 		"esbuild": "0.28.1",
+		"saagar-mcp-kit": "^0.1.0",
 		"typescript": "^5",
 		"vite": "6.4.3",
 		"vitest": "3.2.6",

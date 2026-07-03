@@ -25,7 +25,7 @@ const CORS: Record<string, string> = {
 
 // Static discovery documents, served verbatim so an agent or registry can find and
 // verify this server. The bytes are exactly what the detached Ed25519 signature
-// covers (see scripts/sign-manifest.mjs + scripts/build-wellknown.mjs).
+// covers (see saagar-mcp-kit's mcp-kit-sign + scripts/build-wellknown.mjs).
 const WELL_KNOWN: Record<string, { body: string; contentType: string }> = {
 	"/.well-known/mcp.json": {
 		body: MANIFEST_JSON,
