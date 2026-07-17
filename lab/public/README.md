@@ -57,6 +57,7 @@ Exact accuracy is still reported because it captures label precision: `PROCEED`,
 ## Comparability Rules
 
 - Public split: Public exemplars may be shown; held-out prompts and raw reports stay excluded from public exports.
+- Split status: confidentiality is not confirmatory independence. Generated private cases reuse public templates and are publicly derivable surface holdouts; model-specific follow-ups are adaptive diagnostics. No current profile is registered as confirmatory.
 - Public artifacts include sanitized summaries only. Raw prompts, final answers, transcripts, queue payloads, held-out reports, machine-local paths, and secrets are excluded from this directory.
 - Native-shell and API results must stay labeled separately. Do not collapse Codex App, Codex CLI, Claude Code, or future raw API profiles into one leaderboard row.
 - Compare scores only when the subject shell, operator contract, corpus, case split, axes, repeats, and judge policy match.

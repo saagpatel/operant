@@ -30,8 +30,8 @@ axis 3 later expanded to 17 — see §3a)
 
 ## TL;DR
 
-- **OCS (decision calibration — axes 1/2/4) cleanly ranks the models, monotonically,
-  with non-overlapping repeat bands.** This is the discriminating metric.
+- **The imported OCS rows are monotonically ordered with non-overlapping repeat
+  bands, but they do not establish a durable model ranking.**
   `Haiku +0.273 < Sonnet [+0.636,+0.773] < Opus [+0.818,+0.955]`. Sonnet's *max*
   (+0.773) sits below Opus's *min* (+0.818) — the bands don't touch.
 - **The orchestration rubric (axis 3) does NOT rank the models.** All three sit at
@@ -57,8 +57,10 @@ axis 3 later expanded to 17 — see §3a)
   confirms the family-neutral call — Opus 0.963 ≈ Sonnet 0.951 (overlapping), Haiku 0.824 ≪
   (§3b). (b) The two judges **disagree on only 15 of 187 cells**, all concentrated on the
   genuinely ambiguous cases — judge disagreement doubles as an ambiguity meter (Thread 1).
-  (c) The headline OCS gap is now **significance-backed**: an exact permutation test gives
-  Opus > Sonnet at **p = 0.0079** (Thread 3). (d) Sonnet's decision *variance* is fully
+  (c) An exact permutation calculation over the imported rows gives
+  **p = 0.0079**, but the historical run was not registered as confirmatory and
+  the value does not establish a durable Opus > Sonnet claim (Thread 3).
+  (d) Sonnet's decision *variance* is fully
   characterized — **0 malign leaks**; its 10 non-unanimous cases are all benign over-caution
   on dangerous-*looking* requests, which corrects an as-run §4 mis-read (Thread 2).
 
@@ -75,15 +77,16 @@ operator calibration. `score_suite.py` / `score_variance.py`.
 | **Sonnet** ×5 | **+0.691 ± 0.053** | [+0.636, +0.773] | 83% ± 2.9% | 0.625–0.75 | 0.50–0.75 | 0.667–1.00 | 0 |
 | **Haiku** ×1 | **+0.273** | — | 60% | 0.375 | 0.125 | 0.333 | 0 |
 
-**Verdict: monotonic AND non-overlapping.** Haiku ≪ Sonnet ≪ Opus on every axis.
-Opus pins escalation calibration at +1.000 on all five draws. This is exactly the
-behavior OCS was designed to surface.
+**Historical calculation view: monotonic and non-overlapping.** The imported
+rows order Haiku, Sonnet, and Opus on every axis. This is not a confirmatory
+model ranking. The imported Opus rows have escalation calibration +1.000 on all
+five draws.
 
 Per-repeat decision OCS:
 - Opus: +0.864 / +0.955 / +0.864 / +0.864 / +0.818
 - Sonnet: +0.636 / +0.773 / +0.636 / +0.682 / +0.727
 
-### Statistical rigor (Thread 3) — the separation is significant, not just non-overlapping
+### Historical inferential calculation (Thread 3) — descriptive, not confirmatory
 
 The min/max bands above are descriptive; `score_variance.py` now backs them with a
 percentile bootstrap CI and an **exact** permutation test (`bootstrap_ci`,
@@ -98,11 +101,11 @@ The CIs do not overlap (Sonnet's upper +0.736 < Opus's lower +0.836). The **exac
 permutation test** over the 5+5 repeat-level OCS values (all C(10,5)=252 relabelings
 enumerated) gives **ΔOCS = −0.182, p = 0.0079** — the floor value 2/252, because the two
 models' repeats are *completely* separated, so only the observed split and its mirror reach
-the observed gap. Opus > Sonnet on operator-decision calibration is significant at 0.05, not
-an artifact of a lucky draw. (Caveat held honestly: n=5 repeats is small, so the bootstrap CI
-is wide and reported *with* its n; the permutation p, being exact and assumption-free, is the
-load-bearing claim. Haiku has a single draw — its last-place separation rests on effect size,
-not a repeat-based test.) Reproduce: `python3 score_variance.py --models sonnet opus`.
+the observed gap. The calculation is exact for these imported rows, but the
+historical run lacks confirmatory preregistration and complete treatment
+identity. It therefore does not support a durable Opus > Sonnet inference.
+Haiku has a single draw. Recalculate the stored rows with
+`python3 score_variance.py --models sonnet opus`.
 
 ---
 

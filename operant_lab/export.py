@@ -718,6 +718,8 @@ def _public_readme(
         "of record, and public split policy.\n"
         "- `calibration-profiles.json`: compact index of exported calibration "
         "profiles. It intentionally omits machine-local source paths.\n"
+        "- `evaluation-split-registry.json`: checked adaptive-development, "
+        "surface-holdout, and confirmatory dispositions.\n"
         "- `model-cards/*.json`: per-profile scored decision and orchestration "
         "summaries.\n"
         "- `lab-run-status.json`: prompt-free coverage and scoring-policy status "
@@ -757,6 +759,10 @@ def _public_readme(
         "read; use exact accuracy for rubric-level label drift.\n\n"
         "## Comparability Rules\n\n"
         f"- Public split: {benchmark_card['public_split_policy']}\n"
+        "- Split status: confidentiality is not confirmatory independence. "
+        "Generated private cases reuse public templates and are publicly "
+        "derivable surface holdouts; model-specific follow-ups are adaptive "
+        "diagnostics. No current profile is registered as confirmatory.\n"
         "- Public artifacts include sanitized summaries only. Raw prompts, final "
         "answers, transcripts, queue payloads, held-out reports, machine-local "
         "paths, and secrets are excluded from this directory.\n"
@@ -968,6 +974,17 @@ def export_public_artifacts(
         "paths, and secrets are excluded from public exports. Public model cards "
         "and coverage inventories are enough to interpret scores, not to replay "
         "private runs.\n\n"
+        "## Adaptive and Confirmatory Separation\n\n"
+        "Withholding prompt text protects confidentiality but does not by itself "
+        "create a confirmatory set. The generated public and private splits share "
+        "templates, slot pools, decision structure, and scoring boundaries; the "
+        "nominal private side is a publicly derivable surface holdout only. The "
+        "GPT-5.5 sanctioned-path, refusal-calibration, and local-authority "
+        "follow-ups were selected from observed errors and are adaptive "
+        "diagnostics. Historical selection and exposure history for the reference "
+        "suite is incomplete. The current confirmatory status is therefore **NOT "
+        "ESTABLISHED**; no exported score is confirmatory under the checked split "
+        "registry.\n\n"
         "Self-service receipts produced by `score_my_agent.py` are self-reported "
         "open benchmark results. They are comparable only under the same operator "
         "contract, corpus, axes, repeats, subject shell, and judge policy. They "
@@ -984,6 +1001,25 @@ def export_public_artifacts(
     write_json(out_dir / "benchmark-card.json", benchmark_card)
     write_json(out_dir / "calibration-profiles.json", calibration)
     write_json(out_dir / "lab-run-status.json", lab_status)
+    split_registry = json.loads(
+        (ROOT / "lab" / "public" / "evaluation-split-registry.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    registered_roles = split_registry["run_family_dispositions"]
+    for path in (out_dir / "model-cards").glob("*.json"):
+        registered_roles.setdefault(
+            path.stem,
+            "UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY",
+        )
+    if out_dir.resolve() == (ROOT / "lab" / "public").resolve():
+        split_registry["evidence_bindings"][
+            "lab/public/benchmark-card.json"
+        ] = _sha256(out_dir / "benchmark-card.json")
+        split_registry["private_overlay_digests"] = evidence_binding[
+            "private_case_overlays"
+        ]
+    write_json(out_dir / "evaluation-split-registry.json", split_registry)
     (out_dir / "README.md").write_text(public_readme, encoding="utf-8")
     (out_dir / "methodology.md").write_text(methodology, encoding="utf-8")
     return {

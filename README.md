@@ -61,9 +61,18 @@ Each case presents a task spec; the agent emits an operating plan — tier (solo
 
 The keyword-anchor scorer is retained as a legacy cross-check but is **not** the metric of record: it saturates and can penalize articulate plans that cite machinery they correctly decline. The LLM-judge is the metric of record. Its deterministic core (prompt build, JSON extraction, verdict normalization) is selftested without model calls; its dispatch is calibration-validated (`--validate`) against ORACLE, OVER, and UNDER synthetic plans. Same-model self-preference (~2–3 points) is quantified and cancelled via an `--ensemble` mode that averages a Sonnet judge and an Opus judge per cell.
 
-### Case grounding & contamination proofing
+### Case grounding and split limits
 
 All cases are synthetic — grounded in a documented harness threat-model (11 hook bypasses) and a synthetic inbox-classifier corpus. No real PII: all email addresses are `@example.com`, all personas synthetic, all paths illustrative. `gen_cases.py` reads `operant_templates.json` and emits surface-randomized instantiations with a seeded RNG; decision-relevant structure is invariant across instantiations, only slot fillers vary. Publish a `public` split, hold back a `private` split — both regenerable deterministically.
+
+That public/private split is a **publicly derivable surface holdout**; it does
+not prevent benchmark contamination and is not a confirmatory test set. Both
+sides reuse the same public templates, slot pools, decision structure, and
+scoring boundary.
+Existing follow-up slices were designed from observed misses and are adaptive
+diagnostics. No existing OPERANT score should be described as confirmatory
+until a prospectively registered, sealed, structurally independent set satisfies
+[`docs/evaluation-split-policy.md`](docs/evaluation-split-policy.md).
 
 ---
 
@@ -82,7 +91,13 @@ They do not currently support durable named-model attribution, ranking, or signi
 | **Sonnet** ×5 | **+0.691 ± 0.053** | [+0.645, +0.736] | [+0.636, +0.773] | 83% ± 2.9% |
 | **Haiku** ×1 | **+0.273** | (n=1) | — | 60% |
 
-The repeat bands do not overlap: Sonnet's max (+0.773) sits below Opus's min (+0.818). An exact two-sided permutation test over the 5+5 repeat-level OCS values (all C(10,5) = 252 relabelings) gives **ΔOCS = −0.182, p = 0.0079** — the floor value 2/252, because the two models' repeats are completely separated. Opus > Sonnet on decision calibration is significant at α = 0.05. Opus pins escalation calibration at OCS = +1.000 on all five draws.
+The imported repeat rows have non-overlapping bands: Sonnet's max (+0.773)
+sits below Opus's min (+0.818). An exact two-sided permutation calculation over
+those 5+5 rows gives **ΔOCS = −0.182, p = 0.0079**. Because the historical run
+was not prospectively registered as confirmatory and its treatment identity is
+incomplete, that p-value is descriptive of the imported rows only; it does not
+establish a durable Opus > Sonnet claim. The imported Opus rows show escalation
+OCS +1.000 on all five draws.
 
 ### Orchestration judgment (axis 3, ensemble judge)
 
@@ -416,6 +431,8 @@ Reviewer states are:
 
 - **Small n.** 5 independent repeats per model. The permutation p-value is exact and assumption-free, but n=5 is small; bootstrap CIs are wide and reported with their n. Haiku has a single draw.
 - **Three models, one provider.** Covers three Claude tiers only. `claude-fable-5` was excluded because headless dispatch wasn't accessible at run time — an access artifact, not a design choice. No other providers.
-- **Single-operator authorship.** All cases authored by one person, grounded in one harness's threat model. Surface-twin and contamination-proofing mechanisms partially compensate; independent case authorship would strengthen it.
+- **Single-operator authorship.** All cases were authored by one person and
+  grounded in one harness's threat model. Surface twins do not compensate for
+  independent authorship or a structurally independent confirmatory set.
 - **Orchestration axis saturation.** The keyword scorer saturates and is unfit for ranking. Historical judge calculations remain available, but named-model comparisons are not durable without fresh identity-bound replication.
 - **Operator-contract dependency.** The runner loads the operator contract from `~/.claude/CLAUDE.md` at runtime, falling back to a minimal inline contract if absent. Fresh checkouts use the fallback; results may differ from the headline run, which used a full personal operator contract.

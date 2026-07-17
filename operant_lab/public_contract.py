@@ -13,6 +13,7 @@ REQUIRED_PUBLIC_FILES = {
     "README.md",
     "benchmark-card.json",
     "calibration-profiles.json",
+    "evaluation-split-registry.json",
     "lab-run-status.json",
     "methodology.md",
 }
@@ -131,8 +132,8 @@ RECEIPT_KEY_RE = re.compile(
 def _read_json(path: Path, errors: list[str]) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        errors.append(f"{path}: invalid JSON: {exc}")
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"{path}: unreadable JSON: {exc}")
         return None
 
 
@@ -580,6 +581,10 @@ def validate_public_artifacts(
 
     benchmark = _read_json(public_dir / "benchmark-card.json", errors)
     calibration = _read_json(public_dir / "calibration-profiles.json", errors)
+    split_registry = _read_json(
+        public_dir / "evaluation-split-registry.json",
+        errors,
+    )
     lab_status = _read_json(public_dir / "lab-run-status.json", errors)
     model_cards = [
         card
@@ -590,12 +595,25 @@ def validate_public_artifacts(
     for name, value in (
         ("benchmark-card.json", benchmark),
         ("calibration-profiles.json", calibration),
+        ("evaluation-split-registry.json", split_registry),
         ("lab-run-status.json", lab_status),
     ):
         if value is not None:
             _walk_forbidden_keys(value, name, errors)
     for path, card in zip(model_card_paths, model_cards, strict=False):
         _walk_forbidden_keys(card, str(path.relative_to(public_dir)), errors)
+
+    if isinstance(split_registry, dict):
+        from verify_evaluation_split import verify as verify_evaluation_split
+
+        errors.extend(
+            f"evaluation-split-registry.json: {error}"
+            for error in verify_evaluation_split(
+                split_registry,
+                root=Path(__file__).resolve().parents[1],
+                public_dir=public_dir,
+            )
+        )
 
     for path in sorted(public_dir.rglob("*")):
         if not path.is_file() or path.suffix not in {".json", ".md", ".txt"}:
