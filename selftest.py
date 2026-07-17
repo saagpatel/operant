@@ -8,6 +8,7 @@ Exit 0 = ALL SELFTESTS PASSED
 Exit 1 = at least one assertion failed (details printed)
 """
 
+import hashlib
 import importlib.util
 import json
 import sys
@@ -621,6 +622,30 @@ def run_lab_layer_selftests() -> None:
                 ),
             )
             export_public_artifacts(source, out_dir)
+            calibration_data = json.loads(
+                calibration_path.read_text(encoding="utf-8")
+            )
+            family = calibration_data["models"][0]["run_family"]
+            card_path = out_dir / "model-cards" / f"{family}.json"
+            card_data = json.loads(card_path.read_text(encoding="utf-8"))
+            card_data["decision"]["ocs_mean"] = 999.0
+            card_path.write_text(
+                json.dumps(card_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            calibration_data["models"][0]["ocs_mean"] = 999.0
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            check(
+                "LAB public contract: rejects coordinated aggregate score drift",
+                any(
+                    "decision ocs_mean aggregate mismatch" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
             stale_path = out_dir / "model-cards" / "stale-profile.json"
             stale_path.write_text(
                 json.dumps({"run_family": "stale-profile"}) + "\n",
@@ -688,6 +713,49 @@ def run_lab_layer_selftests() -> None:
             check(
                 "LAB public contract: lab export passes",
                 validate_public_artifacts(out_tmp) == [],
+            )
+            benchmark_path = out_tmp / "benchmark-card.json"
+            benchmark_data = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            receipt_key = next(iter(benchmark_data["evidence_binding"]["lab_receipts"]))
+            del benchmark_data["evidence_binding"]["lab_receipts"][receipt_key]
+            binding = benchmark_data["evidence_binding"]
+            combined = json.dumps(
+                {
+                    "source_indexes": binding["source_indexes"],
+                    "lab_receipts": binding["lab_receipts"],
+                    "corpus": binding["corpus"],
+                    "protocol": binding["protocol"],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            binding["source_bundle_sha256"] = hashlib.sha256(combined).hexdigest()
+            benchmark_path.write_text(
+                json.dumps(benchmark_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            calibration_path = out_tmp / "calibration-profiles.json"
+            calibration_data = json.loads(
+                calibration_path.read_text(encoding="utf-8")
+            )
+            calibration_data["evidence_binding"] = binding
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            for card_path in (out_tmp / "model-cards").glob("*.json"):
+                card_data = json.loads(card_path.read_text(encoding="utf-8"))
+                card_data["evidence_binding"] = binding
+                card_path.write_text(
+                    json.dumps(card_data, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            check(
+                "LAB public contract: rejects partial local receipt coverage",
+                any(
+                    "lab receipt coverage does not match scored repeats" in error
+                    for error in validate_public_artifacts(out_tmp)
+                ),
             )
     else:
         with tempfile.TemporaryDirectory() as tmp:

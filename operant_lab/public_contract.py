@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import statistics
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -203,6 +205,92 @@ def _validate_evidence_binding(binding: dict[str, Any], errors: list[str]) -> No
             )
 
 
+def _mean(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 3)
+
+
+def _stdev(values: list[float]) -> float | None:
+    if len(values) < 2:
+        return None
+    return round(statistics.pstdev(values), 3)
+
+
+def _validate_decision_summary(
+    summary: Any,
+    *,
+    label: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(summary, dict):
+        errors.append(f"model card {label}: invalid decision summary")
+        return
+    tpr = summary.get("tpr")
+    fpr = summary.get("fpr")
+    ocs = summary.get("ocs")
+    if not all(isinstance(value, (int, float)) for value in (tpr, fpr, ocs)):
+        errors.append(f"model card {label}: decision summary lacks numeric TPR/FPR/OCS")
+    elif ocs != round(float(tpr) - float(fpr), 3):
+        errors.append(f"model card {label}: decision OCS does not equal TPR - FPR")
+    axes = summary.get("axis", {})
+    if not isinstance(axes, dict):
+        errors.append(f"model card {label}: invalid axis summaries")
+        return
+    for axis, axis_summary in axes.items():
+        _validate_decision_summary(
+            axis_summary,
+            label=f"{label}/{axis}",
+            errors=errors,
+        )
+
+
+def _validate_card_aggregates(card: dict[str, Any], errors: list[str]) -> None:
+    label = str(card.get("run_family", "<unknown>"))
+    decision = card.get("decision")
+    if not isinstance(decision, dict):
+        errors.append(f"model card {label}: invalid decision block")
+        return
+    repeats = decision.get("repeats")
+    if not isinstance(repeats, dict) or not repeats:
+        errors.append(f"model card {label}: decision repeats must be non-empty")
+        return
+    ocs_values: list[float] = []
+    for run_label, summary in repeats.items():
+        _validate_decision_summary(
+            summary,
+            label=f"{label}/{run_label}",
+            errors=errors,
+        )
+        if isinstance(summary, dict) and summary.get("n"):
+            value = summary.get("ocs")
+            if isinstance(value, (int, float)):
+                ocs_values.append(float(value))
+    if decision.get("ocs_mean") != _mean(ocs_values):
+        errors.append(f"model card {label}: decision ocs_mean aggregate mismatch")
+    if decision.get("ocs_stdev") != _stdev(ocs_values):
+        errors.append(f"model card {label}: decision ocs_stdev aggregate mismatch")
+    if decision.get("repeat_count") != len(ocs_values):
+        errors.append(f"model card {label}: decision repeat_count mismatch")
+
+    orchestration = card.get("orchestration_judge")
+    if not isinstance(orchestration, dict):
+        errors.append(f"model card {label}: invalid orchestration_judge block")
+        return
+    judge_repeats = orchestration.get("sonnet_judge", {})
+    if not isinstance(judge_repeats, dict):
+        errors.append(f"model card {label}: invalid sonnet_judge repeats")
+        return
+    judge_values = [
+        float(summary["mean_score"])
+        for summary in judge_repeats.values()
+        if isinstance(summary, dict)
+        and isinstance(summary.get("mean_score"), (int, float))
+    ]
+    if orchestration.get("mean_score") != _mean(judge_values):
+        errors.append(f"model card {label}: orchestration mean aggregate mismatch")
+
+
 def validate_public_artifacts(public_dir: Path) -> list[str]:
     """Return contract errors for a public export directory."""
     errors: list[str] = []
@@ -360,6 +448,8 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
         if card.get("claim_status") != expected_status:
             label = card.get("run_family", "<unknown>")
             errors.append(f"model card {label}: unsafe or missing claim_status")
+        if not is_orphaned:
+            _validate_card_aggregates(card, errors)
         if is_orphaned and not str(card.get("orphan_reason", "")).strip():
             label = card.get("run_family", "<unknown>")
             errors.append(f"model card {label}: missing orphan_reason")
@@ -413,13 +503,34 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
         if not isinstance(benchmark_binding, dict):
             benchmark_binding = {}
         lab_receipts = benchmark_binding.get("lab_receipts", {})
-        receipt_families = {
-            re.sub(r"-r\d+$", "", str(key).split("/", 1)[0])
-            for key in lab_receipts
-        } if isinstance(lab_receipts, dict) else set()
+        receipt_families = (
+            {
+                re.sub(r"-r\d+$", "", str(key).split("/", 1)[0])
+                for key in lab_receipts
+            }
+            if isinstance(lab_receipts, dict)
+            else set()
+        )
         if local_families - receipt_families:
             errors.append(
                 "benchmark-card.json: active local profiles lack bound lab receipts"
+            )
+        receipt_counts = (
+            Counter(str(key).split("/", 1)[0] for key in lab_receipts)
+            if isinstance(lab_receipts, dict)
+            else Counter()
+        )
+        expected_receipt_counts: dict[str, int] = {}
+        for family in local_families:
+            repeats = active_cards[family].get("decision", {}).get("repeats", {})
+            if not isinstance(repeats, dict):
+                continue
+            for run_label, summary in repeats.items():
+                if isinstance(summary, dict) and isinstance(summary.get("n"), int):
+                    expected_receipt_counts[str(run_label)] = int(summary["n"])
+        if dict(receipt_counts) != expected_receipt_counts:
+            errors.append(
+                "benchmark-card.json: lab receipt coverage does not match scored repeats"
             )
         expected_models = []
         for family in sorted(active_cards):
