@@ -166,7 +166,7 @@ def record(args: argparse.Namespace) -> None:
     case = cases[args.case_id]
     prompt = ADAPTER.build_prompt(case, system_prompt, args.axis)
     if args.queue_file is None:
-        sys.exit("record requires the exact v5 --queue-file prepared before dispatch")
+        sys.exit("record requires the exact v6 --queue-file prepared before dispatch")
     source_queue_bytes = args.queue_file.read_bytes()
     queue_payload = json.loads(source_queue_bytes)
     queue_manifest = (queue_payload or {}).get("manifest", {})
@@ -237,10 +237,10 @@ def record(args: argparse.Namespace) -> None:
         else parse_orchestration_plan(answer)
     )
     prepared_binding = queue_manifest.get("execution_binding")
-    if queue_manifest.get("manifest_schema") != "operant-run-manifest.v5":
-        sys.exit("record requires a v5 queue manifest; historical runs are not backfilled")
+    if queue_manifest.get("manifest_schema") != "operant-run-manifest.v6":
+        sys.exit("record requires a v6 queue manifest; historical runs are not backfilled")
     if not isinstance(prepared_binding, dict):
-        sys.exit("v5 queue manifest is missing execution_binding")
+        sys.exit("v6 queue manifest is missing execution_binding")
     binding_errors = validate_execution_binding(prepared_binding)
     if binding_errors:
         sys.exit("invalid queued execution binding: " + "; ".join(binding_errors))
@@ -285,6 +285,8 @@ def record(args: argparse.Namespace) -> None:
         evidence_source="NOT_EXPOSED",
         raw_result_envelope=answer,
         final_answer=answer,
+        runtime_root=HERE,
+        runtime_command=None,
     )
     identity_status = execution_binding["model_observation"]["comparison_status"]
     identity_failure = (
@@ -298,6 +300,18 @@ def record(args: argparse.Namespace) -> None:
             "decision": None,
             "justification": None,
             "failure_class": identity_failure,
+        }
+    runtime_failure = (
+        "runtime_candidate_drift"
+        if execution_binding["post_dispatch_runtime"]["comparison"] == "DRIFTED"
+        else None
+    )
+    if runtime_failure and not identity_failure:
+        parsed = {
+            "parse_status": runtime_failure,
+            "decision": None,
+            "justification": None,
+            "failure_class": runtime_failure,
         }
     report_path = (
         REPORTS / f"{prefix}__{args.label}__{args.case_id}.txt"
@@ -394,7 +408,7 @@ def main() -> None:
     rec.add_argument(
         "--case-split",
         default="canonical",
-        help="Compatibility argument; the required v5 queue supplies the bound split.",
+        help="Compatibility argument; the required v6 queue supplies the bound split.",
     )
     rec.set_defaults(func=record)
 

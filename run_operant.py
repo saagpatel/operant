@@ -262,6 +262,8 @@ def run_case(
         evidence_source="provider_result_modelUsage",
         raw_result_envelope=proc.stdout,
         final_answer=report_text,
+        runtime_root=HERE,
+        runtime_command=cmd,
     )
     identity_status = execution_binding["model_observation"]["comparison_status"]
     meta["provider_reported_model_candidates"] = observed_model_ids
@@ -274,6 +276,13 @@ def run_case(
     )
     if identity_failure:
         meta["error"] = identity_failure
+    runtime_failure = (
+        "runtime_candidate_drift"
+        if execution_binding["post_dispatch_runtime"]["comparison"] == "DRIFTED"
+        else None
+    )
+    if runtime_failure:
+        meta["error"] = runtime_failure
 
     parsed = parse_decision_block(report_text)
     execution_failure = (
@@ -283,7 +292,7 @@ def run_case(
         if provider_result_is_error
         else None
     )
-    terminal_failure = identity_failure or execution_failure
+    terminal_failure = identity_failure or runtime_failure or execution_failure
     if terminal_failure:
         parsed = {
             "parse_status": terminal_failure,

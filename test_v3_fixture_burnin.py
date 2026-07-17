@@ -82,7 +82,7 @@ class V3FixtureBurnInTests(unittest.TestCase):
                     mock.patch.object(
                         runner.ADAPTER,
                         "command",
-                        return_value=["fixture-provider"],
+                        return_value=["/bin/sh"],
                     ),
                     mock.patch.object(runner, "subprocess", fake_subprocess),
                 ):
@@ -130,6 +130,12 @@ class V3FixtureBurnInTests(unittest.TestCase):
                     "model_observation"
                 ]
                 self.assertEqual(observation["comparison_status"], "MATCHED")
+                self.assertEqual(
+                    receipt["manifest"]["execution_binding"][
+                        "post_dispatch_runtime"
+                    ]["comparison"],
+                    "MATCHED",
+                )
                 self.assertEqual(observation["final_answer_sha256"], stable_hash(answer))
                 self.assertEqual(receipt["final_answer"], answer)
                 self.assertEqual(receipt["parse_status"], "ok")
@@ -199,6 +205,78 @@ class V3FixtureBurnInTests(unittest.TestCase):
             self.assertIsNone(receipt["source_report"])
             self.assertFalse(
                 (reports / "operant__native-nonzero-r1__fixture.case.txt").exists()
+            )
+
+    def test_native_runtime_candidate_drift_blocks_success_projection(self) -> None:
+        import run_operant
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "operant-public"
+            project.mkdir()
+            harness = project / "fixture-harness.py"
+            harness.write_text("# fixture harness\n", encoding="utf-8")
+            executable = project / "fixture-provider"
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+            reports = project / "results" / "reports"
+            model = "fixture-model"
+            envelope = json.dumps(
+                {
+                    "type": "result",
+                    "result": ANSWER,
+                    "modelUsage": {model: {}},
+                }
+            )
+
+            def dispatch(*_args, **_kwargs):
+                executable.write_text("#!/bin/sh\nexit 9\n", encoding="utf-8")
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=envelope,
+                    stderr="",
+                )
+
+            fake_subprocess = SimpleNamespace(
+                run=dispatch,
+                DEVNULL=subprocess.DEVNULL,
+                TimeoutExpired=subprocess.TimeoutExpired,
+            )
+            with (
+                mock.patch.object(run_operant, "HERE", project),
+                mock.patch.object(run_operant, "REPORTS", reports),
+                mock.patch.object(run_operant, "HARNESS_FILES", [harness]),
+                mock.patch.object(
+                    run_operant.ADAPTER,
+                    "command",
+                    return_value=[str(executable)],
+                ),
+                mock.patch.object(run_operant, "subprocess", fake_subprocess),
+            ):
+                meta = run_operant.run_case(
+                    _case(),
+                    model=model,
+                    label="native-runtime-drift-r1",
+                    system_prompt="Fixture system contract.",
+                    evaluation_role="OPEN_DEVELOPMENT",
+                    case_split="fixture",
+                )
+            receipt = json.loads(
+                (project / meta["lab_report"]).read_text(encoding="utf-8")
+            )
+            self.assertEqual(receipt["parse_status"], "runtime_candidate_drift")
+            self.assertEqual(
+                receipt["manifest"]["execution_binding"][
+                    "post_dispatch_runtime"
+                ]["comparison"],
+                "DRIFTED",
+            )
+            self.assertIsNone(receipt["source_report"])
+            self.assertIsNone(receipt["score_row"])
+            self.assertFalse(
+                (
+                    reports
+                    / "operant__native-runtime-drift-r1__fixture.case.txt"
+                ).exists()
             )
 
     def test_native_provider_error_envelope_is_not_scoreable(self) -> None:
@@ -403,6 +481,15 @@ class V3FixtureBurnInTests(unittest.TestCase):
                     "_load_score_operant",
                     return_value=scorer,
                 ),
+                mock.patch.object(
+                    run_codex_cli,
+                    "codex_command",
+                    side_effect=lambda _args, answer_path: [
+                        "/bin/sh",
+                        "--output-last-message",
+                        str(answer_path),
+                    ],
+                ),
                 mock.patch.object(run_codex_cli, "subprocess", fake_subprocess),
             ):
                 meta = run_codex_cli.run_queue_file(
@@ -417,6 +504,12 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 "model_observation"
             ]
             self.assertEqual(observation["comparison_status"], "UNKNOWN")
+            self.assertEqual(
+                receipt["manifest"]["execution_binding"][
+                    "post_dispatch_runtime"
+                ]["comparison"],
+                "MATCHED",
+            )
             self.assertNotEqual(
                 receipt["manifest"]["execution_binding"]["completion_sha256"],
                 "UNKNOWN",
@@ -617,6 +710,11 @@ class V3FixtureBurnInTests(unittest.TestCase):
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
             binding = receipt["manifest"]["execution_binding"]
             self.assertNotEqual(binding["completion_sha256"], "UNKNOWN")
+            self.assertEqual(binding["post_dispatch_runtime"]["status"], "UNKNOWN")
+            self.assertEqual(
+                binding["post_dispatch_runtime"]["reason"],
+                "NO_EXECUTABLE_DISPATCH",
+            )
             self.assertEqual(
                 binding["model_observation"]["final_answer_sha256"],
                 stable_hash(ANSWER),

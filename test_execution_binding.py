@@ -27,6 +27,7 @@ from operant_lab.artifacts import (
     validate_run_manifest_v3,
     validate_run_manifest_v4,
     validate_run_manifest_v5,
+    validate_run_manifest_v6,
 )
 from operant_lab.inventory import _manifest_binding_projection
 
@@ -59,6 +60,8 @@ def _binding(
             evidence_source="provider_result_modelUsage",
             raw_result_envelope='{"fixture":true}',
             final_answer="fixture answer",
+            runtime_root=HERE,
+            runtime_command=["fixture", "--model", requested],
         )
     return binding
 
@@ -298,6 +301,130 @@ class ExecutionBindingTests(unittest.TestCase):
         self.assertEqual(null_relative["reason"], "EXECUTABLE_CAPTURE_FAILED")
         self.assertNotIn(str(root), json.dumps(first, sort_keys=True))
 
+    def test_post_dispatch_candidate_match_drift_and_unknown_are_explicit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            harness = root / "harness.py"
+            harness.write_text("# fixture\n", encoding="utf-8")
+            marker = root / "must-not-run"
+            executable = root / "fixture-runtime"
+            executable.write_text(
+                f"#!/bin/sh\ntouch {marker.name}\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            command = [str(executable)]
+
+            def prepared() -> dict:
+                return build_execution_binding(
+                    root=root,
+                    exact_prompt="p",
+                    system_prompt="s",
+                    stdin_text=None,
+                    command=command,
+                    cwd_class="REPOSITORY_ROOT",
+                    tool_policy="none",
+                    timeout_seconds=1,
+                    output_mode="fixture",
+                    dispatch_settings={},
+                    harness_files=[harness],
+                    requested_model_id="fixture-model",
+                )
+
+            stable = complete_execution_binding(
+                prepared(),
+                provider_reported_candidates=["fixture-model"],
+                evidence_source="provider_result_modelUsage",
+                raw_result_envelope="{}",
+                final_answer="fixture answer",
+                runtime_root=root,
+                runtime_command=command,
+            )
+            drift_prepared = prepared()
+            executable.write_text("#!/bin/sh\nexit 7\n", encoding="utf-8")
+            drifted = complete_execution_binding(
+                drift_prepared,
+                provider_reported_candidates=["fixture-model"],
+                evidence_source="provider_result_modelUsage",
+                raw_result_envelope="{}",
+                final_answer="fixture answer",
+                runtime_root=root,
+                runtime_command=command,
+            )
+            unavailable_prepared = prepared()
+            executable.unlink()
+            unavailable = complete_execution_binding(
+                unavailable_prepared,
+                provider_reported_candidates=["fixture-model"],
+                evidence_source="provider_result_modelUsage",
+                raw_result_envelope="{}",
+                final_answer="fixture answer",
+                runtime_root=root,
+                runtime_command=command,
+            )
+
+        self.assertFalse(marker.exists())
+        self.assertEqual(
+            stable["post_dispatch_runtime"]["comparison"],
+            "MATCHED",
+        )
+        self.assertEqual(validate_execution_binding(stable), [])
+        self.assertEqual(
+            drifted["post_dispatch_runtime"]["comparison"],
+            "DRIFTED",
+        )
+        self.assertEqual(
+            scoring_block_reason(asdict(_manifest(drifted))),
+            "runtime_candidate_drift",
+        )
+        self.assertEqual(
+            unavailable["post_dispatch_runtime"],
+            {
+                "status": "UNKNOWN",
+                "resolved_executable_name": "UNKNOWN",
+                "executable_sha256": "UNKNOWN",
+                "executable_size_bytes": "UNKNOWN",
+                "comparison": "UNKNOWN",
+                "coverage": "UNKNOWN",
+                "reason": "POST_DISPATCH_CANDIDATE_UNAVAILABLE",
+            },
+        )
+        self.assertNotIn(str(root), json.dumps(stable, sort_keys=True))
+
+    def test_manual_app_completion_preserves_unknown_runtime_assessment(self) -> None:
+        binding = build_execution_binding(
+            root=HERE,
+            exact_prompt="p",
+            system_prompt="s",
+            stdin_text=None,
+            command=None,
+            cwd_class="CODEX_APP_PROJECT_FOLDER",
+            tool_policy="none",
+            timeout_seconds=None,
+            output_mode="manual",
+            dispatch_settings={},
+            harness_files=[Path(__file__)],
+            requested_model_id="fixture-model",
+        )
+        completed = complete_execution_binding(
+            binding,
+            provider_reported_candidates=[],
+            evidence_source="NOT_EXPOSED",
+            raw_result_envelope="fixture",
+            final_answer="fixture",
+            runtime_root=HERE,
+            runtime_command=None,
+        )
+        self.assertEqual(
+            completed["post_dispatch_runtime"]["status"],
+            "UNKNOWN",
+        )
+        self.assertEqual(
+            completed["post_dispatch_runtime"]["reason"],
+            "NO_EXECUTABLE_DISPATCH",
+        )
+        self.assertEqual(validate_execution_binding(completed), [])
+
     def test_untracked_symlink_binds_link_identity_not_external_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"
@@ -382,7 +509,7 @@ class ExecutionBindingTests(unittest.TestCase):
 
     def test_manifest_core_and_schema_downgrade_are_fail_closed(self) -> None:
         manifest = asdict(_manifest(_binding(candidates=["fixture-model"])))
-        self.assertEqual(validate_run_manifest_v5(manifest), [])
+        self.assertEqual(validate_run_manifest_v6(manifest), [])
         for field_name, replacement in (
             ("subject_shell", "relabelled-shell"),
             ("evaluation_role", "SMOKE_ONLY"),
@@ -394,7 +521,7 @@ class ExecutionBindingTests(unittest.TestCase):
             with self.subTest(field=field_name):
                 self.assertIn(
                     "manifest core digest mismatch",
-                    validate_run_manifest_v5(changed),
+                    validate_run_manifest_v6(changed),
                 )
                 self.assertEqual(
                     scoring_block_reason(changed),
@@ -406,6 +533,7 @@ class ExecutionBindingTests(unittest.TestCase):
             "operant-run-manifest.v2",
             "operant-run-manifest.v3",
             "operant-run-manifest.v4",
+            "operant-run-manifest.v5",
         ):
             downgraded = copy.deepcopy(manifest)
             downgraded["manifest_schema"] = schema
@@ -421,6 +549,7 @@ class ExecutionBindingTests(unittest.TestCase):
         historical_binding = copy.deepcopy(_binding())
         historical_binding["schema"] = "operant-execution-binding.v1"
         historical_binding.pop("subject_runtime")
+        historical_binding.pop("post_dispatch_runtime")
         historical_binding["source_state"].pop("reconstruction")
         pre_dispatch = {
             **{
@@ -456,6 +585,7 @@ class ExecutionBindingTests(unittest.TestCase):
         historical_binding = copy.deepcopy(_binding())
         historical_binding["schema"] = "operant-execution-binding.v2"
         historical_binding.pop("subject_runtime")
+        historical_binding.pop("post_dispatch_runtime")
         pre_dispatch = {
             **{
                 key: value
@@ -485,6 +615,46 @@ class ExecutionBindingTests(unittest.TestCase):
             }
         )
         self.assertEqual(validate_run_manifest_v4(historical_manifest), [])
+        self.assertEqual(
+            scoring_block_reason(historical_manifest),
+            "incomplete_execution_receipt",
+        )
+
+    def test_genuine_historical_v5_v3_receipt_remains_interpretable(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        historical_binding = copy.deepcopy(_binding())
+        historical_binding["schema"] = "operant-execution-binding.v3"
+        historical_binding.pop("post_dispatch_runtime")
+        pre_dispatch = {
+            **{
+                key: value
+                for key, value in historical_binding.items()
+                if key
+                not in {
+                    "model_observation",
+                    "pre_dispatch_sha256",
+                    "completion_sha256",
+                }
+            },
+            "requested_model_id": historical_binding["model_observation"][
+                "requested_model_id"
+            ],
+        }
+        historical_binding["pre_dispatch_sha256"] = artifacts._canonical_hash(
+            pre_dispatch
+        )
+        historical_manifest = asdict(_manifest(_binding()))
+        historical_manifest["manifest_schema"] = "operant-run-manifest.v5"
+        historical_manifest["execution_binding"] = historical_binding
+        historical_manifest["manifest_core_sha256"] = artifacts._canonical_hash(
+            {
+                key: value
+                for key, value in historical_manifest.items()
+                if key != "manifest_core_sha256"
+            }
+        )
+        self.assertEqual(validate_run_manifest_v5(historical_manifest), [])
         self.assertEqual(
             scoring_block_reason(historical_manifest),
             "incomplete_execution_receipt",
@@ -562,6 +732,7 @@ class ExecutionBindingTests(unittest.TestCase):
                 self.assertTrue(validate_run_manifest_v3(value))
                 self.assertTrue(validate_run_manifest_v4(value))
                 self.assertTrue(validate_run_manifest_v5(value))
+                self.assertTrue(validate_run_manifest_v6(value))
                 expected = (
                     None
                     if isinstance(value, dict)
@@ -582,6 +753,9 @@ class ExecutionBindingTests(unittest.TestCase):
             ("execution_binding.subject_runtime", []),
             ("execution_binding.subject_runtime.status", []),
             ("execution_binding.subject_runtime.reason", {}),
+            ("execution_binding.post_dispatch_runtime", []),
+            ("execution_binding.post_dispatch_runtime.status", []),
+            ("execution_binding.post_dispatch_runtime.comparison", {}),
         )
         baseline = asdict(_manifest(_binding()))
         for path, value in mutations:
@@ -651,6 +825,8 @@ class ExecutionBindingTests(unittest.TestCase):
                 evidence_source="provider_result_modelUsage",
                 raw_result_envelope=b"{}",
                 final_answer="fixture answer",
+                runtime_root=HERE,
+                runtime_command=["fixture"],
             )
 
     def test_persisted_index_rows_exclude_later_blocked_receipts(self) -> None:

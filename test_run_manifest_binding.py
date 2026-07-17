@@ -27,6 +27,8 @@ from operant_lab.artifacts import (
     write_run_report,
 )
 
+HERE = Path(__file__).resolve().parent
+
 
 def _case(case_id: str, prompt: str) -> dict:
     return {
@@ -192,7 +194,7 @@ class RunManifestBindingTests(unittest.TestCase):
                 case_bundle_case_count=0,
             )
 
-    def test_written_receipt_carries_v5_execution_contract(self) -> None:
+    def test_written_receipt_carries_v6_execution_contract(self) -> None:
         binding = case_bundle_binding(
             [_case("a", "alpha")],
             case_split="development",
@@ -216,6 +218,8 @@ class RunManifestBindingTests(unittest.TestCase):
                 evidence_source="NOT_EXPOSED",
                 raw_result_envelope="fixture",
                 final_answer="fixture",
+                runtime_root=HERE,
+                runtime_command=["fixture"],
             ),
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -228,7 +232,7 @@ class RunManifestBindingTests(unittest.TestCase):
                 ),
             )
             written = json.loads(path.read_text(encoding="utf-8"))["manifest"]
-        self.assertEqual(written["manifest_schema"], "operant-run-manifest.v5")
+        self.assertEqual(written["manifest_schema"], "operant-run-manifest.v6")
         self.assertEqual(written["evaluation_role"], "OPEN_DEVELOPMENT")
         self.assertEqual(
             written["case_bundle_sha256"],
@@ -247,6 +251,8 @@ class RunManifestBindingTests(unittest.TestCase):
             evidence_source="NOT_EXPOSED",
             raw_result_envelope="fixture",
             final_answer="fixture",
+            runtime_root=HERE,
+            runtime_command=["fixture"],
         )
         report = RunReport(
             manifest=RunManifest(
@@ -281,7 +287,7 @@ class RunManifestBindingTests(unittest.TestCase):
             self.assertEqual(outcomes.count("created"), 1)
             self.assertEqual(outcomes.count("blocked"), 7)
 
-    def test_app_prepare_serializes_v5_schema_and_pre_dispatch_binding(self) -> None:
+    def test_app_prepare_serializes_v6_schema_and_pre_dispatch_binding(self) -> None:
         import run_codex_app
 
         args = argparse.Namespace(
@@ -325,7 +331,7 @@ class RunManifestBindingTests(unittest.TestCase):
         queued = json.loads(output.getvalue())
         self.assertEqual(
             queued["manifest"]["manifest_schema"],
-            "operant-run-manifest.v5",
+            "operant-run-manifest.v6",
         )
         self.assertEqual(
             queued["manifest"]["execution_binding"]["pre_dispatch_sha256"],
@@ -430,7 +436,7 @@ class RunManifestBindingTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(
                     SystemExit,
-                    "requires the exact v5 --queue-file",
+                    "requires the exact v6 --queue-file",
                 ):
                     run_codex_app.record(args)
 
@@ -800,6 +806,8 @@ class RunManifestBindingTests(unittest.TestCase):
             evidence_source="provider_result_modelUsage",
             raw_result_envelope=b'{"model":"different-model"}',
             final_answer="blocked",
+            runtime_root=HERE,
+            runtime_command=["fixture"],
         )
 
         class Runner:

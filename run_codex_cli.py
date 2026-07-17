@@ -287,16 +287,24 @@ def run_queue_file(
         evidence_source="NOT_EXPOSED",
         raw_result_envelope=answer,
         final_answer=answer,
+        runtime_root=HERE,
+        runtime_command=cmd,
     )
 
     report_path = _report_path(args.label, case_id)
     parsed = parse_decision_block(answer)
-    if proc.returncode != 0:
+    runtime_failure = (
+        "runtime_candidate_drift"
+        if execution_binding["post_dispatch_runtime"]["comparison"] == "DRIFTED"
+        else None
+    )
+    if proc.returncode != 0 or runtime_failure:
+        failure_class = runtime_failure or "process_exit_nonzero"
         parsed = {
-            "parse_status": "process_exit_nonzero",
+            "parse_status": failure_class,
             "decision": None,
             "justification": None,
-            "failure_class": "process_exit_nonzero",
+            "failure_class": failure_class,
         }
     manifest = RunManifest(
         run_label=args.label,
@@ -361,7 +369,9 @@ def run_queue_file(
         "lab_report": str(lab_path.relative_to(HERE)),
         "execution_binding": execution_binding,
     }
-    if proc.returncode != 0:
+    if runtime_failure:
+        meta["error"] = runtime_failure
+    elif proc.returncode != 0:
         meta["error"] = "process_exit_nonzero"
         if proc.stderr.strip():
             meta["stderr_tail"] = proc.stderr[-400:]
