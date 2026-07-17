@@ -45,7 +45,6 @@ from operant_lab.artifacts import (
     filter_unblocked_index_rows,
     receipt_output_scoring_block_reason,
     resolve_evaluation_role,
-    scoring_block_reason,
 )
 
 HERE = Path(__file__).resolve().parent
@@ -156,18 +155,7 @@ def run_axis(
         if not report_value:
             missing.append(cid)
             continue
-        execution_binding = meta.get("execution_binding")
-        if not isinstance(execution_binding, dict):
-            missing.append(cid)
-            continue
-        block_reason = scoring_block_reason(
-            {
-                "manifest_schema": "operant-run-manifest.v3",
-                "model_id": model,
-                "execution_binding": execution_binding,
-            }
-        )
-        if block_reason:
+        if not isinstance(meta.get("execution_binding"), dict):
             missing.append(cid)
             continue
         report_path = HERE.parent / str(report_value)

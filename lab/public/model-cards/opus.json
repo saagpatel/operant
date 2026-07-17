@@ -739,13 +739,13 @@
       "operant_templates.json": "6eb70b387f6c9ed01cac191e9bee037e75804396effb203cce1ed652fa8ae301"
     },
     "current_public_protocol": {
-      "artifacts.py": "9c2aa404da598fc15787c15063c326c2af502dc7afc1ab7fc71823bb7b39b0bd",
-      "inventory.py": "54565c8c4b15988749905d40b7d936fb86bab2737102313a66d0b05d0835addb",
+      "artifacts.py": "cfcf8d8b3aeb998e9a370a921ced8442adeaf674c20790fcd731838f55f01c1b",
+      "inventory.py": "29247c45bbba0df0cbad7c02c067ee231edc68a32fb6b02250b635b2faca84c7",
       "score_operant.py": "c952f69d36491df18e5dce49db92e18c4b9f87bc7e66b5563323203d0b5f8022",
       "score_orchestration.py": "430693d9a145ea9c64816e18864dec1d660b886d464c1032f85d5d12707b22d1",
       "score_orchestration_judge.py": "3c77fd77ee871b563d99a8a197675030f9f5913096e44cbd372fd2f2426cd0f5"
     },
-    "exporter_sha256": "1310962d87a7af2590126723f683ec16445d206ca2785a433f10f7e63108b5a1",
+    "exporter_sha256": "10a60c45cc9d7414ee91808f68d6cbb5cbbbbd95542b3812b68bf7429f4bb379",
     "historical_as_run_corpus": "UNKNOWN",
     "historical_as_run_protocol": "UNKNOWN",
     "historical_o1_evidence_manifest_sha256": "UNKNOWN",
@@ -837,7 +837,7 @@
     },
     "private_paths_exposed": false,
     "schema": "operant-public-evidence-binding.v4",
-    "source_bundle_sha256": "091d5bf4c84a56769d23200a8c47f2d52d7e824c9cda58ef46441be14458f937",
+    "source_bundle_sha256": "167049efb92d56e0ccc9376c2575adf543b261f22b1b2ea8c36e2b7b4a7ba629",
     "source_indexes": {
       "operant_index.jsonl": "6d13063af546067b018ab30149b1f28c2c9d78aa61dd58e9e10d717c34739f38",
       "operant_orchestration_judge_index.jsonl": "eb66b62e68472d5abc50a3c505173289a41ef5cdf1087be15ea0c3bd13520d48",

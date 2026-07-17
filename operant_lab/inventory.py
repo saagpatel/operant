@@ -14,6 +14,8 @@ from .artifacts import (
     scoring_block_reason,
     stable_hash,
     validate_execution_binding,
+    validate_run_manifest_v3,
+    validate_run_manifest_v4,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -188,15 +190,25 @@ def _manifest_binding_projection(
     if schema not in {
         "operant-run-manifest.v2",
         "operant-run-manifest.v3",
+        "operant-run-manifest.v4",
     }:
         return unknown
-    if schema == "operant-run-manifest.v3":
+    if schema in {"operant-run-manifest.v3", "operant-run-manifest.v4"}:
         execution = manifest.get("execution_binding")
-        if not isinstance(execution, dict) or validate_execution_binding(execution):
+        validator = (
+            validate_run_manifest_v3
+            if schema == "operant-run-manifest.v3"
+            else validate_run_manifest_v4
+        )
+        if (
+            not isinstance(execution, dict)
+            or validate_execution_binding(execution)
+            or validator(manifest)
+        ):
             return {
                 **unknown,
                 "status": INVALID_BINDING,
-                "manifest_schema": "operant-run-manifest.v3",
+                "manifest_schema": schema,
             }
 
     role = manifest.get("evaluation_role")

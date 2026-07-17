@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Zero-cost fixture burn-in for every OPERANT v3 producer path."""
+"""Zero-cost fixture burn-in for every current OPERANT producer path."""
 
 from __future__ import annotations
 

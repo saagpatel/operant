@@ -245,7 +245,7 @@ def run_lab_layer_selftests() -> None:
         subject_shell="codex-app",
         model_id="gpt-5.5",
         thinking="medium",
-        prompt_hash="abc",
+        prompt_hash=stable_hash(prompt.full_prompt),
         prompt_contract=prompt.prompt_contract,
         tool_policy=prompt.tool_policy,
         evaluation_role="UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY",
@@ -266,6 +266,7 @@ def run_lab_layer_selftests() -> None:
             requested_model_id="gpt-5.5",
         ),
         source_queue_file="lab/codex-app-queue/demo/demo.json",
+        source_queue_sha256="1" * 64,
         thread_container="projectless:operant-public-lab-runs",
     )
     check(
@@ -274,7 +275,7 @@ def run_lab_layer_selftests() -> None:
     )
     check(
         "LAB manifest: carries non-confirmatory case-bundle binding",
-        manifest.manifest_schema == "operant-run-manifest.v3"
+        manifest.manifest_schema == "operant-run-manifest.v4"
         and manifest.confirmatory_eligible is False
         and manifest.case_bundle_sha256 == "0" * 64,
     )

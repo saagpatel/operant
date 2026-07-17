@@ -363,7 +363,10 @@ def load_lab_decision_rows(
                     f"unscoreable receipt carries score evidence: {label}/{case_id}"
                 )
             continue
-        if manifest.get("manifest_schema") == "operant-run-manifest.v3":
+        if manifest.get("manifest_schema") in {
+            "operant-run-manifest.v3",
+            "operant-run-manifest.v4",
+        }:
             bound_answer = (
                 manifest.get("execution_binding", {})
                 .get("model_observation", {})

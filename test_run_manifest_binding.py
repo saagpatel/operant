@@ -38,16 +38,21 @@ def _case(case_id: str, prompt: str) -> dict:
     }
 
 
-def _execution_binding(requested_model_id: str = "fixture") -> dict:
+def _execution_binding(
+    requested_model_id: str = "fixture",
+    *,
+    exact_prompt: str = "fixture prompt",
+    tool_policy: str = "none",
+) -> dict:
     root = Path(__file__).resolve().parent
     return build_execution_binding(
         root=root,
-        exact_prompt="fixture prompt",
+        exact_prompt=exact_prompt,
         system_prompt="fixture system",
         stdin_text=None,
         command=["fixture"],
         cwd_class="REPOSITORY_ROOT",
-        tool_policy="none",
+        tool_policy=tool_policy,
         timeout_seconds=1,
         output_mode="fixture",
         dispatch_settings={},
@@ -187,7 +192,7 @@ class RunManifestBindingTests(unittest.TestCase):
                 case_bundle_case_count=0,
             )
 
-    def test_written_receipt_carries_v3_execution_contract(self) -> None:
+    def test_written_receipt_carries_v4_execution_contract(self) -> None:
         binding = case_bundle_binding(
             [_case("a", "alpha")],
             case_split="development",
@@ -198,7 +203,7 @@ class RunManifestBindingTests(unittest.TestCase):
             axis="decision",
             subject_shell="fixture",
             model_id="fixture",
-            prompt_hash="1" * 64,
+            prompt_hash=stable_hash("fixture prompt"),
             prompt_contract="fixture",
             tool_policy="none",
             evaluation_role="OPEN_DEVELOPMENT",
@@ -223,7 +228,7 @@ class RunManifestBindingTests(unittest.TestCase):
                 ),
             )
             written = json.loads(path.read_text(encoding="utf-8"))["manifest"]
-        self.assertEqual(written["manifest_schema"], "operant-run-manifest.v3")
+        self.assertEqual(written["manifest_schema"], "operant-run-manifest.v4")
         self.assertEqual(written["evaluation_role"], "OPEN_DEVELOPMENT")
         self.assertEqual(
             written["case_bundle_sha256"],
@@ -250,7 +255,7 @@ class RunManifestBindingTests(unittest.TestCase):
                 axis="decision",
                 subject_shell="fixture",
                 model_id="fixture",
-                prompt_hash="1" * 64,
+                prompt_hash=stable_hash("fixture prompt"),
                 prompt_contract="fixture",
                 tool_policy="none",
                 evaluation_role="OPEN_DEVELOPMENT",
@@ -276,7 +281,7 @@ class RunManifestBindingTests(unittest.TestCase):
             self.assertEqual(outcomes.count("created"), 1)
             self.assertEqual(outcomes.count("blocked"), 7)
 
-    def test_app_prepare_serializes_v3_schema_and_pre_dispatch_binding(self) -> None:
+    def test_app_prepare_serializes_v4_schema_and_pre_dispatch_binding(self) -> None:
         import run_codex_app
 
         args = argparse.Namespace(
@@ -309,7 +314,10 @@ class RunManifestBindingTests(unittest.TestCase):
             mock.patch.object(
                 run_codex_app,
                 "build_execution_binding",
-                return_value=_execution_binding(),
+                return_value=_execution_binding(
+                    exact_prompt="exact prepared prompt",
+                    tool_policy=run_codex_app.ADAPTER.tool_policy,
+                ),
             ),
             contextlib.redirect_stdout(output),
         ):
@@ -317,11 +325,14 @@ class RunManifestBindingTests(unittest.TestCase):
         queued = json.loads(output.getvalue())
         self.assertEqual(
             queued["manifest"]["manifest_schema"],
-            "operant-run-manifest.v3",
+            "operant-run-manifest.v4",
         )
         self.assertEqual(
             queued["manifest"]["execution_binding"]["pre_dispatch_sha256"],
-            _execution_binding()["pre_dispatch_sha256"],
+            _execution_binding(
+                exact_prompt="exact prepared prompt",
+                tool_policy=run_codex_app.ADAPTER.tool_policy,
+            )["pre_dispatch_sha256"],
         )
 
     def test_app_prepare_queue_is_no_clobber(self) -> None:
@@ -367,7 +378,10 @@ class RunManifestBindingTests(unittest.TestCase):
                 mock.patch.object(
                     run_codex_app,
                     "build_execution_binding",
-                    return_value=_execution_binding(),
+                    return_value=_execution_binding(
+                        exact_prompt="exact prepared prompt",
+                        tool_policy=run_codex_app.ADAPTER.tool_policy,
+                    ),
                 ),
                 mock.patch.object(run_codex_app, "HERE", project),
                 mock.patch.object(run_codex_app, "QUEUE_DIR", queue_dir),
@@ -416,7 +430,7 @@ class RunManifestBindingTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(
                     SystemExit,
-                    "requires the exact v3 --queue-file",
+                    "requires the exact v4 --queue-file",
                 ):
                     run_codex_app.record(args)
 
@@ -546,7 +560,10 @@ class RunManifestBindingTests(unittest.TestCase):
                 mock.patch.object(
                     run_codex_cli,
                     "build_execution_binding",
-                    return_value=_execution_binding(),
+                    return_value=_execution_binding(
+                        exact_prompt=prompt,
+                        tool_policy=run_codex_cli.TOOL_POLICY,
+                    ),
                 ),
                 mock.patch.object(
                     run_codex_cli.subprocess,
@@ -622,7 +639,10 @@ class RunManifestBindingTests(unittest.TestCase):
                 mock.patch.object(
                     run_codex_cli,
                     "build_execution_binding",
-                    return_value=_execution_binding(),
+                    return_value=_execution_binding(
+                        exact_prompt=prompt,
+                        tool_policy=run_codex_cli.TOOL_POLICY,
+                    ),
                 ),
                 mock.patch.object(
                     run_codex_cli,

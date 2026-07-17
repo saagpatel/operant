@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import ast
+import copy
 import json
 import subprocess
 import tempfile
 import unittest
 from dataclasses import asdict
 from pathlib import Path
+from unittest import mock
 
 from operant_lab.artifacts import (
     RunManifest,
@@ -22,6 +24,8 @@ from operant_lab.artifacts import (
     receipt_scoring_block_reason,
     scoring_block_reason,
     validate_execution_binding,
+    validate_run_manifest_v3,
+    validate_run_manifest_v4,
 )
 from operant_lab.inventory import _manifest_binding_projection
 
@@ -65,7 +69,7 @@ def _manifest(binding: dict) -> RunManifest:
         axis="decision",
         subject_shell="fixture",
         model_id="fixture-model",
-        prompt_hash="a" * 64,
+        prompt_hash=binding["input_binding"]["delivered_prompt_sha256"],
         prompt_contract="fixture",
         tool_policy="none",
         evaluation_role="OPEN_DEVELOPMENT",
@@ -170,12 +174,33 @@ class ExecutionBindingTests(unittest.TestCase):
                 )
 
             clean = capture()["source_state"]
+            expected_commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
             harness.write_text("print('two')\n", encoding="utf-8")
+            subprocess.run(["git", "add", "harness.py"], cwd=root, check=True)
+            staged = capture()["source_state"]
+            harness.write_text("print('three')\n", encoding="utf-8")
             dirty = capture()["source_state"]
             (root / "untracked.txt").write_text("evidence\n", encoding="utf-8")
             untracked = capture()["source_state"]
+        self.assertEqual(clean["commit"], expected_commit)
         self.assertIs(clean["dirty"], False)
+        self.assertEqual(clean["reconstruction"], "CLEAN_COMMIT")
+        self.assertEqual(staged["reconstruction"], "DIRTY_DIGEST_ONLY")
         self.assertIs(dirty["dirty"], True)
+        self.assertNotEqual(
+            clean["dirty_state_sha256"],
+            staged["dirty_state_sha256"],
+        )
+        self.assertNotEqual(
+            staged["dirty_state_sha256"],
+            dirty["dirty_state_sha256"],
+        )
         self.assertNotEqual(
             clean["dirty_state_sha256"],
             dirty["dirty_state_sha256"],
@@ -184,6 +209,247 @@ class ExecutionBindingTests(unittest.TestCase):
             dirty["dirty_state_sha256"],
             untracked["dirty_state_sha256"],
         )
+
+    def test_dependency_lockfiles_are_present_but_not_claimed_active(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            harness = root / "harness.py"
+            harness.write_text("# fixture\n", encoding="utf-8")
+            lock = root / "pylock.toml"
+            lock.write_text("[packages]\na = '1'\n", encoding="utf-8")
+
+            def capture() -> dict:
+                return build_execution_binding(
+                    root=root,
+                    exact_prompt="p",
+                    system_prompt="s",
+                    stdin_text=None,
+                    command=["fixture"],
+                    cwd_class="REPOSITORY_ROOT",
+                    tool_policy="none",
+                    timeout_seconds=1,
+                    output_mode="fixture",
+                    dispatch_settings={},
+                    harness_files=[harness],
+                    requested_model_id="fixture-model",
+                )["dependency_lock"]
+
+            first = capture()
+            lock.write_text("[packages]\na = '2'\n", encoding="utf-8")
+            second = capture()
+        self.assertEqual(first["status"], "LOCKFILE_PRESENT_UNVERIFIED")
+        self.assertEqual(first["files"], ["pylock.toml"])
+        self.assertEqual(first["reason"], "ACTIVE_ENVIRONMENT_NOT_PROVEN")
+        self.assertNotEqual(first["sha256"], second["sha256"])
+
+    def test_untracked_symlink_binds_link_identity_not_external_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            external = Path(tmp) / "private.txt"
+            external.write_text("first secret\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "fixture@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Fixture"],
+                cwd=root,
+                check=True,
+            )
+            harness = root / "harness.py"
+            harness.write_text("# fixture\n", encoding="utf-8")
+            subprocess.run(["git", "add", "harness.py"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+            (root / "external-link").symlink_to(external)
+
+            def source() -> dict:
+                return build_execution_binding(
+                    root=root,
+                    exact_prompt="p",
+                    system_prompt="s",
+                    stdin_text=None,
+                    command=["fixture"],
+                    cwd_class="REPOSITORY_ROOT",
+                    tool_policy="none",
+                    timeout_seconds=1,
+                    output_mode="fixture",
+                    dispatch_settings={},
+                    harness_files=[harness],
+                    requested_model_id="fixture-model",
+                )["source_state"]
+
+            before = source()
+            external.write_text("changed secret\n", encoding="utf-8")
+            after = source()
+        self.assertEqual(before, after)
+        self.assertEqual(before["reconstruction"], "DIRTY_DIGEST_ONLY")
+
+    def test_unstable_source_capture_falls_back_to_unknown(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        first = {
+            "commit": "a" * 40,
+            "dirty": False,
+            "dirty_state_sha256": "b" * 64,
+            "reconstruction": "CLEAN_COMMIT",
+        }
+        second = {
+            **first,
+            "dirty": True,
+            "reconstruction": "DIRTY_DIGEST_ONLY",
+        }
+        with mock.patch.object(
+            artifacts,
+            "_source_snapshot",
+            side_effect=[first, second],
+        ):
+            captured = artifacts._source_state(Path("."))
+        self.assertEqual(
+            captured,
+            {
+                "commit": "UNKNOWN",
+                "dirty": "UNKNOWN",
+                "dirty_state_sha256": "UNKNOWN",
+                "reconstruction": "UNKNOWN",
+            },
+        )
+        with mock.patch.object(
+            artifacts,
+            "_source_snapshot",
+            side_effect=FileNotFoundError("disappeared"),
+        ):
+            disappeared = artifacts._source_state(Path("."))
+        self.assertEqual(disappeared["reconstruction"], "UNKNOWN")
+
+    def test_manifest_core_and_schema_downgrade_are_fail_closed(self) -> None:
+        manifest = asdict(_manifest(_binding(candidates=["fixture-model"])))
+        self.assertEqual(validate_run_manifest_v4(manifest), [])
+        for field_name, replacement in (
+            ("subject_shell", "relabelled-shell"),
+            ("evaluation_role", "SMOKE_ONLY"),
+            ("case_split", "relabelled-split"),
+            ("created_at", "2020-01-01T00:00:00Z"),
+        ):
+            changed = copy.deepcopy(manifest)
+            changed[field_name] = replacement
+            with self.subTest(field=field_name):
+                self.assertIn(
+                    "manifest core digest mismatch",
+                    validate_run_manifest_v4(changed),
+                )
+                self.assertEqual(
+                    scoring_block_reason(changed),
+                    "invalid_execution_binding",
+                )
+        for schema in (None, "operant-run-manifest.v1", "operant-run-manifest.v2"):
+            downgraded = copy.deepcopy(manifest)
+            downgraded["manifest_schema"] = schema
+            with self.subTest(schema=schema):
+                self.assertEqual(
+                    scoring_block_reason(downgraded),
+                    "invalid_execution_binding",
+                )
+
+    def test_genuine_historical_v3_v1_receipt_remains_interpretable(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        historical_binding = copy.deepcopy(_binding())
+        historical_binding["schema"] = "operant-execution-binding.v1"
+        historical_binding["source_state"].pop("reconstruction")
+        pre_dispatch = {
+            **{
+                key: value
+                for key, value in historical_binding.items()
+                if key
+                not in {
+                    "model_observation",
+                    "pre_dispatch_sha256",
+                    "completion_sha256",
+                }
+            },
+            "requested_model_id": historical_binding["model_observation"][
+                "requested_model_id"
+            ],
+        }
+        historical_binding["pre_dispatch_sha256"] = artifacts._canonical_hash(
+            pre_dispatch
+        )
+        historical_manifest = asdict(_manifest(_binding()))
+        historical_manifest.pop("manifest_core_sha256")
+        historical_manifest["manifest_schema"] = "operant-run-manifest.v3"
+        historical_manifest["execution_binding"] = historical_binding
+        self.assertEqual(validate_run_manifest_v3(historical_manifest), [])
+        self.assertEqual(
+            scoring_block_reason(historical_manifest),
+            "incomplete_execution_receipt",
+        )
+
+    def test_contradictory_capture_states_and_nonfinite_cost_are_invalid(self) -> None:
+        manifest = asdict(_manifest(_binding()))
+        source = manifest["execution_binding"]["source_state"]
+        source.update(
+            {
+                "commit": "UNKNOWN",
+                "dirty": False,
+                "dirty_state_sha256": "a" * 64,
+                "reconstruction": "CLEAN_COMMIT",
+            }
+        )
+        source_errors = validate_execution_binding(manifest["execution_binding"])
+        self.assertIn(
+            "unknown source state carries contradictory evidence",
+            source_errors,
+        )
+
+        dependency_binding = _binding()
+        dependency_binding["dependency_lock"].update(
+            {
+                "status": "LOCKFILE_PRESENT_UNVERIFIED",
+                "files": [],
+                "sha256": "a" * 64,
+                "reason": "ACTIVE_ENVIRONMENT_NOT_PROVEN",
+            }
+        )
+        self.assertIn(
+            "lockfile evidence is incomplete",
+            validate_execution_binding(dependency_binding),
+        )
+        malformed_dependency = asdict(_manifest(_binding()))
+        malformed_dependency["execution_binding"]["dependency_lock"]["files"] = [{}]
+        self.assertEqual(
+            scoring_block_reason(malformed_dependency),
+            "invalid_execution_binding",
+        )
+
+        for persisted_cost in (float("nan"), float("inf"), float("-inf")):
+            persisted = asdict(_manifest(_binding()))
+            persisted["cost_usd"] = persisted_cost
+            with self.subTest(persisted_cost=persisted_cost):
+                self.assertEqual(
+                    scoring_block_reason(persisted),
+                    "invalid_execution_binding",
+                )
+
+        for cost in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(cost=cost):
+                with self.assertRaisesRegex(ValueError, "cost_usd"):
+                    RunManifest(
+                        **{
+                            key: value
+                            for key, value in asdict(_manifest(_binding())).items()
+                            if key
+                            not in {
+                                "manifest_schema",
+                                "confirmatory_eligible",
+                                "manifest_core_sha256",
+                                "cost_usd",
+                            }
+                        },
+                        cost_usd=cost,
+                    )
 
     def test_identity_mismatch_blocks_scores_but_preserves_failure_receipt(self) -> None:
         binding = _binding(candidates=["different-model"])

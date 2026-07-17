@@ -146,15 +146,25 @@ python3 score_orchestration_judge.py --validate
 
 `--judge` is off by default; all judge token spend is gated behind it. See `RUN-PLAN.md` for the full cost-ordered runbook and `RESULTS.md` for the methodology log.
 
-Every new lab receipt uses `operant-run-manifest.v3`. In addition to the
+Every new lab receipt uses `operant-run-manifest.v4`. In addition to the
 order-independent case/split binding and evaluation role introduced in v2, it
-records an `operant-execution-binding.v1` over the delivered prompt, logical
+records an `operant-execution-binding.v2` over the delivered prompt, logical
 system prompt, command or stdin shape, tool policy, timeout, output mode,
 dispatch settings such as thinking level, harness bytes, source state,
 dependency-lock state, and a sanitized environment snapshot. These hashes bind
 inputs; they do **not** prove that a run is
-replayable, so v3 receipts conservatively report
+replayable, so v4 receipts conservatively report
 `INPUT_BOUND_NOT_REPLAYABLE`.
+
+The persisted manifest also carries a `manifest_core_sha256` over its
+interpretation-critical metadata. This makes later relabeling of the shell,
+evaluation role, split, queue provenance, timestamp, or treatment fields fail
+closed. Source capture distinguishes `CLEAN_COMMIT`, `DIRTY_DIGEST_ONLY`, and
+`UNKNOWN`; dirty bytes are integrity-bound but are not reconstructable from the
+receipt. A discovered Python lockfile is reported as
+`LOCKFILE_PRESENT_UNVERIFIED`, not proof that it governed the active
+environment. Subject CLI/runtime identity is still not captured and therefore
+remains an explicit reproducibility gap.
 
 Provider-reported model candidates are retained as evidence. They are not
 promoted to served-model identity, which remains `UNKNOWN`. An exact requested
@@ -165,7 +175,7 @@ are likewise preserved but cannot produce deterministic report projections,
 scores, or exports. Codex queue
 receipts retain the exact source-queue SHA-256, and receipt publication precedes
 report projection so a failed receipt cannot leave a scoreable orphan report.
-Historical v1/v2 receipts remain historical rather than being backfilled.
+Historical v1/v2/v3 receipts remain historical rather than being backfilled.
 
 CI exercises these rules with zero-cost local fixtures across the native,
 Codex CLI, and Codex App producer paths and through suite/export consumers.
@@ -402,11 +412,11 @@ python3 run_codex_app.py record \
   --answer-file <path-to-final-answer-txt>
 ```
 
-Recording requires the exact v3 `--queue-file` created before dispatch. It
+Recording requires the exact v4 `--queue-file` created before dispatch. It
 writes the legacy report file under `results/reports/` and an immutable lab
 report under `lab/runs/<label>/`, while failing fast if the prompt, requested
 model, thinking level, thread container, or execution binding no longer matches
-the prepared queue. Historical or queue-less App runs are not backfilled as v3.
+the prepared queue. Historical or queue-less App runs are not backfilled as v4.
 
 ### Safe resume inventory
 
