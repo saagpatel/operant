@@ -66,6 +66,19 @@ REQUIRED_ORPHANED_CLAIM_STATUS = {
     "cross_profile_ranking": "NOT_DURABLE",
 }
 
+REQUIRED_BENCHMARK_CLAIM_STATUS = {
+    "benchmark_definition_and_metric": "SUPPORTED",
+    "historical_model_performance": "NOT_DURABLE",
+    "served_model_identity": "UNKNOWN",
+    "independent_replication": "UNKNOWN",
+    "deployment_safety_or_certification": "NOT_SUPPORTED",
+}
+
+REQUIRED_CALIBRATION_CLAIM_STATUS = {
+    "historical_reference_profiles": REQUIRED_HISTORICAL_CLAIM_STATUS,
+    "local_lab_profiles": REQUIRED_LOCAL_CLAIM_STATUS,
+}
+
 
 def _read_json(path: Path, errors: list[str]) -> Any:
     try:
@@ -157,10 +170,8 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
         elif not isinstance(binding.get("lab_receipts"), dict):
             errors.append("benchmark-card.json: missing bound lab receipts")
         claim_status = benchmark.get("claim_status")
-        if not isinstance(claim_status, dict):
-            errors.append("benchmark-card.json: missing claim_status")
-        elif claim_status.get("historical_model_performance") != "NOT_DURABLE":
-            errors.append("benchmark-card.json: historical model claims must be NOT_DURABLE")
+        if claim_status != REQUIRED_BENCHMARK_CLAIM_STATUS:
+            errors.append("benchmark-card.json: unsafe or missing claim_status")
         if not isinstance(benchmark.get("claims_at_risk"), list):
             errors.append("benchmark-card.json: missing claims_at_risk")
 
@@ -176,6 +187,8 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
             errors.append("calibration-profiles.json: unsafe presentation mode")
         if not isinstance(calibration.get("claims_at_risk"), list):
             errors.append("calibration-profiles.json: missing claims_at_risk")
+        if calibration.get("claim_status") != REQUIRED_CALIBRATION_CLAIM_STATUS:
+            errors.append("calibration-profiles.json: unsafe or missing claim_status")
         listed_families = {
             model.get("run_family")
             for model in models
@@ -249,6 +262,9 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
         if card.get("claim_status") != expected_status:
             label = card.get("run_family", "<unknown>")
             errors.append(f"model card {label}: unsafe or missing claim_status")
+        if is_orphaned and not str(card.get("orphan_reason", "")).strip():
+            label = card.get("run_family", "<unknown>")
+            errors.append(f"model card {label}: missing orphan_reason")
         expected_presentation = (
             "orphaned_historical_artifact_not_active_profile"
             if is_orphaned

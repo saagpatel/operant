@@ -23,7 +23,10 @@ from operant_lab.artifacts import (
 )
 from operant_lab.export import export_public_artifacts, model_card
 from operant_lab.inventory import inventory_runs
-from operant_lab.public_contract import validate_public_artifacts
+from operant_lab.public_contract import (
+    REQUIRED_ORPHANED_CLAIM_STATUS,
+    validate_public_artifacts,
+)
 from operant_lab.subjects import ClaudeCodeAdapter, CodexAppAdapter
 from operant_lab.submissions import TEMPLATE, validate_submission
 
@@ -539,6 +542,38 @@ def run_lab_layer_selftests() -> None:
                 "LAB public contract: historical export passes",
                 validate_public_artifacts(out_dir) == [],
             )
+            benchmark_path = out_dir / "benchmark-card.json"
+            benchmark_data = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            benchmark_data["claim_status"]["served_model_identity"] = "SUPPORTED"
+            benchmark_path.write_text(
+                json.dumps(benchmark_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            check(
+                "LAB public contract: rejects promoted served-model identity",
+                any(
+                    "benchmark-card.json: unsafe or missing claim_status" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
+            calibration_path = out_dir / "calibration-profiles.json"
+            calibration_data = json.loads(calibration_path.read_text(encoding="utf-8"))
+            calibration_data["claim_status"]["historical_reference_profiles"][
+                "cross_model_ranking"
+            ] = "SUPPORTED"
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            check(
+                "LAB public contract: rejects promoted historical ranking",
+                any(
+                    "calibration-profiles.json: unsafe or missing claim_status" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
             stale_path = out_dir / "model-cards" / "stale-profile.json"
             stale_path.write_text(
                 json.dumps({"run_family": "stale-profile"}) + "\n",
@@ -553,6 +588,25 @@ def run_lab_layer_selftests() -> None:
                     "orphaned_public_artifact" in str(exc),
                     str(exc),
                 )
+            stale_path.unlink()
+            orphan = json.loads(
+                (out_dir / "model-cards" / "opus.json").read_text(encoding="utf-8")
+            )
+            orphan["run_family"] = "stale-profile"
+            orphan["claim_status"] = dict(REQUIRED_ORPHANED_CLAIM_STATUS)
+            orphan["presentation"] = "orphaned_historical_artifact_not_active_profile"
+            orphan.pop("orphan_reason", None)
+            stale_path.write_text(
+                json.dumps(orphan, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            check(
+                "LAB public contract: orphaned model card requires a reason",
+                any(
+                    "model card stale-profile: missing orphan_reason" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
             stale_path.unlink()
             label = "synthetic-export-r1"
             runs_dir = _write_synthetic_export_lab(Path(tmp) / "lab", label)
