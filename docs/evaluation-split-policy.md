@@ -48,20 +48,35 @@ seed, or a successful score calculation.
 
 ## Run-Level Binding
 
-New runner receipts use `operant-run-manifest.v2`. Each receipt carries:
+New runner receipts use `operant-run-manifest.v3`. Each receipt carries:
 
 - a non-confirmatory evaluation role;
 - one SHA-256 digest over the sorted exact case objects and split label used by
   that invocation;
 - the bound case count and split label;
+- an `operant-execution-binding.v1` over exact prompt/system bytes, command or
+  stdin shape, tool policy, timeout, output mode, dispatch settings, harness
+  bytes, source state, dependency-lock state, and a sanitized environment
+  snapshot;
+- a requested-model identifier plus exact, unaliased provider-reported model
+  candidates when a structured result envelope exposes them;
 - `confirmatory_eligible: false`.
+
+The execution hashes are input bindings, not proof of replayability. Receipts
+therefore classify replayability as `INPUT_BOUND_NOT_REPLAYABLE`. A provider
+candidate is evidence about what the tool reported, not proof of the model
+actually served; `served_model_identity` remains `UNKNOWN`. Exact mismatches
+and ambiguous multi-model reports preserve the attempt output but are blocked
+from every score, rescore, variance, judge, inventory, and export path.
 
 Unknown families default to
 `UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY`. Known model-specific follow-up
-families resolve to adaptive diagnostic roles. The v2 manifest rejects a
+families resolve to adaptive diagnostic roles. The manifest writer rejects a
 `CONFIRMATORY` role; admitting a future confirmatory set requires a new checked
 workflow after every admission gate above is evidenced. Historical receipts
-without these fields remain historical and `UNKNOWN`; they are not backfilled.
+without these execution fields remain historical and `UNKNOWN`; they are not
+backfilled. A receipt that claims v3 but omits or malforms the execution binding
+is invalid rather than historical.
 
 ## Checked Registry
 

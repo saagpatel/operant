@@ -15,8 +15,13 @@ import json
 import os
 import re
 import statistics
+from pathlib import Path
 
 import score_orchestration as so
+from operant_lab.artifacts import (
+    filter_unblocked_index_rows,
+    receipt_output_scoring_block_reason,
+)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPORTS = os.path.join(HERE, "results", "reports")
@@ -41,10 +46,9 @@ def main():
     # OLD scores from the recorded index.
     old = {}
     if os.path.exists(INDEX):
-        for ln in open(INDEX):
-            if ln.strip():
-                r = json.loads(ln)
-                old[(r["run_label"], r["case_id"])] = r["score"]
+        rows = [json.loads(ln) for ln in open(INDEX) if ln.strip()]
+        for row in filter_unblocked_index_rows(Path(HERE), rows):
+            old[(row["run_label"], row["case_id"])] = row["score"]
 
     # NEW scores by re-running the current scorer over the transcripts.
     new_rows = []
@@ -57,6 +61,14 @@ def main():
         if cid not in cases:
             continue
         report = open(path, encoding="utf-8").read()
+        if receipt_output_scoring_block_reason(
+            Path(HERE),
+            run_label=label,
+            case_id=cid,
+            final_answer=report,
+            require_receipt=args.write,
+        ):
+            continue
         res = so.score_one(cases[cid], report)
         res["run_label"] = label
         new_rows.append(res)

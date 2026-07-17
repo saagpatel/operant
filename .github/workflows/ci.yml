@@ -23,13 +23,13 @@ jobs:
         run: python -m pip install --upgrade pip ruff
 
       - name: Compile Python files
-        run: python -m py_compile operant_lab/*.py operant_lab_cli.py run_codex_app.py run_codex_cli.py run_operant.py run_orchestration.py run_suite.py score_operant.py score_orchestration.py score_orchestration_judge.py score_suite.py score_variance.py rescore_orchestration.py gen_cases.py draft_validate.py score_my_agent.py selftest_selfserve.py selftest.py verify_evaluation_split.py test_evaluation_split.py test_run_manifest_binding.py test_evaluation_binding_projection.py
+        run: python -m py_compile operant_lab/*.py operant_lab_cli.py run_codex_app.py run_codex_cli.py run_operant.py run_orchestration.py run_suite.py score_operant.py score_orchestration.py score_orchestration_judge.py score_suite.py score_variance.py rescore_orchestration.py gen_cases.py draft_validate.py score_my_agent.py selftest_selfserve.py selftest.py verify_evaluation_split.py test_evaluation_split.py test_run_manifest_binding.py test_evaluation_binding_projection.py test_execution_binding.py
 
       - name: Run selftest
         run: |
           python selftest.py
-          python -m unittest test_evaluation_split.py test_run_manifest_binding.py test_evaluation_binding_projection.py
+          python -m unittest test_evaluation_split.py test_run_manifest_binding.py test_evaluation_binding_projection.py test_execution_binding.py
           python verify_evaluation_split.py
 
       - name: Run Ruff
-        run: ruff check operant_lab operant_lab_cli.py run_codex_app.py run_codex_cli.py run_operant.py run_orchestration.py run_suite.py score_operant.py score_orchestration.py score_orchestration_judge.py score_suite.py score_variance.py rescore_orchestration.py gen_cases.py draft_validate.py score_my_agent.py selftest_selfserve.py selftest.py verify_evaluation_split.py test_evaluation_split.py test_run_manifest_binding.py test_evaluation_binding_projection.py
+        run: ruff check operant_lab operant_lab_cli.py run_codex_app.py run_codex_cli.py run_operant.py run_orchestration.py run_suite.py score_operant.py score_orchestration.py score_orchestration_judge.py score_suite.py score_variance.py rescore_orchestration.py gen_cases.py draft_validate.py score_my_agent.py selftest_selfserve.py selftest.py verify_evaluation_split.py test_evaluation_split.py test_run_manifest_binding.py test_evaluation_binding_projection.py test_execution_binding.py

@@ -41,14 +41,11 @@ from pathlib import Path
 
 from operant_lab.artifacts import (
     VALID_EVALUATION_ROLES,
-    RunManifest,
-    RunReport,
     case_bundle_binding,
-    parse_decision_block,
-    parse_orchestration_plan,
+    filter_unblocked_index_rows,
+    receipt_output_scoring_block_reason,
     resolve_evaluation_role,
-    stable_hash,
-    write_run_report,
+    scoring_block_reason,
 )
 
 HERE = Path(__file__).resolve().parent
@@ -79,7 +76,7 @@ def read_judge_rows(index_path: Path, label: str) -> list:
             r = json.loads(ln)
             if r.get("run_label") == label:
                 rows.append(r)
-    return rows
+    return filter_unblocked_index_rows(HERE, rows)
 
 
 def judge_label(sjudge, label: str, judge_model: str, concurrency: int) -> dict:
@@ -159,12 +156,35 @@ def run_axis(
         if not report_value:
             missing.append(cid)
             continue
+        execution_binding = meta.get("execution_binding")
+        if not isinstance(execution_binding, dict):
+            missing.append(cid)
+            continue
+        block_reason = scoring_block_reason(
+            {
+                "manifest_schema": "operant-run-manifest.v3",
+                "model_id": model,
+                "execution_binding": execution_binding,
+            }
+        )
+        if block_reason:
+            missing.append(cid)
+            continue
         report_path = HERE.parent / str(report_value)
         expected_path = REPORTS / f"{prefix}__{label}__{cid}.txt"
         if report_path.resolve() != expected_path.resolve() or not report_path.exists():
             missing.append(cid)
             continue
         text = report_path.read_text(encoding="utf-8")
+        if receipt_output_scoring_block_reason(
+            HERE,
+            run_label=label,
+            case_id=cid,
+            final_answer=text,
+            require_receipt=True,
+        ):
+            missing.append(cid)
+            continue
         low = text.lower()
         if not text.strip() or any(m in low for m in RATE_LIMIT_MARKERS):
             rate_limited.append(cid)
@@ -173,40 +193,6 @@ def run_axis(
         row["model"] = label
         row["run_label"] = label
         rows.append(row)
-        adapter = getattr(runner, "ADAPTER", None)
-        prompt = adapter.build_prompt(case, system_prompt, case.get("axis", prefix))
-        parsed = (
-            parse_decision_block(text)
-            if prefix == "operant"
-            else parse_orchestration_plan(text)
-        )
-        manifest = RunManifest(
-            run_label=label,
-            case_id=cid,
-            axis=case.get("axis", "orchestration" if prefix != "operant" else "decision"),
-            subject_shell=getattr(adapter, "shell", "unknown-native-shell"),
-            model_id=model,
-            prompt_hash=stable_hash(prompt.full_prompt + system_prompt),
-            prompt_contract=prompt.prompt_contract,
-            tool_policy=prompt.tool_policy,
-            evaluation_role=evaluation_role,
-            case_bundle_sha256=str(bundle["case_bundle_sha256"]),
-            case_bundle_case_count=int(bundle["case_bundle_case_count"]),
-            case_split=str(bundle["case_split"]),
-        )
-        write_run_report(
-            HERE,
-            RunReport(
-                manifest=manifest,
-                parse_status=str(parsed["parse_status"]),
-                final_answer=text,
-                extracted_decision=parsed["decision"],
-                extracted_justification=parsed["justification"],
-                failure_class=parsed["failure_class"],
-                score_row=row,
-                source_report=str(report_path.relative_to(HERE.parent)),
-            ),
-        )
 
     if rows:
         index_path.parent.mkdir(parents=True, exist_ok=True)

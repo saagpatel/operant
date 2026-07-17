@@ -22,7 +22,10 @@ from operant_lab.artifacts import (
     VALID_EVALUATION_ROLES,
     RunManifest,
     RunReport,
+    build_execution_binding,
     case_bundle_binding,
+    complete_execution_binding,
+    ensure_run_receipt_slot,
     parse_decision_block,
     resolve_evaluation_role,
     stable_hash,
@@ -41,6 +44,12 @@ TOOL_POLICY = (
     "-c approval_policy=never; prompt prohibits tools and task execution"
 )
 ADAPTER = CodexAppAdapter()
+HARNESS_FILES = [
+    HERE / "run_codex_cli.py",
+    HERE / "score_operant.py",
+    HERE / "operant_lab" / "artifacts.py",
+    HERE / "operant_lab" / "subjects.py",
+]
 
 
 def _load_score_operant():
@@ -52,7 +61,7 @@ def _load_score_operant():
     return mod
 
 
-def _canonical_queue_prompt(case: dict[str, Any], axis: str) -> str:
+def _system_prompt(axis: str) -> str:
     if axis == "decision":
         run_spec = importlib.util.spec_from_file_location(
             "run_operant", HERE / "run_operant.py"
@@ -68,7 +77,11 @@ def _canonical_queue_prompt(case: dict[str, Any], axis: str) -> str:
     system_prompt = run_module.build_system_prompt(
         run_module.load_operator_contract()
     )
-    return ADAPTER.build_prompt(case, system_prompt, axis).full_prompt
+    return system_prompt
+
+
+def _canonical_queue_prompt(case: dict[str, Any], axis: str) -> str:
+    return ADAPTER.build_prompt(case, _system_prompt(axis), axis).full_prompt
 
 
 def _load_queue_payload(path: Path) -> dict[str, Any]:
@@ -149,13 +162,32 @@ def run_queue_file(
     outer_axis = str(payload.get("axis") or "")
     if queue_manifest.get("axis") != outer_axis:
         raise ValueError(f"queue manifest axis mismatch in {path}")
-    if prompt != _canonical_queue_prompt(cases[case_id], outer_axis):
+    system_prompt = _system_prompt(outer_axis)
+    if prompt != ADAPTER.build_prompt(
+        cases[case_id],
+        system_prompt,
+        outer_axis,
+    ).full_prompt:
         raise ValueError(f"queue prompt no longer matches canonical case in {path}")
 
     attempt_id = uuid.uuid4().hex
     answer_path = _answer_path(args.label, case_id, attempt_id)
     answer_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = codex_command(args, answer_path)
+    execution_binding = build_execution_binding(
+        root=HERE,
+        exact_prompt=prompt,
+        system_prompt=system_prompt,
+        stdin_text=prompt,
+        command=cmd,
+        cwd_class="REPOSITORY_ROOT",
+        tool_policy=TOOL_POLICY,
+        timeout_seconds=args.timeout,
+        output_mode="codex-output-last-message-file",
+        dispatch_settings={"thinking": args.thinking},
+        harness_files=HARNESS_FILES,
+        requested_model_id=args.model,
+    )
 
     if args.dry_run:
         return {
@@ -168,6 +200,7 @@ def run_queue_file(
             "dry_run": True,
         }
 
+    ensure_run_receipt_slot(HERE, args.label, case_id)
     t0 = time.time()
     try:
         proc = subprocess.run(
@@ -196,6 +229,7 @@ def run_queue_file(
             case_bundle_sha256=str(args.case_bundle["case_bundle_sha256"]),
             case_bundle_case_count=int(args.case_bundle["case_bundle_case_count"]),
             case_split=str(args.case_bundle["case_split"]),
+            execution_binding=execution_binding,
             repeat_id=args.repeat,
             source_queue_file=str(path.relative_to(HERE)),
             thread_container="local:codex-cli-ephemeral",
@@ -224,12 +258,20 @@ def run_queue_file(
             "score_outcome": "unscored",
             "error": failure_class,
             "lab_report": str(lab_path.relative_to(HERE)),
+            "execution_binding": execution_binding,
         }
 
     answer = answer_path.read_text(encoding="utf-8") if answer_path.exists() else ""
     if not answer.strip() and proc.stdout.strip():
         answer = proc.stdout.strip()
         answer_path.write_text(answer + "\n", encoding="utf-8")
+    execution_binding = complete_execution_binding(
+        execution_binding,
+        provider_reported_candidates=[],
+        evidence_source="NOT_EXPOSED",
+        raw_result_envelope=answer,
+        final_answer=answer,
+    )
 
     REPORTS.mkdir(parents=True, exist_ok=True)
     report_path = _report_path(args.label, case_id)
@@ -253,6 +295,7 @@ def run_queue_file(
         case_bundle_sha256=str(args.case_bundle["case_bundle_sha256"]),
         case_bundle_case_count=int(args.case_bundle["case_bundle_case_count"]),
         case_split=str(args.case_bundle["case_split"]),
+        execution_binding=execution_binding,
         repeat_id=args.repeat,
         source_queue_file=str(path.relative_to(HERE)),
         thread_container="local:codex-cli-ephemeral",
@@ -290,6 +333,7 @@ def run_queue_file(
             else "unscored"
         ),
         "lab_report": str(lab_path.relative_to(HERE)),
+        "execution_binding": execution_binding,
     }
     if not answer.strip():
         meta["error"] = "empty_result"

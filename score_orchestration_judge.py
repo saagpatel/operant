@@ -40,6 +40,12 @@ import statistics
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+from operant_lab.artifacts import (
+    filter_unblocked_index_rows,
+    receipt_output_scoring_block_reason,
+)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPORTS = os.path.join(HERE, "results", "reports")
@@ -280,7 +286,7 @@ def read_judge_index(path):
             for ln in fh:
                 if ln.strip():
                     rows.append(json.loads(ln))
-    return rows
+    return filter_unblocked_index_rows(Path(HERE), rows)
 
 
 def ensemble_cells(rows_a, rows_b):
@@ -443,10 +449,20 @@ def rescore_reports(labels, judge_model, concurrency, limit=None, skip_judged=Tr
             continue
         if cid not in cases:
             continue
+        plan = open(path, encoding="utf-8").read()
+        if receipt_output_scoring_block_reason(
+            Path(HERE),
+            run_label=label,
+            case_id=cid,
+            final_answer=plan,
+            require_receipt=True,
+        ):
+            skipped += 1
+            continue
         if (label, cid) in seen:
             skipped += 1
             continue
-        jobs.append((label, cid, path))
+        jobs.append((label, cid, plan))
     if limit:
         jobs = jobs[:limit]
     if skipped:
@@ -459,8 +475,7 @@ def rescore_reports(labels, judge_model, concurrency, limit=None, skip_judged=Tr
     os.makedirs(os.path.dirname(INDEX), exist_ok=True)
 
     def work(job):
-        label, cid, path = job
-        plan = open(path, encoding="utf-8").read()
+        label, cid, plan = job
         row = judge_one(cases[cid], plan, judge_model=judge_model)
         row["run_label"] = label
         return row
@@ -582,6 +597,7 @@ def main():
     if args.aggregate:
         rows = [json.loads(ln) for ln in open(INDEX) if ln.strip()]
         rows = [r for r in rows if r.get("run_label") == args.aggregate]
+        rows = filter_unblocked_index_rows(Path(HERE), rows)
         if not rows:
             raise SystemExit(f"no judge rows for label {args.aggregate!r}")
         summary = aggregate(rows)
@@ -596,7 +612,19 @@ def main():
     cases = load_cases()
     if args.case_id not in cases:
         raise SystemExit(f"unknown case: {args.case_id}")
-    plan = open(args.report_file, encoding="utf-8").read()
+    match = _NAME_RE.search(os.path.basename(args.report_file))
+    if match:
+        plan = open(args.report_file, encoding="utf-8").read()
+        block_reason = receipt_output_scoring_block_reason(
+            Path(HERE),
+            run_label=match.group("label"),
+            case_id=args.case_id,
+            final_answer=plan,
+        )
+        if block_reason:
+            raise SystemExit(f"refusing blocked receipt judge: {block_reason}")
+    else:
+        plan = open(args.report_file, encoding="utf-8").read()
     row = judge_one(cases[args.case_id], plan, judge_model=args.judge_model)
     print(json.dumps(row, indent=2))
 

@@ -108,6 +108,7 @@ EXPECTED_BINDING_KEYS = {
         "score_operant.py",
         "score_orchestration.py",
         "score_orchestration_judge.py",
+        "artifacts.py",
         "inventory.py",
     },
 }
@@ -125,6 +126,7 @@ CURRENT_BINDING_PATHS = {
         "score_operant.py": Path("score_operant.py"),
         "score_orchestration.py": Path("score_orchestration.py"),
         "score_orchestration_judge.py": Path("score_orchestration_judge.py"),
+        "artifacts.py": Path("operant_lab") / "artifacts.py",
         "inventory.py": Path("operant_lab") / "inventory.py",
     },
 }
@@ -583,7 +585,13 @@ def _validate_evaluation_binding_summary(
         bundle_digest = binding.get("case_bundle_sha256")
         if (
             not isinstance(schema_counts, dict)
-            or set(schema_counts) != {"operant-run-manifest.v2"}
+            or not set(schema_counts).issubset(
+                {
+                    "operant-run-manifest.v2",
+                    "operant-run-manifest.v3",
+                }
+            )
+            or not schema_counts
             or any(
                 not isinstance(value, int)
                 or isinstance(value, bool)

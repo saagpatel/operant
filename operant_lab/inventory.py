@@ -8,7 +8,13 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .artifacts import SHA256_RE, VALID_EVALUATION_ROLES, stable_hash
+from .artifacts import (
+    SHA256_RE,
+    VALID_EVALUATION_ROLES,
+    scoring_block_reason,
+    stable_hash,
+    validate_execution_binding,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 BOUND_NONCONFIRMATORY = "V2_BOUND_NONCONFIRMATORY"
@@ -109,10 +115,14 @@ def _decision_score_outcome(
     *,
     case: dict[str, Any] | None,
     run_data: dict[str, Any] | None,
+    manifest: dict[str, Any],
     score_operant: Any,
 ) -> str:
     if run_data is None:
         return "queued"
+    block_reason = scoring_block_reason(manifest)
+    if block_reason:
+        return block_reason
     parse_status = str(run_data.get("parse_status") or "unknown")
     if parse_status != "ok":
         return f"parse:{parse_status}"
@@ -144,10 +154,14 @@ def _score_outcome(
         return _decision_score_outcome(
             case=case,
             run_data=run_data,
+            manifest=manifest,
             score_operant=score_operant,
         )
     if run_data is None:
         return "queued"
+    block_reason = scoring_block_reason(manifest)
+    if block_reason:
+        return block_reason
     judge_row = run_data.get("judge_row")
     if isinstance(judge_row, dict) and judge_row.get("verdict"):
         return f"judge:{judge_row['verdict']}"
@@ -171,8 +185,19 @@ def _manifest_binding_projection(
         "case_split": "UNKNOWN",
         "confirmatory_eligible": "UNKNOWN",
     }
-    if schema != "operant-run-manifest.v2":
+    if schema not in {
+        "operant-run-manifest.v2",
+        "operant-run-manifest.v3",
+    }:
         return unknown
+    if schema == "operant-run-manifest.v3":
+        execution = manifest.get("execution_binding")
+        if not isinstance(execution, dict) or validate_execution_binding(execution):
+            return {
+                **unknown,
+                "status": INVALID_BINDING,
+                "manifest_schema": "operant-run-manifest.v3",
+            }
 
     role = manifest.get("evaluation_role")
     digest = manifest.get("case_bundle_sha256")
@@ -195,12 +220,12 @@ def _manifest_binding_projection(
         return {
             **unknown,
             "status": INVALID_BINDING,
-            "manifest_schema": "operant-run-manifest.v2",
+            "manifest_schema": str(schema),
         }
     return {
         "status": BOUND_NONCONFIRMATORY,
         "source": source,
-        "manifest_schema": "operant-run-manifest.v2",
+        "manifest_schema": str(schema),
         "evaluation_role": role,
         "case_bundle_sha256": digest,
         "case_bundle_case_count": count,

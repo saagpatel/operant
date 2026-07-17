@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 from operant_lab.artifacts import (
     RunManifest,
+    build_execution_binding,
     parse_decision_block,
     parse_orchestration_plan,
     stable_hash,
@@ -250,6 +251,20 @@ def run_lab_layer_selftests() -> None:
         evaluation_role="UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY",
         case_bundle_sha256="0" * 64,
         case_bundle_case_count=1,
+        execution_binding=build_execution_binding(
+            root=HERE,
+            exact_prompt=prompt.full_prompt,
+            system_prompt=system_prompt,
+            stdin_text=None,
+            command=None,
+            cwd_class="CODEX_APP_PROJECT_FOLDER",
+            tool_policy=prompt.tool_policy,
+            timeout_seconds=None,
+            output_mode="manual-codex-app-final-answer",
+            dispatch_settings={"thinking": "medium", "thread_container": "UNKNOWN"},
+            harness_files=[HERE / "selftest.py"],
+            requested_model_id="gpt-5.5",
+        ),
         source_queue_file="lab/codex-app-queue/demo/demo.json",
         thread_container="projectless:operant-public-lab-runs",
     )
@@ -259,7 +274,7 @@ def run_lab_layer_selftests() -> None:
     )
     check(
         "LAB manifest: carries non-confirmatory case-bundle binding",
-        manifest.manifest_schema == "operant-run-manifest.v2"
+        manifest.manifest_schema == "operant-run-manifest.v3"
         and manifest.confirmatory_eligible is False
         and manifest.case_bundle_sha256 == "0" * 64,
     )

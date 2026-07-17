@@ -10,7 +10,13 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from .artifacts import utc_now, write_json
+from .artifacts import (
+    filter_unblocked_index_rows,
+    scoring_block_reason,
+    stable_hash,
+    utc_now,
+    write_json,
+)
 from .inventory import (
     BOUND_NONCONFIRMATORY,
     INVALID_BINDING,
@@ -180,6 +186,7 @@ def build_evidence_binding(
             ROOT / "score_operant.py",
             ROOT / "score_orchestration.py",
             ROOT / "score_orchestration_judge.py",
+            ROOT / "operant_lab" / "artifacts.py",
             ROOT / "operant_lab" / "inventory.py",
         ]
     )
@@ -341,6 +348,25 @@ def load_lab_decision_rows(
             continue
         if not label or case_id not in cases:
             continue
+        if path.parent.name != label or path.stem != str(case_id).replace("/", "_"):
+            raise RuntimeError(f"receipt path identity mismatch: {path.name}")
+        block_reason = scoring_block_reason(manifest)
+        if block_reason:
+            if data.get("score_row") is not None or data.get("judge_row") is not None:
+                raise RuntimeError(
+                    f"blocked receipt carries score evidence: {label}/{case_id}"
+                )
+            continue
+        if manifest.get("manifest_schema") == "operant-run-manifest.v3":
+            bound_answer = (
+                manifest.get("execution_binding", {})
+                .get("model_observation", {})
+                .get("final_answer_sha256")
+            )
+            if bound_answer != stable_hash(str(data.get("final_answer") or "")):
+                raise RuntimeError(
+                    f"receipt output binding mismatch: {label}/{case_id}"
+                )
 
         row = score_operant.score_one(cases[case_id], data.get("final_answer", ""))
         row.update(
@@ -940,6 +966,17 @@ def export_public_artifacts(
     opus_judge_rows = read_jsonl(
         source_results / "operant_orchestration_judge_opus_index.jsonl"
     )
+    if lab_runs_dir is not None:
+        receipt_root = lab_runs_dir.resolve().parents[1]
+        canonical_decision_rows = filter_unblocked_index_rows(
+            receipt_root,
+            canonical_decision_rows,
+        )
+        judge_rows = filter_unblocked_index_rows(receipt_root, judge_rows)
+        opus_judge_rows = filter_unblocked_index_rows(
+            receipt_root,
+            opus_judge_rows,
+        )
     lab_rows, lab_metadata = (
         load_lab_decision_rows(lab_runs_dir, lab_labels)
         if lab_runs_dir is not None

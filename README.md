@@ -146,11 +146,25 @@ python3 score_orchestration_judge.py --validate
 
 `--judge` is off by default; all judge token spend is gated behind it. See `RUN-PLAN.md` for the full cost-ordered runbook and `RESULTS.md` for the methodology log.
 
-Every new lab receipt uses `operant-run-manifest.v2`. It records an
-order-independent SHA-256 binding over the exact case objects and split label,
-plus an evaluation role. Unknown run families default to
+Every new lab receipt uses `operant-run-manifest.v3`. In addition to the
+order-independent case/split binding and evaluation role introduced in v2, it
+records an `operant-execution-binding.v1` over the delivered prompt, logical
+system prompt, command or stdin shape, tool policy, timeout, output mode,
+dispatch settings such as thinking level, harness bytes, source state,
+dependency-lock state, and a sanitized environment snapshot. These hashes bind
+inputs; they do **not** prove that a run is
+replayable, so v3 receipts conservatively report
+`INPUT_BOUND_NOT_REPLAYABLE`.
+
+Provider-reported model candidates are retained as evidence. They are not
+promoted to served-model identity, which remains `UNKNOWN`. An exact requested
+model mismatch or multiple provider-reported candidates preserves the raw
+output in the private lab receipt but blocks that attempt from scoring.
+Historical v1/v2 receipts remain historical rather than being backfilled.
+
+Unknown run families default to
 `UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY`; known model-specific follow-ups
-remain adaptive diagnostics. The v2 writer rejects `CONFIRMATORY` entirely
+remain adaptive diagnostics. The manifest writer rejects `CONFIRMATORY` entirely
 because no admitted confirmatory set exists. Use `--evaluation-role
 OPEN_DEVELOPMENT` and `--case-split <stable-name>` when those facts are known.
 
@@ -378,10 +392,11 @@ python3 run_codex_app.py record \
   --answer-file <path-to-final-answer-txt>
 ```
 
-Recording writes the legacy report file under `results/reports/` and an immutable
-lab report under `lab/runs/<label>/`. Passing `--queue-file` makes the queued
-prompt hash the source of truth and fails fast if the queue prompt no longer
-matches the adapter-built prompt.
+Recording requires the exact v3 `--queue-file` created before dispatch. It
+writes the legacy report file under `results/reports/` and an immutable lab
+report under `lab/runs/<label>/`, while failing fast if the prompt, requested
+model, thinking level, thread container, or execution binding no longer matches
+the prepared queue. Historical or queue-less App runs are not backfilled as v3.
 
 ### Safe resume inventory
 

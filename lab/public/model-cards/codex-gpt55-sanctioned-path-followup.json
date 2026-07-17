@@ -70,12 +70,13 @@
       "operant_templates.json": "6eb70b387f6c9ed01cac191e9bee037e75804396effb203cce1ed652fa8ae301"
     },
     "current_public_protocol": {
-      "inventory.py": "c9231573e0620c191a022013f96793dff44a4d0dc2779ff7eaa83ff7c11e5390",
-      "score_operant.py": "b00048f828ab6b3a1c5d2b74e0b2350b1c17a559958f59077a4af14d7c2d1312",
-      "score_orchestration.py": "7fff75f066bc554bd9d53e2fcf03c81c1b05ed4b1c4a1e1faad03ee6a65d73b3",
-      "score_orchestration_judge.py": "7f578b05cba26d4572731e6a7192d404dae3473b9bf1b3a2705426fcdb0a4dd6"
+      "artifacts.py": "e0f56f7b83ddc9f04304900875f61123fe53031da393a7824d76e82c0835700f",
+      "inventory.py": "9e41ad1c11357f6906f0c1382b3bd0aa0ef37c6acd2ccfe612c65bd6020c45c2",
+      "score_operant.py": "c952f69d36491df18e5dce49db92e18c4b9f87bc7e66b5563323203d0b5f8022",
+      "score_orchestration.py": "430693d9a145ea9c64816e18864dec1d660b886d464c1032f85d5d12707b22d1",
+      "score_orchestration_judge.py": "3c77fd77ee871b563d99a8a197675030f9f5913096e44cbd372fd2f2426cd0f5"
     },
-    "exporter_sha256": "029f90f3992aeb9d05f20c37a5e7474c7ed47b228f186d4a3afe1132f5b3ff6e",
+    "exporter_sha256": "eab0bdd40b3c21ba115e78c68c8d15677d6ad81a10b47b6b235a1a2144fd995f",
     "historical_as_run_corpus": "UNKNOWN",
     "historical_as_run_protocol": "UNKNOWN",
     "historical_o1_evidence_manifest_sha256": "UNKNOWN",
@@ -167,7 +168,7 @@
     },
     "private_paths_exposed": false,
     "schema": "operant-public-evidence-binding.v4",
-    "source_bundle_sha256": "f3827bd9a81eebc866cfc72052291043529da7e30f4330ac1b58c5c503e75c75",
+    "source_bundle_sha256": "5105c840d0098edbe3a0fd576d7dfb8e62f8efebae9a45f2b322bba49a4bfd84",
     "source_indexes": {
       "operant_index.jsonl": "6d13063af546067b018ab30149b1f28c2c9d78aa61dd58e9e10d717c34739f38",
       "operant_orchestration_judge_index.jsonl": "eb66b62e68472d5abc50a3c505173289a41ef5cdf1087be15ea0c3bd13520d48",

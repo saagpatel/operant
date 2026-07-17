@@ -18,6 +18,11 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from operant_lab.artifacts import (
+    filter_unblocked_index_rows,
+    receipt_output_scoring_block_reason,
+)
+
 HERE = Path(__file__).resolve().parent
 
 # ---------------------------------------------------------------------------
@@ -51,15 +56,17 @@ def orch_judge_means(index_path: str = JUDGE_INDEX) -> dict[str, tuple[float, in
     """{run_label: (mean_judge_score, n)} from the orchestration judge index.
     Empty if the index is absent — the column then renders '-' everywhere."""
     by_label: dict[str, list[float]] = defaultdict(list)
+    rows = []
     if os.path.exists(index_path):
         with open(index_path, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
                     continue
-                r = json.loads(line)
-                if r.get("score") is not None:
-                    by_label[r["run_label"]].append(r["score"])
+                rows.append(json.loads(line))
+    for row in filter_unblocked_index_rows(HERE, rows):
+        if row.get("score") is not None:
+            by_label[row["run_label"]].append(row["score"])
     return {lbl: (sum(v) / len(v), len(v)) for lbl, v in by_label.items() if v}
 
 
@@ -106,6 +113,15 @@ def score_label(
             missing += 1
             continue
         report_text = label_files[case_id].read_text(encoding="utf-8")
+        if receipt_output_scoring_block_reason(
+            HERE,
+            run_label=label,
+            case_id=case_id,
+            final_answer=report_text,
+            require_receipt=record,
+        ):
+            missing += 1
+            continue
         row = score_one(case, report_text)
         row["model"] = label
         row["run_label"] = label
