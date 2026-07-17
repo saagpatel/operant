@@ -523,7 +523,7 @@ def run_lab_layer_selftests() -> None:
             binding = calibration.get("evidence_binding", {})
             check(
                 "LAB export: binds source indexes without private paths",
-                binding.get("schema") == "operant-public-evidence-binding.v2"
+                binding.get("schema") == "operant-public-evidence-binding.v3"
                 and binding.get("private_paths_exposed") is False
                 and all(
                     value != "UNKNOWN"
@@ -751,8 +751,8 @@ def run_lab_layer_selftests() -> None:
                 {
                     "source_indexes": binding["source_indexes"],
                     "lab_receipts": binding["lab_receipts"],
-                    "corpus": binding["corpus"],
-                    "protocol": binding["protocol"],
+                    "current_public_corpus": binding["current_public_corpus"],
+                    "current_public_protocol": binding["current_public_protocol"],
                 },
                 sort_keys=True,
                 separators=(",", ":"),
@@ -801,8 +801,8 @@ def run_lab_layer_selftests() -> None:
                 {
                     "source_indexes": binding["source_indexes"],
                     "lab_receipts": binding["lab_receipts"],
-                    "corpus": binding["corpus"],
-                    "protocol": binding["protocol"],
+                    "current_public_corpus": binding["current_public_corpus"],
+                    "current_public_protocol": binding["current_public_protocol"],
                 },
                 sort_keys=True,
                 separators=(",", ":"),

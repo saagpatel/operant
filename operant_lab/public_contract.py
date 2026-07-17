@@ -43,6 +43,8 @@ FORBIDDEN_PUBLIC_TEXT_PATTERNS = {
 REQUIRED_HISTORICAL_CLAIM_STATUS = {
     "evidence_class": "historical_unverified_receipt",
     "score_recalculation_from_bound_bytes": "SUPPORTED",
+    "historical_as_run_corpus_identity": "UNKNOWN",
+    "historical_as_run_protocol_identity": "UNKNOWN",
     "dispatch_freshness": "UNKNOWN",
     "served_model_identity": "UNKNOWN",
     "independent_replication": "UNKNOWN",
@@ -54,6 +56,8 @@ REQUIRED_LOCAL_CLAIM_STATUS = {
     "evidence_class": "self_reported_local_receipt",
     "score_recalculation_from_bound_bytes": "SUPPORTED",
     "source_receipt_byte_binding": "SUPPORTED",
+    "current_public_corpus_identity": "SUPPORTED",
+    "current_public_protocol_identity": "SUPPORTED",
     "served_model_identity": "UNKNOWN",
     "independent_replication": "UNKNOWN",
     "cross_profile_ranking": "NOT_DURABLE",
@@ -87,14 +91,14 @@ EXPECTED_BINDING_KEYS = {
         "operant_orchestration_judge_index.jsonl",
         "operant_orchestration_judge_opus_index.jsonl",
     },
-    "corpus": {
+    "current_public_corpus": {
         "operant_cases.json",
         "operant_axis2_cases.json",
         "operant_axis3_cases.json",
         "operant_axis4_cases.json",
         "operant_templates.json",
     },
-    "protocol": {
+    "current_public_protocol": {
         "score_operant.py",
         "score_orchestration.py",
         "score_orchestration_judge.py",
@@ -157,7 +161,11 @@ def _validate_digest_map(
 
 def _validate_evidence_binding(binding: dict[str, Any], errors: list[str]) -> None:
     maps: dict[str, dict[str, str]] = {}
-    for label in ("source_indexes", "corpus", "protocol"):
+    for label in (
+        "source_indexes",
+        "current_public_corpus",
+        "current_public_protocol",
+    ):
         value = _validate_digest_map(
             binding.get(label),
             label=label,
@@ -178,21 +186,28 @@ def _validate_evidence_binding(binding: dict[str, Any], errors: list[str]) -> No
         value = binding.get(label)
         if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
             errors.append(f"benchmark-card.json: evidence binding {label} is unusable")
-    historical = binding.get("historical_evidence_manifest_sha256")
-    if historical != "UNKNOWN" and (
-        not isinstance(historical, str) or not SHA256_RE.fullmatch(historical)
+    for label in (
+        "historical_as_run_corpus",
+        "historical_as_run_protocol",
+        "historical_o1_evidence_manifest_sha256",
     ):
-        errors.append(
-            "benchmark-card.json: evidence binding historical manifest digest is unusable"
-        )
+        if binding.get(label) != "UNKNOWN":
+            errors.append(
+                f"benchmark-card.json: evidence binding {label} must remain UNKNOWN"
+            )
 
-    if set(maps) == {"source_indexes", "lab_receipts", "corpus", "protocol"}:
+    if set(maps) == {
+        "source_indexes",
+        "lab_receipts",
+        "current_public_corpus",
+        "current_public_protocol",
+    }:
         combined = json.dumps(
             {
                 "source_indexes": maps["source_indexes"],
                 "lab_receipts": maps["lab_receipts"],
-                "corpus": maps["corpus"],
-                "protocol": maps["protocol"],
+                "current_public_corpus": maps["current_public_corpus"],
+                "current_public_protocol": maps["current_public_protocol"],
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -367,7 +382,7 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
         binding = benchmark.get("evidence_binding")
         if not isinstance(binding, dict):
             errors.append("benchmark-card.json: missing evidence_binding")
-        elif binding.get("schema") != "operant-public-evidence-binding.v2":
+        elif binding.get("schema") != "operant-public-evidence-binding.v3":
             errors.append("benchmark-card.json: unsupported evidence_binding schema")
         elif binding.get("private_paths_exposed") is not False:
             errors.append("benchmark-card.json: evidence binding exposes private paths")

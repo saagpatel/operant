@@ -2,7 +2,9 @@
 
 > **Historical evidence boundary (2026-07-17):** this is an as-run methodology log
 > over hash-bound imported bytes. The receipts predate append-only attempt manifests,
-> so dispatch freshness and served-model identity are **UNKNOWN**. Numerical
+> so dispatch freshness, served-model identity, and historical as-run corpus/protocol
+> identity are **UNKNOWN**. Current public files are not evidence of the historical
+> treatment. Numerical
 > recalculation is supported; named-model attribution, ordering, significance, judge
 > bias magnitude, and independent reproducibility are not currently durable claims.
 > Commands in this document start new experiments; they do not reproduce the

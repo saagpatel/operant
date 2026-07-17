@@ -7,7 +7,9 @@
 > **Research-integrity status (2026-07-17):** the 2026-06-18 named-model rows below
 > are historical calculation views, not durable model-performance claims. Their
 > imported bytes are hash-bound, but the receipts predate append-only attempt
-> manifests; dispatch freshness and served-model identity are **UNKNOWN**. Model
+> manifests; dispatch freshness, served-model identity, and historical as-run
+> corpus/protocol identity are **UNKNOWN**. Current public corpus and scorer hashes
+> must not be read as the historical treatment. Model
 > ordering, significance, and model-equivalence claims require fresh identity-bound
 > replication. The bundled scorer and corpus remain usable for new experiments.
 

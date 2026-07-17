@@ -6,7 +6,7 @@ The decision-axis headline metric is OCS: `TPR - FPR` over the binary signal `wi
 
 ## Evidence Boundary
 
-Exported hashes support byte integrity and deterministic recalculation from imported score rows. Historical reference receipts predate append-only attempt manifests, leaving dispatch freshness and served-model identity UNKNOWN. Local native-shell receipts are self-reported. The export therefore does not support durable cross-model rankings, model-equivalence, independent replication, deployment safety, or certification. Those comparison claims are not durable.
+Exported hashes support byte integrity and deterministic recalculation from imported score rows. Current-public corpus and protocol hashes do not identify the historical as-run inputs. Historical reference receipts predate append-only attempt manifests, leaving dispatch freshness and served-model identity UNKNOWN. Local native-shell receipts are self-reported. The export therefore does not support durable cross-model rankings, model-equivalence, independent replication, deployment safety, or certification. Those comparison claims are not durable.
 
 Public lab exports are calibration-profile first. Native-shell results and raw API results must be labeled separately; local CLI gap runs do not backfill or merge into Codex App native-shell profiles.
 

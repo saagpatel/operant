@@ -3,6 +3,8 @@
     "cross_model_ranking": "NOT_DURABLE",
     "dispatch_freshness": "UNKNOWN",
     "evidence_class": "historical_unverified_receipt",
+    "historical_as_run_corpus_identity": "UNKNOWN",
+    "historical_as_run_protocol_identity": "UNKNOWN",
     "independent_replication": "UNKNOWN",
     "inferential_statistics_as_model_evidence": "NOT_DURABLE",
     "score_recalculation_from_bound_bytes": "SUPPORTED",
@@ -662,16 +664,23 @@
   },
   "display_name": "Claude Sonnet 4.6",
   "evidence_binding": {
-    "claim_boundary": "Hashes bind exported calculations to imported bytes. Historical reference receipts predate append-only attempt manifests, so dispatch freshness and served-model identity remain UNKNOWN. Local lab receipts are self-reported. Neither source supports durable cross-model ranking, model-equivalence, deployment-safety, or certification claims.",
-    "corpus": {
+    "claim_boundary": "Source-index hashes bind exported aggregate calculations to imported score rows. Current-public corpus and protocol hashes identify this checkout only; they are not the historical as-run inputs. Historical as-run corpus, protocol, dispatch freshness, and served-model identity remain UNKNOWN. Local lab receipts are self-reported. Neither source supports durable cross-model ranking, model-equivalence, deployment-safety, or certification claims.",
+    "current_public_corpus": {
       "operant_axis2_cases.json": "b93be447858eee666e2a05d7ac88a42b48f74d74337325b8271a26f6652de1bb",
       "operant_axis3_cases.json": "dc103fa394c0d7343e93d60800ba3ffea3aded1ddfbbc716aa6f70428895014b",
       "operant_axis4_cases.json": "df76a684f5781ae7b1cae90e4379f2bdc3b0f4773ba50cb65378e3c9182566fb",
       "operant_cases.json": "5a58b3764e6dc06f2d4dcf27a8bdd7e181d32c90249ceb79e5285cbc1f0a61e7",
       "operant_templates.json": "6eb70b387f6c9ed01cac191e9bee037e75804396effb203cce1ed652fa8ae301"
     },
-    "exporter_sha256": "38619373f50f0d96df35ec1fec8b3393e84cd29d77fbc1747b14b42ca784330b",
-    "historical_evidence_manifest_sha256": "79c2271219a7ba21117b301883c32e8479ab39f60a8ff7c3e681878886301da9",
+    "current_public_protocol": {
+      "score_operant.py": "b00048f828ab6b3a1c5d2b74e0b2350b1c17a559958f59077a4af14d7c2d1312",
+      "score_orchestration.py": "7fff75f066bc554bd9d53e2fcf03c81c1b05ed4b1c4a1e1faad03ee6a65d73b3",
+      "score_orchestration_judge.py": "7f578b05cba26d4572731e6a7192d404dae3473b9bf1b3a2705426fcdb0a4dd6"
+    },
+    "exporter_sha256": "c3d60ae3a76db1b6b1ed106da89bf7023f665c1f636c4c91903a4f2d7afa9c83",
+    "historical_as_run_corpus": "UNKNOWN",
+    "historical_as_run_protocol": "UNKNOWN",
+    "historical_o1_evidence_manifest_sha256": "UNKNOWN",
     "lab_receipts": {
       "codex-cli-gpt55-decision-gap-r1/db-destructive-host.benign.json": "fe7fc6a34ee9ccb8ca779f50409e581a3f887963e8f4217ea6ee04955a765fbb",
       "codex-cli-gpt55-decision-gap-r1/db-destructive-host.malign.json": "f7ebb12a1957381ee2421c700d22d5030d70df2dea81602f691c29ca91ee90e4",
@@ -753,13 +762,8 @@
       "codex-gpt55-sanctioned-path-followup-r1/sp-followup-tool-origin.malign.json": "15b1c0ba19d05b0390339c555f3d8175d44eaae16b954186bd3d6b9a875c4941"
     },
     "private_paths_exposed": false,
-    "protocol": {
-      "score_operant.py": "b00048f828ab6b3a1c5d2b74e0b2350b1c17a559958f59077a4af14d7c2d1312",
-      "score_orchestration.py": "7fff75f066bc554bd9d53e2fcf03c81c1b05ed4b1c4a1e1faad03ee6a65d73b3",
-      "score_orchestration_judge.py": "7f578b05cba26d4572731e6a7192d404dae3473b9bf1b3a2705426fcdb0a4dd6"
-    },
-    "schema": "operant-public-evidence-binding.v2",
-    "source_bundle_sha256": "9feacba42b2d5848d0ef9d38776021935c93aa40ede3df6c92dcf416c591d65d",
+    "schema": "operant-public-evidence-binding.v3",
+    "source_bundle_sha256": "9fe06097313e28e9cde9d0cd6dec6af1484035f58a5df20aad735390901c2559",
     "source_indexes": {
       "operant_index.jsonl": "6d13063af546067b018ab30149b1f28c2c9d78aa61dd58e9e10d717c34739f38",
       "operant_orchestration_judge_index.jsonl": "eb66b62e68472d5abc50a3c505173289a41ef5cdf1087be15ea0c3bd13520d48",

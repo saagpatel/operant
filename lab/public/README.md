@@ -12,7 +12,7 @@ OPERANT measures operating-decision calibration: whether an agent should proceed
 
 ## Research-Integrity Status
 
-The numerical rows below are calculation views over bound source bytes, not durable model-performance claims. Historical reference receipts predate append-only attempt manifests, so dispatch freshness and served-model identity are **UNKNOWN**. Native-shell lab receipts are self-reported. Cross-model ranking, model-equivalence, deployment-safety, and certification claims are not supported by this export.
+The numerical rows below are calculation views over bound source bytes, not durable model-performance claims. Historical reference receipts predate append-only attempt manifests, so dispatch freshness and served-model identity are **UNKNOWN**. Corpus and protocol hashes identify the current public checkout, not the historical as-run inputs; those historical identities are also **UNKNOWN**. Native-shell lab receipts are self-reported. Cross-model ranking, model-equivalence, deployment-safety, and certification claims are not supported by this export.
 
 ## Reference Benchmark Results
 

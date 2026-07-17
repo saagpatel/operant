@@ -58,16 +58,19 @@ MODEL_CARD_CAVEATS = {
 }
 
 PUBLIC_CLAIM_BOUNDARY = (
-    "Hashes bind exported calculations to imported bytes. Historical reference "
-    "receipts predate append-only attempt manifests, so dispatch freshness and "
-    "served-model identity remain UNKNOWN. Local lab receipts are self-reported. "
-    "Neither source supports durable cross-model ranking, model-equivalence, "
-    "deployment-safety, or certification claims."
+    "Source-index hashes bind exported aggregate calculations to imported score rows. "
+    "Current-public corpus and protocol hashes identify this checkout only; they are "
+    "not the historical as-run inputs. Historical as-run corpus, protocol, dispatch "
+    "freshness, and served-model identity remain UNKNOWN. Local lab receipts are "
+    "self-reported. Neither source supports durable cross-model ranking, "
+    "model-equivalence, deployment-safety, or certification claims."
 )
 
 HISTORICAL_CLAIM_STATUS = {
     "evidence_class": "historical_unverified_receipt",
     "score_recalculation_from_bound_bytes": "SUPPORTED",
+    "historical_as_run_corpus_identity": "UNKNOWN",
+    "historical_as_run_protocol_identity": "UNKNOWN",
     "dispatch_freshness": "UNKNOWN",
     "served_model_identity": "UNKNOWN",
     "independent_replication": "UNKNOWN",
@@ -79,6 +82,8 @@ LOCAL_LAB_CLAIM_STATUS = {
     "evidence_class": "self_reported_local_receipt",
     "score_recalculation_from_bound_bytes": "SUPPORTED",
     "source_receipt_byte_binding": "SUPPORTED",
+    "current_public_corpus_identity": "SUPPORTED",
+    "current_public_protocol_identity": "SUPPORTED",
     "served_model_identity": "UNKNOWN",
     "independent_replication": "UNKNOWN",
     "cross_profile_ranking": "NOT_DURABLE",
@@ -86,6 +91,7 @@ LOCAL_LAB_CLAIM_STATUS = {
 
 CLAIMS_AT_RISK = [
     "Named-model ordering or significance derived from historical reference receipts",
+    "Historical as-run corpus or protocol identity inferred from current public files",
     "Equivalence of a self-service OCS result to any named model",
     "Served-model identity for historical or local native-shell receipts",
     "Deployment safety, certification, or production readiness inferred from OCS",
@@ -149,7 +155,7 @@ def build_evidence_binding(
             source_results / "operant_orchestration_judge_opus_index.jsonl",
         ]
     )
-    corpus = _digest_inventory(
+    current_public_corpus = _digest_inventory(
         [
             ROOT / "operant_cases.json",
             ROOT / "operant_axis2_cases.json",
@@ -158,7 +164,7 @@ def build_evidence_binding(
             ROOT / "operant_templates.json",
         ]
     )
-    protocol = _digest_inventory(
+    current_public_protocol = _digest_inventory(
         [
             ROOT / "score_operant.py",
             ROOT / "score_orchestration.py",
@@ -166,28 +172,27 @@ def build_evidence_binding(
         ]
     )
     lab_receipts = _lab_receipt_digests(lab_runs_dir, lab_labels)
-    historical = source_results.parent / "evidence" / "o2-historical-manifest.json"
     combined = json.dumps(
         {
             "source_indexes": source_indexes,
             "lab_receipts": lab_receipts,
-            "corpus": corpus,
-            "protocol": protocol,
+            "current_public_corpus": current_public_corpus,
+            "current_public_protocol": current_public_protocol,
         },
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
     return {
-        "schema": "operant-public-evidence-binding.v2",
+        "schema": "operant-public-evidence-binding.v3",
         "source_indexes": source_indexes,
         "lab_receipts": lab_receipts,
         "source_bundle_sha256": hashlib.sha256(combined).hexdigest(),
-        "corpus": corpus,
-        "protocol": protocol,
+        "current_public_corpus": current_public_corpus,
+        "current_public_protocol": current_public_protocol,
+        "historical_as_run_corpus": "UNKNOWN",
+        "historical_as_run_protocol": "UNKNOWN",
         "exporter_sha256": _sha256(Path(__file__)),
-        "historical_evidence_manifest_sha256": (
-            _sha256(historical) if historical.is_file() else "UNKNOWN"
-        ),
+        "historical_o1_evidence_manifest_sha256": "UNKNOWN",
         "private_paths_exposed": False,
         "claim_boundary": PUBLIC_CLAIM_BOUNDARY,
     }
@@ -711,7 +716,9 @@ def _public_readme(
         "The numerical rows below are calculation views over bound source bytes, "
         "not durable model-performance claims. Historical reference receipts "
         "predate append-only attempt manifests, so dispatch freshness and "
-        "served-model identity are **UNKNOWN**. Native-shell lab receipts are "
+        "served-model identity are **UNKNOWN**. Corpus and protocol hashes identify "
+        "the current public checkout, not the historical as-run inputs; those "
+        "historical identities are also **UNKNOWN**. Native-shell lab receipts are "
         "self-reported. Cross-model ranking, model-equivalence, deployment-safety, "
         "and certification claims are not supported by this export.\n\n"
         "## Reference Benchmark Results\n\n"
@@ -915,7 +922,8 @@ def export_public_artifacts(
         "matters, but OCS is the headline calibration read.\n\n"
         "## Evidence Boundary\n\n"
         "Exported hashes support byte integrity and deterministic recalculation "
-        "from imported score rows. Historical reference receipts predate "
+        "from imported score rows. Current-public corpus and protocol hashes do "
+        "not identify the historical as-run inputs. Historical reference receipts predate "
         "append-only attempt manifests, leaving dispatch freshness and "
         "served-model identity UNKNOWN. Local native-shell receipts are "
         "self-reported. The export therefore does not support durable cross-model "
