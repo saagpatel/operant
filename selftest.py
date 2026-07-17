@@ -574,6 +574,53 @@ def run_lab_layer_selftests() -> None:
                 ),
             )
             export_public_artifacts(source, out_dir)
+            benchmark_data = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            benchmark_data["evidence_binding"]["source_indexes"][
+                "operant_index.jsonl"
+            ] = "UNKNOWN"
+            benchmark_path.write_text(
+                json.dumps(benchmark_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            calibration_data = json.loads(
+                calibration_path.read_text(encoding="utf-8")
+            )
+            calibration_data["evidence_binding"] = benchmark_data["evidence_binding"]
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            for card_path in (out_dir / "model-cards").glob("*.json"):
+                card = json.loads(card_path.read_text(encoding="utf-8"))
+                card["evidence_binding"] = benchmark_data["evidence_binding"]
+                card_path.write_text(
+                    json.dumps(card, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            check(
+                "LAB public contract: rejects unavailable source digest",
+                any(
+                    "source_indexes contains unusable digest" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
+            calibration_data = json.loads(
+                calibration_path.read_text(encoding="utf-8")
+            )
+            calibration_data["models"][0]["ocs_mean"] = 999.0
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            check(
+                "LAB public contract: rejects calibration/model-card score drift",
+                any(
+                    "model rows do not match active model cards" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
             stale_path = out_dir / "model-cards" / "stale-profile.json"
             stale_path.write_text(
                 json.dumps({"run_family": "stale-profile"}) + "\n",

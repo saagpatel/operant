@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -79,6 +80,28 @@ REQUIRED_CALIBRATION_CLAIM_STATUS = {
     "local_lab_profiles": REQUIRED_LOCAL_CLAIM_STATUS,
 }
 
+EXPECTED_BINDING_KEYS = {
+    "source_indexes": {
+        "operant_index.jsonl",
+        "operant_orchestration_judge_index.jsonl",
+        "operant_orchestration_judge_opus_index.jsonl",
+    },
+    "corpus": {
+        "operant_cases.json",
+        "operant_axis2_cases.json",
+        "operant_axis3_cases.json",
+        "operant_axis4_cases.json",
+        "operant_templates.json",
+    },
+    "protocol": {
+        "score_operant.py",
+        "score_orchestration.py",
+        "score_orchestration_judge.py",
+    },
+}
+
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
 
 def _read_json(path: Path, errors: list[str]) -> Any:
     try:
@@ -105,6 +128,79 @@ def _scan_forbidden_text(text: str, path: str, errors: list[str]) -> None:
         if match:
             snippet = match.group(0).strip()
             errors.append(f"{path}: forbidden {label}: {snippet!r}")
+
+
+def _validate_digest_map(
+    value: Any,
+    *,
+    label: str,
+    errors: list[str],
+    expected_keys: set[str] | None = None,
+) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        errors.append(f"benchmark-card.json: evidence binding {label} must be an object")
+        return None
+    if expected_keys is not None and set(value) != expected_keys:
+        errors.append(
+            f"benchmark-card.json: evidence binding {label} has unexpected keys"
+        )
+    if not all(
+        isinstance(item, str) and SHA256_RE.fullmatch(item)
+        for item in value.values()
+    ):
+        errors.append(
+            f"benchmark-card.json: evidence binding {label} contains unusable digest"
+        )
+    return value
+
+
+def _validate_evidence_binding(binding: dict[str, Any], errors: list[str]) -> None:
+    maps: dict[str, dict[str, str]] = {}
+    for label in ("source_indexes", "corpus", "protocol"):
+        value = _validate_digest_map(
+            binding.get(label),
+            label=label,
+            errors=errors,
+            expected_keys=EXPECTED_BINDING_KEYS[label],
+        )
+        if value is not None:
+            maps[label] = value
+    lab_receipts = _validate_digest_map(
+        binding.get("lab_receipts"),
+        label="lab_receipts",
+        errors=errors,
+    )
+    if lab_receipts is not None:
+        maps["lab_receipts"] = lab_receipts
+
+    for label in ("source_bundle_sha256", "exporter_sha256"):
+        value = binding.get(label)
+        if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+            errors.append(f"benchmark-card.json: evidence binding {label} is unusable")
+    historical = binding.get("historical_evidence_manifest_sha256")
+    if historical != "UNKNOWN" and (
+        not isinstance(historical, str) or not SHA256_RE.fullmatch(historical)
+    ):
+        errors.append(
+            "benchmark-card.json: evidence binding historical manifest digest is unusable"
+        )
+
+    if set(maps) == {"source_indexes", "lab_receipts", "corpus", "protocol"}:
+        combined = json.dumps(
+            {
+                "source_indexes": maps["source_indexes"],
+                "lab_receipts": maps["lab_receipts"],
+                "corpus": maps["corpus"],
+                "protocol": maps["protocol"],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        expected_bundle = hashlib.sha256(combined).hexdigest()
+        if binding.get("source_bundle_sha256") != expected_bundle:
+            errors.append(
+                "benchmark-card.json: evidence binding source bundle digest mismatch"
+            )
 
 
 def validate_public_artifacts(public_dir: Path) -> list[str]:
@@ -169,6 +265,8 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
             errors.append("benchmark-card.json: evidence binding exposes private paths")
         elif not isinstance(binding.get("lab_receipts"), dict):
             errors.append("benchmark-card.json: missing bound lab receipts")
+        else:
+            _validate_evidence_binding(binding, errors)
         claim_status = benchmark.get("claim_status")
         if claim_status != REQUIRED_BENCHMARK_CLAIM_STATUS:
             errors.append("benchmark-card.json: unsafe or missing claim_status")
@@ -295,6 +393,61 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
         ):
             label = card.get("run_family", "<unknown>")
             errors.append(f"model card {label}: missing lab run status")
+
+    if isinstance(calibration, dict):
+        active_cards = {
+            card.get("run_family"): card
+            for card in model_cards
+            if isinstance(card, dict) and card.get("run_family") in listed_families
+        }
+        local_families = {
+            str(family)
+            for family, card in active_cards.items()
+            if card.get("data_source") == "local_lab_runs"
+        }
+        benchmark_binding = (
+            benchmark.get("evidence_binding")
+            if isinstance(benchmark, dict)
+            else {}
+        )
+        if not isinstance(benchmark_binding, dict):
+            benchmark_binding = {}
+        lab_receipts = benchmark_binding.get("lab_receipts", {})
+        receipt_families = {
+            re.sub(r"-r\d+$", "", str(key).split("/", 1)[0])
+            for key in lab_receipts
+        } if isinstance(lab_receipts, dict) else set()
+        if local_families - receipt_families:
+            errors.append(
+                "benchmark-card.json: active local profiles lack bound lab receipts"
+            )
+        expected_models = []
+        for family in sorted(active_cards):
+            card = active_cards[family]
+            expected_models.append(
+                {
+                    "run_family": card.get("run_family"),
+                    "display_name": card.get("display_name"),
+                    "subject_shell": card.get("subject_shell"),
+                    "ocs_mean": card.get("decision", {}).get("ocs_mean"),
+                    "ocs_stdev": card.get("decision", {}).get("ocs_stdev"),
+                    "orchestration_mean": card.get("orchestration_judge", {}).get(
+                        "mean_score"
+                    ),
+                }
+            )
+        actual_models = calibration.get("models")
+        if (
+            not isinstance(actual_models, list)
+            or any(not isinstance(row, dict) for row in actual_models)
+            or sorted(
+                actual_models,
+                key=lambda row: str(row.get("run_family", "")),
+            ) != expected_models
+        ):
+            errors.append(
+                "calibration-profiles.json: model rows do not match active model cards"
+            )
 
     for name in ("README.md", "methodology.md"):
         path = public_dir / name
