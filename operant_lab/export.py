@@ -12,7 +12,7 @@ from typing import Any
 
 from .artifacts import (
     filter_unblocked_index_rows,
-    scoring_block_reason,
+    receipt_scoring_block_reason,
     stable_hash,
     utc_now,
     write_json,
@@ -23,6 +23,10 @@ from .inventory import (
     UNKNOWN_BINDING,
     inventory_runs,
     load_decision_cases,
+)
+from .lineage import (
+    lineage_checkpoint,
+    validate_receipt_lineage,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,7 +78,9 @@ PUBLIC_CLAIM_BOUNDARY = (
     "Current-public corpus and protocol hashes identify this checkout only; they are "
     "not the historical as-run inputs. Historical as-run corpus, protocol, dispatch "
     "freshness, and served-model identity remain UNKNOWN. Local lab receipts are "
-    "self-reported. Current private follow-up case bytes are hash-bound but not "
+    "self-reported. Their local lineage checkpoint proves only unsigned structural "
+    "consistency against a surviving checkpoint, not authorship or immutable history. "
+    "Current private follow-up case bytes are hash-bound but not "
     "published and are not proven to be the as-run oracle bytes; independent as-run "
     "recalculation remains UNKNOWN. Neither source supports durable cross-model ranking, "
     "model-equivalence, deployment-safety, or certification claims."
@@ -190,12 +196,18 @@ def build_evidence_binding(
             ROOT / "score_orchestration_judge.py",
             ROOT / "operant_lab" / "artifacts.py",
             ROOT / "operant_lab" / "inventory.py",
+            ROOT / "operant_lab" / "lineage.py",
         ]
     )
     private_case_overlays = _digest_inventory(
         sorted((ROOT / "lab" / "followup" / "private").glob("*cases*.json"))
     )
     lab_receipts = _lab_receipt_digests(lab_runs_dir, lab_labels)
+    receipt_lineage = (
+        lineage_checkpoint(lab_runs_dir.resolve().parents[1])
+        if lab_runs_dir is not None
+        else lineage_checkpoint(ROOT / ".absent-lineage-root")
+    )
     combined = json.dumps(
         {
             "source_indexes": source_indexes,
@@ -203,15 +215,17 @@ def build_evidence_binding(
             "current_public_corpus": current_public_corpus,
             "current_public_protocol": current_public_protocol,
             "private_case_overlays": private_case_overlays,
+            "receipt_lineage": receipt_lineage,
         },
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
     return {
-        "schema": "operant-public-evidence-binding.v4",
+        "schema": "operant-public-evidence-binding.v5",
         "source_indexes": source_indexes,
         "lab_receipts": lab_receipts,
         "private_case_overlays": private_case_overlays,
+        "receipt_lineage": receipt_lineage,
         "source_bundle_sha256": hashlib.sha256(combined).hexdigest(),
         "current_public_corpus": current_public_corpus,
         "current_public_protocol": current_public_protocol,
@@ -333,6 +347,17 @@ def load_lab_decision_rows(
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     if not lab_runs_dir.exists():
         return [], {}
+    for path in sorted(lab_runs_dir.glob("*/*.json")):
+        preflight = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(preflight, dict):
+            raise RuntimeError(f"receipt root is not an object: {path.name}")
+    receipt_root = lab_runs_dir.resolve().parents[1]
+    lineage_errors = validate_receipt_lineage(receipt_root)
+    if lineage_errors:
+        raise RuntimeError(
+            "local receipt lineage is invalid: "
+            + "; ".join(sorted(set(lineage_errors)))
+        )
 
     score_operant = _load_score_operant()
     cases = load_decision_cases(score_operant)
@@ -354,7 +379,12 @@ def load_lab_decision_rows(
             continue
         if path.parent.name != label or path.stem != str(case_id).replace("/", "_"):
             raise RuntimeError(f"receipt path identity mismatch: {path.name}")
-        block_reason = scoring_block_reason(manifest)
+        block_reason = receipt_scoring_block_reason(
+            receipt_root,
+            run_label=str(label or ""),
+            case_id=str(case_id or ""),
+            require_receipt=True,
+        )
         if block_reason:
             if data.get("score_row") is not None or data.get("judge_row") is not None:
                 raise RuntimeError(

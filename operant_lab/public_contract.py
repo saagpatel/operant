@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import VALID_EVALUATION_ROLES
+from .lineage import validate_lineage_checkpoint
 
 REQUIRED_PUBLIC_FILES = {
     "README.md",
@@ -110,6 +111,7 @@ EXPECTED_BINDING_KEYS = {
         "score_orchestration_judge.py",
         "artifacts.py",
         "inventory.py",
+        "lineage.py",
     },
 }
 VALID_EVALUATION_BINDING_STATUSES = {
@@ -128,6 +130,7 @@ CURRENT_BINDING_PATHS = {
         "score_orchestration_judge.py": Path("score_orchestration_judge.py"),
         "artifacts.py": Path("operant_lab") / "artifacts.py",
         "inventory.py": Path("operant_lab") / "inventory.py",
+        "lineage.py": Path("operant_lab") / "lineage.py",
     },
 }
 
@@ -250,7 +253,7 @@ def _validate_evidence_binding(
     lab_runs_dir: Path | None = None,
     private_case_overlays_dir: Path | None = None,
 ) -> None:
-    maps: dict[str, dict[str, str]] = {}
+    maps: dict[str, Any] = {}
     for label in (
         "source_indexes",
         "current_public_corpus",
@@ -294,6 +297,54 @@ def _validate_evidence_binding(
             errors.append(
                 "benchmark-card.json: evidence binding private_case_overlays "
                 "contains unsafe key"
+            )
+    receipt_lineage = binding.get("receipt_lineage")
+    checkpoint_keys = {
+        "schema",
+        "baseline_sha256",
+        "sequence",
+        "entry_sha256",
+        "authorship",
+        "history_immutability",
+    }
+    if (
+        not isinstance(receipt_lineage, dict)
+        or set(receipt_lineage) != checkpoint_keys
+        or receipt_lineage.get("schema")
+        != "operant-receipt-lineage-checkpoint.v1"
+        or receipt_lineage.get("authorship") != "UNKNOWN"
+        or receipt_lineage.get("history_immutability") != "NOT_PROVEN"
+    ):
+        errors.append(
+            "benchmark-card.json: invalid receipt lineage checkpoint"
+        )
+    else:
+        maps["receipt_lineage"] = receipt_lineage
+        sequence = receipt_lineage.get("sequence")
+        if sequence == "UNKNOWN":
+            if (
+                receipt_lineage.get("baseline_sha256") != "UNKNOWN"
+                or receipt_lineage.get("entry_sha256") != "UNKNOWN"
+            ):
+                errors.append(
+                    "benchmark-card.json: inconsistent UNKNOWN receipt lineage"
+                )
+        elif (
+            not isinstance(sequence, int)
+            or isinstance(sequence, bool)
+            or sequence < 0
+            or not isinstance(receipt_lineage.get("baseline_sha256"), str)
+            or not SHA256_RE.fullmatch(receipt_lineage["baseline_sha256"])
+            or not isinstance(receipt_lineage.get("entry_sha256"), str)
+            or not SHA256_RE.fullmatch(receipt_lineage["entry_sha256"])
+        ):
+            errors.append(
+                "benchmark-card.json: unusable receipt lineage checkpoint"
+            )
+        if lab_receipts and sequence == "UNKNOWN":
+            errors.append(
+                "benchmark-card.json: bound lab receipts require a known "
+                "receipt lineage checkpoint"
             )
 
     for label in ("source_bundle_sha256", "exporter_sha256"):
@@ -344,6 +395,15 @@ def _validate_evidence_binding(
             )
 
     if lab_runs_dir is not None and isinstance(lab_receipts, dict):
+        receipt_root = lab_runs_dir.resolve().parents[1]
+        for error in validate_lineage_checkpoint(
+            receipt_root,
+            receipt_lineage,
+        ):
+            errors.append(
+                "benchmark-card.json: receipt lineage checkpoint "
+                f"does not match local state: {error}"
+            )
         expected_lab_receipts: dict[str, str] = {}
         for key in sorted(lab_receipts):
             if not RECEIPT_KEY_RE.fullmatch(str(key)):
@@ -437,6 +497,7 @@ def _validate_evidence_binding(
         "current_public_corpus",
         "current_public_protocol",
         "private_case_overlays",
+        "receipt_lineage",
     }:
         combined = json.dumps(
             {
@@ -445,6 +506,7 @@ def _validate_evidence_binding(
                 "current_public_corpus": maps["current_public_corpus"],
                 "current_public_protocol": maps["current_public_protocol"],
                 "private_case_overlays": maps["private_case_overlays"],
+                "receipt_lineage": maps["receipt_lineage"],
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -778,7 +840,7 @@ def validate_public_artifacts(
         binding = benchmark.get("evidence_binding")
         if not isinstance(binding, dict):
             errors.append("benchmark-card.json: missing evidence_binding")
-        elif binding.get("schema") != "operant-public-evidence-binding.v4":
+        elif binding.get("schema") != "operant-public-evidence-binding.v5":
             errors.append("benchmark-card.json: unsupported evidence_binding schema")
         elif binding.get("private_paths_exposed") is not False:
             errors.append("benchmark-card.json: evidence binding exposes private paths")

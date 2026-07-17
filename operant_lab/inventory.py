@@ -11,7 +11,7 @@ from typing import Any
 from .artifacts import (
     SHA256_RE,
     VALID_EVALUATION_ROLES,
-    scoring_block_reason,
+    receipt_scoring_block_reason,
     stable_hash,
     validate_execution_binding,
     validate_run_manifest_v3,
@@ -123,10 +123,16 @@ def _decision_score_outcome(
     run_data: dict[str, Any] | None,
     manifest: dict[str, Any],
     score_operant: Any,
+    root: Path,
 ) -> str:
     if run_data is None:
         return "queued"
-    block_reason = scoring_block_reason(manifest)
+    block_reason = receipt_scoring_block_reason(
+        root,
+        run_label=str(manifest.get("run_label") or ""),
+        case_id=str(manifest.get("case_id") or ""),
+        require_receipt=True,
+    )
     if block_reason:
         return block_reason
     parse_status = str(run_data.get("parse_status") or "unknown")
@@ -154,6 +160,7 @@ def _score_outcome(
     run_data: dict[str, Any] | None,
     manifest: dict[str, Any],
     score_operant: Any,
+    root: Path,
 ) -> str:
     run_axis = str(manifest.get("axis") or "decision")
     if run_axis != "orchestration":
@@ -162,10 +169,16 @@ def _score_outcome(
             run_data=run_data,
             manifest=manifest,
             score_operant=score_operant,
+            root=root,
         )
     if run_data is None:
         return "queued"
-    block_reason = scoring_block_reason(manifest)
+    block_reason = receipt_scoring_block_reason(
+        root,
+        run_label=str(manifest.get("run_label") or ""),
+        case_id=str(manifest.get("case_id") or ""),
+        require_receipt=True,
+    )
     if block_reason:
         return block_reason
     judge_row = run_data.get("judge_row")
@@ -381,6 +394,7 @@ def inventory_runs(
                     run_data=run_data,
                     manifest=manifest,
                     score_operant=score_operant,
+                    root=root,
                 ),
                 "risk_tags": _risk_tags(case, manifest),
                 "evaluation_binding": _evaluation_binding(

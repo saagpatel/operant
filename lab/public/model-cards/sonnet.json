@@ -730,7 +730,7 @@
     "status": "UNKNOWN"
   },
   "evidence_binding": {
-    "claim_boundary": "Source-index hashes bind exported aggregate calculations to imported score rows. Current-public corpus and protocol hashes identify this checkout only; they are not the historical as-run inputs. Historical as-run corpus, protocol, dispatch freshness, and served-model identity remain UNKNOWN. Local lab receipts are self-reported. Current private follow-up case bytes are hash-bound but not published and are not proven to be the as-run oracle bytes; independent as-run recalculation remains UNKNOWN. Neither source supports durable cross-model ranking, model-equivalence, deployment-safety, or certification claims.",
+    "claim_boundary": "Source-index hashes bind exported aggregate calculations to imported score rows. Current-public corpus and protocol hashes identify this checkout only; they are not the historical as-run inputs. Historical as-run corpus, protocol, dispatch freshness, and served-model identity remain UNKNOWN. Local lab receipts are self-reported. Their local lineage checkpoint proves only unsigned structural consistency against a surviving checkpoint, not authorship or immutable history. Current private follow-up case bytes are hash-bound but not published and are not proven to be the as-run oracle bytes; independent as-run recalculation remains UNKNOWN. Neither source supports durable cross-model ranking, model-equivalence, deployment-safety, or certification claims.",
     "current_public_corpus": {
       "operant_axis2_cases.json": "b93be447858eee666e2a05d7ac88a42b48f74d74337325b8271a26f6652de1bb",
       "operant_axis3_cases.json": "dc103fa394c0d7343e93d60800ba3ffea3aded1ddfbbc716aa6f70428895014b",
@@ -739,13 +739,14 @@
       "operant_templates.json": "6eb70b387f6c9ed01cac191e9bee037e75804396effb203cce1ed652fa8ae301"
     },
     "current_public_protocol": {
-      "artifacts.py": "fbda3fad5931ab6a7b6ae1013644d5a8760642e4bfe0eef9de722108d427c23c",
-      "inventory.py": "5a778ba6d042315602df37adc6d48b598c0cf4d2d9560c5867395bde6f6f1a5a",
+      "artifacts.py": "dcb131cbee142eff7ff14cfa3b85cbe7ce8af4050eb5d08dbfb5b1cc14533396",
+      "inventory.py": "e7c49f2caf1afd1dfcb0d030b11d86a3a59691c2372cca93b099290c1634f8e8",
+      "lineage.py": "f1ba20661fa13bd7b60927972658498e6f86d99b1ae2032cc8d8152a7747952e",
       "score_operant.py": "c952f69d36491df18e5dce49db92e18c4b9f87bc7e66b5563323203d0b5f8022",
       "score_orchestration.py": "430693d9a145ea9c64816e18864dec1d660b886d464c1032f85d5d12707b22d1",
       "score_orchestration_judge.py": "3c77fd77ee871b563d99a8a197675030f9f5913096e44cbd372fd2f2426cd0f5"
     },
-    "exporter_sha256": "ab0fc8d653d3e90fd2789b1d2a10aaf5335eb7bba175e2061db7652097c08d70",
+    "exporter_sha256": "0c3c4fbda637fe7bc722d8ae759193c6d8f6ecb555fa4ba742085b844705d0d2",
     "historical_as_run_corpus": "UNKNOWN",
     "historical_as_run_protocol": "UNKNOWN",
     "historical_o1_evidence_manifest_sha256": "UNKNOWN",
@@ -836,8 +837,16 @@
       "operant2_decision_cases.json": "f6fe10da13647e4d042cddffc66ac87c6c937f08c177dd55614cc4c888467e00"
     },
     "private_paths_exposed": false,
-    "schema": "operant-public-evidence-binding.v4",
-    "source_bundle_sha256": "b6c2d1e27cb6a1900e78c46c671d947f230068c2c687230558a015468c22f2f2",
+    "receipt_lineage": {
+      "authorship": "UNKNOWN",
+      "baseline_sha256": "4223632e3c6f7ad39d83d403bcf2824b09cd40ed44213d8c072490ce464f021d",
+      "entry_sha256": "30fa6b65ec04e3a7de284e2e249460342cfe822ee3e44cc015c3037d45397f1a",
+      "history_immutability": "NOT_PROVEN",
+      "schema": "operant-receipt-lineage-checkpoint.v1",
+      "sequence": 0
+    },
+    "schema": "operant-public-evidence-binding.v5",
+    "source_bundle_sha256": "13bffc9f6e72b1d23dd377dcdbc08c1f8c599c89a00838954d567d692d66c39a",
     "source_indexes": {
       "operant_index.jsonl": "6d13063af546067b018ab30149b1f28c2c9d78aa61dd58e9e10d717c34739f38",
       "operant_orchestration_judge_index.jsonl": "eb66b62e68472d5abc50a3c505173289a41ef5cdf1087be15ea0c3bd13520d48",

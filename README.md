@@ -207,6 +207,16 @@ scores, or exports. Codex queue
 receipts retain the exact source-queue SHA-256, and receipt publication precedes
 report projection so a failed receipt cannot leave a scoreable orphan report.
 Historical v1/v2/v3/v4 receipts remain historical rather than being backfilled.
+Local receipt lineage activation records only that existing receipt bytes were
+present at activation time. New receipts are chained under an ignored local
+journal. Root-aware scoring/export fails closed on receipt deletion or
+substitution while its entry survives, journal reordering, malformed tails,
+and orphans. Public artifacts carry only a stable baseline/head checkpoint.
+Uncheckpointed tail removal and total removal of an uncheckpointed store are
+not detectable. This unsigned chain does not prove authorship, consent,
+immutable history, or chronology; coordinated replacement of local state and
+every surviving external checkpoint also remains undetectable. See
+[`docs/evaluation-split-policy.md`](docs/evaluation-split-policy.md#local-receipt-lineage).
 
 CI exercises these rules with zero-cost local fixtures across the native,
 Codex CLI, and Codex App producer paths and through suite/export consumers.

@@ -25,6 +25,7 @@ from operant_lab.artifacts import (
 )
 from operant_lab.export import export_public_artifacts, model_card
 from operant_lab.inventory import inventory_runs
+from operant_lab.lineage import initialize_receipt_lineage
 from operant_lab.public_contract import (
     RECEIPT_KEY_RE,
     REQUIRED_ORPHANED_CLAIM_STATUS,
@@ -171,6 +172,7 @@ def _write_synthetic_export_lab(lab_root: Path, label: str) -> Path:
         ),
         encoding="utf-8",
     )
+    initialize_receipt_lineage(lab_root.parent)
     return runs_dir
 
 
@@ -461,6 +463,7 @@ def run_lab_layer_selftests() -> None:
         run_path = runs_dir / label / f"{completed_case}.json"
         run_path.parent.mkdir(parents=True)
         run_path.write_text(json.dumps(run_payload), encoding="utf-8")
+        initialize_receipt_lineage(tmp_root)
 
         inventory = inventory_runs(
             queue_dir=queue_dir,
@@ -565,7 +568,7 @@ def run_lab_layer_selftests() -> None:
             binding = calibration.get("evidence_binding", {})
             check(
                 "LAB export: binds source indexes without private paths",
-                binding.get("schema") == "operant-public-evidence-binding.v4"
+                binding.get("schema") == "operant-public-evidence-binding.v5"
                 and binding.get("private_paths_exposed") is False
                 and all(
                     value != "UNKNOWN"
@@ -588,6 +591,17 @@ def run_lab_layer_selftests() -> None:
                 len(
                     binding.get("current_public_protocol", {}).get(
                         "inventory.py",
+                        "",
+                    )
+                )
+                == 64,
+                str(binding.get("current_public_protocol")),
+            )
+            check(
+                "LAB export: binds receipt-lineage protocol",
+                len(
+                    binding.get("current_public_protocol", {}).get(
+                        "lineage.py",
                         "",
                     )
                 )
@@ -717,6 +731,7 @@ def run_lab_layer_selftests() -> None:
                     "current_public_corpus": binding["current_public_corpus"],
                     "current_public_protocol": binding["current_public_protocol"],
                     "private_case_overlays": binding["private_case_overlays"],
+                    "receipt_lineage": binding["receipt_lineage"],
                 },
                 sort_keys=True,
                 separators=(",", ":"),
@@ -1026,6 +1041,7 @@ def run_lab_layer_selftests() -> None:
                     "current_public_corpus": binding["current_public_corpus"],
                     "current_public_protocol": binding["current_public_protocol"],
                     "private_case_overlays": binding["private_case_overlays"],
+                    "receipt_lineage": binding["receipt_lineage"],
                 },
                 sort_keys=True,
                 separators=(",", ":"),
@@ -1077,6 +1093,7 @@ def run_lab_layer_selftests() -> None:
                     "current_public_corpus": binding["current_public_corpus"],
                     "current_public_protocol": binding["current_public_protocol"],
                     "private_case_overlays": binding["private_case_overlays"],
+                    "receipt_lineage": binding["receipt_lineage"],
                 },
                 sort_keys=True,
                 separators=(",", ":"),

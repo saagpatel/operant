@@ -124,6 +124,40 @@ without these execution fields remain historical and `UNKNOWN`; they are not
 backfilled. A receipt that claims v3/v4/v5/v6/v7/v8 but omits or malforms its
 execution binding is invalid rather than historical.
 
+## Local Receipt Lineage
+
+The ignored `lab/receipt-lineage/` state protects the complete local receipt
+set. Activation snapshots existing receipt keys and byte digests as
+`PRESENCE_AT_LOCAL_ACTIVATION_ONLY`; this is not evidence of run chronology,
+authorship, consent, or as-run provenance. Each later receipt is exclusively
+published under one file lock, embeds its chain position, and is followed by a
+canonical append-only journal entry. Receipt deletion or substitution while
+its journal entry survives, journal reordering or duplication, malformed
+tails, and well-formed receipt orphans make every root-aware scoring and export
+consumer fail closed. A crash after receipt
+publication but before journal append deliberately leaves an orphan requiring
+explicit recovery; the writer does not silently repair history.
+
+Public evidence exposes only a baseline digest and journal head checkpoint.
+An older checkpoint remains valid when later entries append, but not when its
+recorded prefix changes. Tail removal is detectable only when a surviving
+later or external checkpoint binds that tail. Coordinated removal of an
+uncheckpointed final receipt and its journal entry, deletion of an entirely
+uncheckpointed store, or replacement of the baseline, journal, receipts, and
+every surviving external checkpoint remains undetectable. The checkpoint and
+chain are unsigned internal consistency evidence;
+authorship and history immutability therefore stay `UNKNOWN` and `NOT_PROVEN`.
+Hashed receipt keys are dictionary-comparable fingerprints. The ignored
+baseline and journal must not be committed or redistributed as a corpus
+inventory.
+
+Initialize an existing local receipt collection once, then validate it with:
+
+```bash
+python3 operant_lab_cli.py initialize-receipt-lineage
+python3 operant_lab_cli.py check-receipt-lineage
+```
+
 ## Checked Registry
 
 `lab/public/evaluation-split-registry.json` records the current split and run

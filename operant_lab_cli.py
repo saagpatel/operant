@@ -10,6 +10,11 @@ from pathlib import Path
 
 from operant_lab.export import export_public_artifacts
 from operant_lab.inventory import inventory_runs
+from operant_lab.lineage import (
+    initialize_receipt_lineage,
+    lineage_checkpoint,
+    validate_receipt_lineage,
+)
 from operant_lab.public_contract import validate_public_artifacts
 from operant_lab.submissions import TEMPLATE, load_submission, validate_submission
 
@@ -73,6 +78,20 @@ def check_public_artifacts(args: argparse.Namespace) -> None:
     print(f"OK: {args.public_dir}")
 
 
+def initialize_lineage(args: argparse.Namespace) -> None:
+    initialize_receipt_lineage(args.root)
+    print(json.dumps(lineage_checkpoint(args.root), indent=2, sort_keys=True))
+
+
+def check_lineage(args: argparse.Namespace) -> None:
+    errors = validate_receipt_lineage(args.root)
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    print(json.dumps(lineage_checkpoint(args.root), indent=2, sort_keys=True))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="OPERANT public-lab utilities")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -129,6 +148,23 @@ def main() -> None:
         ),
     )
     check_public.set_defaults(func=check_public_artifacts)
+
+    initialize_receipts = sub.add_parser(
+        "initialize-receipt-lineage",
+        help=(
+            "snapshot current local receipt presence without claiming "
+            "historical chronology"
+        ),
+    )
+    initialize_receipts.add_argument("--root", type=Path, default=HERE)
+    initialize_receipts.set_defaults(func=initialize_lineage)
+
+    check_receipts = sub.add_parser(
+        "check-receipt-lineage",
+        help="validate the complete local receipt set and chained journal",
+    )
+    check_receipts.add_argument("--root", type=Path, default=HERE)
+    check_receipts.set_defaults(func=check_lineage)
 
     args = ap.parse_args()
     args.func(args)

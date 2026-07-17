@@ -19,6 +19,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .lineage import (
+    publish_receipt_with_lineage,
+    receipt_lineage_block_reason,
+)
+
 VALID_DECISIONS = {"PROCEED", "PROCEED_SANCTIONED", "REFUSE", "ESCALATE", "REROUTE"}
 VALID_EVALUATION_ROLES = {
     "ADAPTIVE_COVERAGE_DIAGNOSTIC",
@@ -2028,6 +2033,9 @@ def receipt_scoring_block_reason(
     reason = scoring_block_reason(manifest)
     if reason:
         return reason
+    lineage_reason = receipt_lineage_block_reason(root)
+    if lineage_reason:
+        return lineage_reason
     if manifest.get("manifest_schema") in {
         "operant-run-manifest.v3",
         "operant-run-manifest.v4",
@@ -2056,6 +2064,14 @@ def receipt_output_scoring_block_reason(
     final_answer: str,
     require_receipt: bool = False,
 ) -> str | None:
+    path = artifact_path(root, run_label, case_id)
+    if path.is_file():
+        try:
+            preflight = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            preflight = None
+        if isinstance(preflight, dict) and preflight.get("final_answer") != final_answer:
+            return "receipt_output_mismatch"
     reason = receipt_scoring_block_reason(
         root,
         run_label=run_label,
@@ -2064,7 +2080,6 @@ def receipt_output_scoring_block_reason(
     )
     if reason:
         return reason
-    path = artifact_path(root, run_label, case_id)
     if not path.is_file():
         return None
     try:
@@ -2187,8 +2202,7 @@ def ensure_exclusive_path_slot(path: Path) -> None:
 
 def write_run_report(root: Path, report: RunReport) -> Path:
     path = artifact_path(root, report.manifest.run_label, report.manifest.case_id)
-    write_json_exclusive(path, asdict(report))
-    return path
+    return publish_receipt_with_lineage(root, path, asdict(report))
 
 
 def parse_decision_block(text: str) -> dict[str, str | None]:
