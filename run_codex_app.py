@@ -13,6 +13,7 @@ can safely launch on its own. This command therefore has two explicit modes:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import sys
@@ -26,6 +27,7 @@ from operant_lab.artifacts import (
     build_execution_binding,
     case_bundle_binding,
     complete_execution_binding,
+    ensure_exclusive_path_slot,
     ensure_run_receipt_slot,
     execution_input_mismatches,
     parse_decision_block,
@@ -35,6 +37,7 @@ from operant_lab.artifacts import (
     validate_execution_binding,
     write_json_exclusive,
     write_run_report,
+    write_text_exclusive,
 )
 from operant_lab.subjects import CodexAppAdapter
 
@@ -154,12 +157,6 @@ def prepare(args: argparse.Namespace) -> None:
             print(json.dumps(payload, indent=2, sort_keys=True))
 
 
-def _load_queue_payload(path: Path | None) -> dict | None:
-    if path is None:
-        return None
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def record(args: argparse.Namespace) -> None:
     answer = args.answer_file.read_text(encoding="utf-8")
     system_prompt = _system_prompt(args.axis)
@@ -168,9 +165,10 @@ def record(args: argparse.Namespace) -> None:
         sys.exit(f"unknown case id: {args.case_id}")
     case = cases[args.case_id]
     prompt = ADAPTER.build_prompt(case, system_prompt, args.axis)
-    queue_payload = _load_queue_payload(args.queue_file)
-    if queue_payload is None:
+    if args.queue_file is None:
         sys.exit("record requires the exact v3 --queue-file prepared before dispatch")
+    source_queue_bytes = args.queue_file.read_bytes()
+    queue_payload = json.loads(source_queue_bytes)
     queue_manifest = (queue_payload or {}).get("manifest", {})
     try:
         queue_locator = (
@@ -178,6 +176,7 @@ def record(args: argparse.Namespace) -> None:
         )
     except ValueError:
         sys.exit("--queue-file must stay inside the repository")
+    source_queue_sha256 = hashlib.sha256(source_queue_bytes).hexdigest()
     queue_prompt = (queue_payload or {}).get("prompt")
     if queue_payload:
         if queue_payload.get("case_id") != args.case_id:
@@ -208,6 +207,12 @@ def record(args: argparse.Namespace) -> None:
             sys.exit("queue thread container does not match --thread-container")
         if queue_prompt != prompt.full_prompt:
             sys.exit("queue prompt no longer matches the adapter-built prompt")
+        if queue_manifest.get("prompt_hash") != stable_hash(prompt.full_prompt):
+            sys.exit("queue prompt_hash does not match the bound prompt")
+        if queue_manifest.get("prompt_contract") != prompt.prompt_contract:
+            sys.exit("queue prompt_contract does not match the adapter contract")
+        if queue_manifest.get("tool_policy") != prompt.tool_policy:
+            sys.exit("queue tool_policy does not match the adapter policy")
     queue_role = queue_manifest.get("evaluation_role")
     if args.evaluation_role and queue_role and args.evaluation_role != queue_role:
         sys.exit("queue evaluation role does not match --evaluation-role")
@@ -270,6 +275,10 @@ def record(args: argparse.Namespace) -> None:
             + ", ".join(mismatches)
         )
     ensure_run_receipt_slot(HERE, args.label, args.case_id)
+    prefix = "operant" if args.axis == "decision" else "orchestration"
+    ensure_exclusive_path_slot(
+        REPORTS / f"{prefix}__{args.label}__{args.case_id}.txt"
+    )
     execution_binding = complete_execution_binding(
         prepared_binding,
         provider_reported_candidates=[],
@@ -290,12 +299,11 @@ def record(args: argparse.Namespace) -> None:
             "justification": None,
             "failure_class": identity_failure,
         }
-    prefix = "operant" if args.axis == "decision" else "orchestration"
-    report_path = None
-    if not identity_failure:
-        REPORTS.mkdir(parents=True, exist_ok=True)
-        report_path = REPORTS / f"{prefix}__{args.label}__{args.case_id}.txt"
-        report_path.write_text(answer, encoding="utf-8")
+    report_path = (
+        REPORTS / f"{prefix}__{args.label}__{args.case_id}.txt"
+        if parsed["parse_status"] == "ok"
+        else None
+    )
 
     manifest = RunManifest(
         run_label=args.label,
@@ -304,9 +312,9 @@ def record(args: argparse.Namespace) -> None:
         subject_shell=ADAPTER.shell,
         model_id=args.model,
         thinking=args.thinking,
-        prompt_hash=queue_manifest.get("prompt_hash", stable_hash(prompt.full_prompt)),
-        prompt_contract=queue_manifest.get("prompt_contract", prompt.prompt_contract),
-        tool_policy=queue_manifest.get("tool_policy", prompt.tool_policy),
+        prompt_hash=stable_hash(prompt.full_prompt),
+        prompt_contract=prompt.prompt_contract,
+        tool_policy=prompt.tool_policy,
         evaluation_role=role,
         case_bundle_sha256=str(bundle["case_bundle_sha256"]),
         case_bundle_case_count=int(bundle["case_bundle_case_count"]),
@@ -315,6 +323,7 @@ def record(args: argparse.Namespace) -> None:
         repeat_id=queue_manifest.get("repeat_id", args.repeat),
         source_thread_id=args.thread_id,
         source_queue_file=queue_locator,
+        source_queue_sha256=source_queue_sha256,
         thread_container=queue_manifest.get("thread_container"),
     )
     lab_path = write_run_report(
@@ -331,6 +340,8 @@ def record(args: argparse.Namespace) -> None:
             ),
         ),
     )
+    if report_path:
+        write_text_exclusive(report_path, answer)
     print(f"recorded {args.case_id}: {lab_path.relative_to(HERE)}")
 
 

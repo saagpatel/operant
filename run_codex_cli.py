@@ -9,6 +9,7 @@ dispatch when an operator wants no new App threads.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -25,11 +26,13 @@ from operant_lab.artifacts import (
     build_execution_binding,
     case_bundle_binding,
     complete_execution_binding,
+    ensure_exclusive_path_slot,
     ensure_run_receipt_slot,
     parse_decision_block,
     resolve_evaluation_role,
     stable_hash,
     write_run_report,
+    write_text_exclusive,
 )
 from operant_lab.inventory import inventory_runs
 from operant_lab.subjects import CodexAppAdapter
@@ -140,7 +143,9 @@ def codex_command(args: argparse.Namespace, answer_path: Path) -> list[str]:
 def run_queue_file(
     path: Path, args: argparse.Namespace, cases: dict[str, Any]
 ) -> dict[str, Any]:
-    payload = _load_queue_payload(path)
+    source_queue_bytes = path.read_bytes()
+    payload = json.loads(source_queue_bytes)
+    source_queue_sha256 = hashlib.sha256(source_queue_bytes).hexdigest()
     case_id = str(payload.get("case_id") or "")
     if not case_id:
         raise ValueError(f"missing case_id in {path}")
@@ -162,13 +167,22 @@ def run_queue_file(
     outer_axis = str(payload.get("axis") or "")
     if queue_manifest.get("axis") != outer_axis:
         raise ValueError(f"queue manifest axis mismatch in {path}")
+    if outer_axis != "decision":
+        raise ValueError(
+            "Codex CLI queue runner supports decision cases only; "
+            f"got {outer_axis or 'missing'} in {path}"
+        )
     system_prompt = _system_prompt(outer_axis)
-    if prompt != ADAPTER.build_prompt(
+    canonical_prompt = ADAPTER.build_prompt(
         cases[case_id],
         system_prompt,
         outer_axis,
-    ).full_prompt:
+    )
+    if prompt != canonical_prompt.full_prompt:
         raise ValueError(f"queue prompt no longer matches canonical case in {path}")
+    recorded_contract = queue_manifest.get("prompt_contract")
+    if recorded_contract and recorded_contract != canonical_prompt.prompt_contract:
+        raise ValueError(f"queue prompt contract mismatch in {path}")
 
     attempt_id = uuid.uuid4().hex
     answer_path = _answer_path(args.label, case_id, attempt_id)
@@ -184,7 +198,10 @@ def run_queue_file(
         tool_policy=TOOL_POLICY,
         timeout_seconds=args.timeout,
         output_mode="codex-output-last-message-file",
-        dispatch_settings={"thinking": args.thinking},
+        dispatch_settings={
+            "thinking": args.thinking,
+            "source_queue_sha256": source_queue_sha256,
+        },
         harness_files=HARNESS_FILES,
         requested_model_id=args.model,
     )
@@ -201,6 +218,7 @@ def run_queue_file(
         }
 
     ensure_run_receipt_slot(HERE, args.label, case_id)
+    ensure_exclusive_path_slot(_report_path(args.label, case_id))
     t0 = time.time()
     try:
         proc = subprocess.run(
@@ -220,10 +238,7 @@ def run_queue_file(
             model_id=args.model,
             thinking=args.thinking,
             prompt_hash=actual_prompt_hash,
-            prompt_contract=str(
-                queue_manifest.get("prompt_contract")
-                or "codex_app_prompt_embeds_operator_contract"
-            ),
+            prompt_contract=canonical_prompt.prompt_contract,
             tool_policy=TOOL_POLICY,
             evaluation_role=args.resolved_evaluation_role,
             case_bundle_sha256=str(args.case_bundle["case_bundle_sha256"]),
@@ -232,6 +247,7 @@ def run_queue_file(
             execution_binding=execution_binding,
             repeat_id=args.repeat,
             source_queue_file=str(path.relative_to(HERE)),
+            source_queue_sha256=source_queue_sha256,
             thread_container="local:codex-cli-ephemeral",
         )
         lab_path = write_run_report(
@@ -273,11 +289,15 @@ def run_queue_file(
         final_answer=answer,
     )
 
-    REPORTS.mkdir(parents=True, exist_ok=True)
     report_path = _report_path(args.label, case_id)
-    report_path.write_text(answer, encoding="utf-8")
-
     parsed = parse_decision_block(answer)
+    if proc.returncode != 0:
+        parsed = {
+            "parse_status": "process_exit_nonzero",
+            "decision": None,
+            "justification": None,
+            "failure_class": "process_exit_nonzero",
+        }
     manifest = RunManifest(
         run_label=args.label,
         case_id=case_id,
@@ -286,10 +306,7 @@ def run_queue_file(
         model_id=args.model,
         thinking=args.thinking,
         prompt_hash=actual_prompt_hash,
-        prompt_contract=str(
-            queue_manifest.get("prompt_contract")
-            or "codex_app_prompt_embeds_operator_contract"
-        ),
+        prompt_contract=canonical_prompt.prompt_contract,
         tool_policy=TOOL_POLICY,
         evaluation_role=args.resolved_evaluation_role,
         case_bundle_sha256=str(args.case_bundle["case_bundle_sha256"]),
@@ -298,11 +315,17 @@ def run_queue_file(
         execution_binding=execution_binding,
         repeat_id=args.repeat,
         source_queue_file=str(path.relative_to(HERE)),
+        source_queue_sha256=source_queue_sha256,
         thread_container="local:codex-cli-ephemeral",
     )
     score_row = None
-    if manifest.axis == "decision":
+    if manifest.axis == "decision" and parsed["parse_status"] == "ok":
         score_row = _load_score_operant().score_one(cases[case_id], answer)
+    report_locator = (
+        str(report_path.relative_to(HERE))
+        if parsed["parse_status"] == "ok"
+        else None
+    )
 
     lab_path = write_run_report(
         HERE,
@@ -314,9 +337,12 @@ def run_queue_file(
             extracted_justification=parsed["justification"],
             failure_class=parsed["failure_class"],
             score_row=score_row,
-            source_report=str(report_path.relative_to(HERE)),
+            source_report=report_locator,
+            process_exit_code=proc.returncode,
         ),
     )
+    if report_locator:
+        write_text_exclusive(report_path, answer)
     meta = {
         "case_id": case_id,
         "run_label": args.label,
@@ -335,7 +361,11 @@ def run_queue_file(
         "lab_report": str(lab_path.relative_to(HERE)),
         "execution_binding": execution_binding,
     }
-    if not answer.strip():
+    if proc.returncode != 0:
+        meta["error"] = "process_exit_nonzero"
+        if proc.stderr.strip():
+            meta["stderr_tail"] = proc.stderr[-400:]
+    elif not answer.strip():
         meta["error"] = "empty_result"
         if proc.stderr.strip():
             meta["stderr_tail"] = proc.stderr[-400:]

@@ -43,11 +43,13 @@ from operant_lab.artifacts import (
     build_execution_binding,
     case_bundle_binding,
     complete_execution_binding,
+    ensure_exclusive_path_slot,
     ensure_run_receipt_slot,
     parse_orchestration_plan,
     resolve_evaluation_role,
     stable_hash,
     write_run_report,
+    write_text_exclusive,
 )
 from operant_lab.subjects import ClaudeCodeAdapter
 
@@ -159,6 +161,7 @@ def run_case(
         }
 
     ensure_run_receipt_slot(HERE, label, cid)
+    ensure_exclusive_path_slot(REPORTS / f"orchestration__{label}__{cid}.txt")
     execution_binding = build_execution_binding(
         root=HERE,
         exact_prompt=prompt.full_prompt,
@@ -232,6 +235,7 @@ def run_case(
 
     report_text = ""
     observed_model_ids: list[str] = []
+    provider_result_is_error = False
     try:
         data = json.loads(proc.stdout)
         events = data if isinstance(data, list) else [data]
@@ -241,6 +245,7 @@ def run_case(
         )
         meta["model_usage"] = observed_model_ids
         meta["cost_usd"] = result_event.get("total_cost_usd")
+        provider_result_is_error = result_event.get("is_error") is True
         report_text = result_event.get("result") or ""
     except Exception as exc:  # noqa: BLE001
         meta["error"] = f"{type(exc).__name__}: {exc}"
@@ -265,22 +270,29 @@ def run_case(
     if identity_failure:
         meta["error"] = identity_failure
 
-    if report_text and not identity_failure:
-        REPORTS.mkdir(parents=True, exist_ok=True)
-        # Distinct prefix so Axis-3 reports never collide with score_suite's
-        # operant__ decision reports (which it would try to OCS-score).
-        out = REPORTS / f"orchestration__{label}__{cid}.txt"
-        out.write_text(report_text, encoding="utf-8")
-        meta["report"] = str(out.relative_to(HERE.parent))
-
     parsed = parse_orchestration_plan(report_text)
-    if identity_failure:
+    execution_failure = (
+        "process_exit_nonzero"
+        if proc.returncode != 0
+        else "provider_result_error"
+        if provider_result_is_error
+        else None
+    )
+    terminal_failure = identity_failure or execution_failure
+    if terminal_failure:
         parsed = {
-            "parse_status": identity_failure,
+            "parse_status": terminal_failure,
             "decision": None,
             "justification": None,
-            "failure_class": identity_failure,
+            "failure_class": terminal_failure,
         }
+        meta["error"] = terminal_failure
+    report_path = REPORTS / f"orchestration__{label}__{cid}.txt"
+    report_locator = (
+        str(report_path.relative_to(HERE.parent))
+        if parsed["parse_status"] == "ok"
+        else None
+    )
     manifest = RunManifest(
         run_label=label,
         case_id=cid,
@@ -304,9 +316,14 @@ def run_case(
         extracted_decision=parsed["decision"],
         extracted_justification=parsed["justification"],
         failure_class=parsed["failure_class"],
-        source_report=meta.get("report"),
+        source_report=report_locator,
+        process_exit_code=proc.returncode,
     )
     meta["lab_report"] = str(write_run_report(HERE, run_report).relative_to(HERE))
+    if report_locator:
+        # Distinct prefix prevents Axis-3 plans from entering decision scoring.
+        write_text_exclusive(report_path, report_text)
+        meta["report"] = report_locator
 
     return meta
 

@@ -160,7 +160,17 @@ Provider-reported model candidates are retained as evidence. They are not
 promoted to served-model identity, which remains `UNKNOWN`. An exact requested
 model mismatch or multiple provider-reported candidates preserves the raw
 output in the private lab receipt but blocks that attempt from scoring.
+Nonzero process exits, provider-declared error results, and unparsable answers
+are likewise preserved but cannot produce deterministic report projections,
+scores, or exports. Codex queue
+receipts retain the exact source-queue SHA-256, and receipt publication precedes
+report projection so a failed receipt cannot leave a scoreable orphan report.
 Historical v1/v2 receipts remain historical rather than being backfilled.
+
+CI exercises these rules with zero-cost local fixtures across the native,
+Codex CLI, and Codex App producer paths and through suite/export consumers.
+Those fixtures verify harness behavior only; they are not evidence of provider
+availability, served-model identity, or authentic provider burn-in.
 
 Unknown run families default to
 `UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY`; known model-specific follow-ups

@@ -357,6 +357,12 @@ def load_lab_decision_rows(
                     f"blocked receipt carries score evidence: {label}/{case_id}"
                 )
             continue
+        if data.get("parse_status") != "ok":
+            if data.get("score_row") is not None or data.get("judge_row") is not None:
+                raise RuntimeError(
+                    f"unscoreable receipt carries score evidence: {label}/{case_id}"
+                )
+            continue
         if manifest.get("manifest_schema") == "operant-run-manifest.v3":
             bound_answer = (
                 manifest.get("execution_binding", {})
@@ -382,6 +388,7 @@ def load_lab_decision_rows(
                 "parse_status": data.get("parse_status"),
                 "source_thread_id": manifest.get("source_thread_id"),
                 "source_queue_file": manifest.get("source_queue_file"),
+                "source_queue_sha256": manifest.get("source_queue_sha256"),
                 "thread_container": manifest.get("thread_container"),
             }
         )

@@ -537,7 +537,10 @@ class RunManifestBindingTests(unittest.TestCase):
                 mock.patch.object(
                     run_codex_cli.ADAPTER,
                     "build_prompt",
-                    return_value=SimpleNamespace(full_prompt=prompt),
+                    return_value=SimpleNamespace(
+                        full_prompt=prompt,
+                        prompt_contract="codex_app_prompt_embeds_operator_contract",
+                    ),
                 ),
                 mock.patch.object(run_codex_cli, "write_run_report", capture),
                 mock.patch.object(
@@ -610,7 +613,10 @@ class RunManifestBindingTests(unittest.TestCase):
                 mock.patch.object(
                     run_codex_cli.ADAPTER,
                     "build_prompt",
-                    return_value=SimpleNamespace(full_prompt=prompt),
+                    return_value=SimpleNamespace(
+                        full_prompt=prompt,
+                        prompt_contract="codex_app_prompt_embeds_operator_contract",
+                    ),
                 ),
                 mock.patch.object(run_codex_cli, "write_run_report", capture),
                 mock.patch.object(
@@ -636,7 +642,7 @@ class RunManifestBindingTests(unittest.TestCase):
                 ),
             ):
                 meta = run_codex_cli.run_queue_file(queue_path, args, {"a": case})
-            self.assertEqual(meta["error"], "empty_result")
+            self.assertEqual(meta["error"], "process_exit_nonzero")
             self.assertEqual(captured[0].final_answer, "")
 
     def test_native_runners_preserve_but_never_publish_identity_mismatch(self) -> None:
@@ -690,7 +696,7 @@ class RunManifestBindingTests(unittest.TestCase):
                         runner.subprocess,
                         "run",
                         return_value=SimpleNamespace(
-                            returncode=0,
+                            returncode=1,
                             stdout=result,
                             stderr="",
                         ),
@@ -715,6 +721,7 @@ class RunManifestBindingTests(unittest.TestCase):
                     "private preserved answer",
                 )
                 self.assertIsNone(captured[0].score_row)
+                self.assertEqual(captured[0].process_exit_code, 1)
 
     def test_suite_ignores_stale_report_not_returned_by_attempt(self) -> None:
         import run_suite

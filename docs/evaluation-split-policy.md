@@ -68,6 +68,17 @@ candidate is evidence about what the tool reported, not proof of the model
 actually served; `served_model_identity` remains `UNKNOWN`. Exact mismatches
 and ambiguous multi-model reports preserve the attempt output but are blocked
 from every score, rescore, variance, judge, inventory, and export path.
+Nonzero process exits, provider-declared error results, and unparsable outputs
+are also preserved as failed receipts, including the process exit code when
+applicable, but cannot emit a deterministic report projection or enter
+scoring/export. Codex queue-derived
+receipts bind the exact source queue bytes by SHA-256. Receipt publication
+precedes report projection, preventing receipt-construction failures from
+leaving a scoreable orphan report.
+
+Zero-cost fixture burn-in covers the native, Codex CLI, and Codex App producer
+paths plus suite/export consumption. It verifies local harness contracts, not
+provider availability, served-model identity, or authentic provider burn-in.
 
 Unknown families default to
 `UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY`. Known model-specific follow-up

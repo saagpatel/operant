@@ -341,6 +341,7 @@ def inventory_runs(
             {
                 "case_id": case_id,
                 "queue_file_path": queue_file_path,
+                "source_queue_sha256": manifest.get("source_queue_sha256"),
                 "prompt_hash": prompt_hash,
                 "run_label": run_label,
                 "thread_id": manifest.get("source_thread_id"),

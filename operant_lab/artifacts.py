@@ -655,6 +655,7 @@ class RunManifest:
     created_at: str = field(default_factory=utc_now)
     source_thread_id: str | None = None
     source_queue_file: str | None = None
+    source_queue_sha256: str | None = None
     thread_container: str | None = None
     cost_usd: float | None = None
     manifest_schema: str = field(default="operant-run-manifest.v3", init=False)
@@ -671,6 +672,10 @@ class RunManifest:
             raise ValueError("case_bundle_case_count must be positive")
         if not self.case_split.strip():
             raise ValueError("case_split must be non-empty")
+        if self.source_queue_sha256 is not None and not SHA256_RE.fullmatch(
+            self.source_queue_sha256
+        ):
+            raise ValueError("source_queue_sha256 must be a lowercase SHA-256")
         binding_errors = validate_execution_binding(self.execution_binding)
         if binding_errors:
             raise ValueError(
@@ -694,11 +699,16 @@ class RunReport:
     score_row: dict[str, Any] | None = None
     judge_row: dict[str, Any] | None = None
     source_report: str | None = None
+    process_exit_code: int | None = None
 
     def __post_init__(self) -> None:
         block_reason = scoring_block_reason(asdict(self.manifest))
         if block_reason and (self.score_row is not None or self.judge_row is not None):
             raise ValueError(f"blocked receipt cannot carry scores: {block_reason}")
+        if (
+            self.score_row is not None or self.judge_row is not None
+        ) and self.parse_status != "ok":
+            raise ValueError("scored receipt must have parse_status ok")
         if (
             block_reason
             and block_reason != "incomplete_execution_receipt"
@@ -772,6 +782,8 @@ def receipt_scoring_block_reason(
         )
         if bound_answer != stable_hash(str(data.get("final_answer") or "")):
             return "receipt_output_binding_mismatch"
+    if data.get("parse_status") != "ok":
+        return f"receipt_not_scoreable:{data.get('parse_status') or 'unknown'}"
     return None
 
 
@@ -849,7 +861,6 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
 
 def write_json_exclusive(path: Path, data: dict[str, Any]) -> None:
     """Atomically publish JSON exactly once without a check-then-write race."""
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = (
         json.dumps(
             data,
@@ -859,6 +870,16 @@ def write_json_exclusive(path: Path, data: dict[str, Any]) -> None:
         )
         + "\n"
     ).encode("utf-8")
+    _write_bytes_exclusive(path, payload)
+
+
+def write_text_exclusive(path: Path, text: str) -> None:
+    """Atomically publish UTF-8 text exactly once."""
+    _write_bytes_exclusive(path, text.encode("utf-8"))
+
+
+def _write_bytes_exclusive(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary_name = tempfile.mkstemp(
         dir=path.parent,
         prefix=".exclusive-",
@@ -886,9 +907,12 @@ def artifact_path(root: Path, run_label: str, case_id: str) -> Path:
 
 
 def ensure_run_receipt_slot(root: Path, run_label: str, case_id: str) -> None:
-    path = artifact_path(root, run_label, case_id)
+    ensure_exclusive_path_slot(artifact_path(root, run_label, case_id))
+
+
+def ensure_exclusive_path_slot(path: Path) -> None:
     if path.exists():
-        raise FileExistsError(f"refusing to overwrite run receipt: {path}")
+        raise FileExistsError(f"refusing to overwrite evidence artifact: {path}")
 
 
 def write_run_report(root: Path, report: RunReport) -> Path:
