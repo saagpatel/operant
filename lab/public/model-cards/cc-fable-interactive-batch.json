@@ -50,6 +50,31 @@
     }
   },
   "display_name": "Claude Fable 5 via Claude Code interactive batch",
+  "evidence_binding": {
+    "claim_boundary": "Digests authenticate imported bytes. They do not establish historical dispatch freshness or served-model identity when source evidence predates append-only attempt manifests.",
+    "corpus": {
+      "operant_axis2_cases.json": "b93be447858eee666e2a05d7ac88a42b48f74d74337325b8271a26f6652de1bb",
+      "operant_axis3_cases.json": "dc103fa394c0d7343e93d60800ba3ffea3aded1ddfbbc716aa6f70428895014b",
+      "operant_axis4_cases.json": "df76a684f5781ae7b1cae90e4379f2bdc3b0f4773ba50cb65378e3c9182566fb",
+      "operant_cases.json": "5a58b3764e6dc06f2d4dcf27a8bdd7e181d32c90249ceb79e5285cbc1f0a61e7",
+      "operant_templates.json": "6eb70b387f6c9ed01cac191e9bee037e75804396effb203cce1ed652fa8ae301"
+    },
+    "exporter_sha256": "b4378c54955e630ce1ddd3cc04518c5b99495595cdf2e362fc524a765e21812a",
+    "historical_evidence_manifest_sha256": "c05b4536c86b85b76e66db1f735cab9d853dc409ca2f4bf2a7c4aaa9fee2c6b4",
+    "private_paths_exposed": false,
+    "protocol": {
+      "score_operant.py": "b00048f828ab6b3a1c5d2b74e0b2350b1c17a559958f59077a4af14d7c2d1312",
+      "score_orchestration.py": "7fff75f066bc554bd9d53e2fcf03c81c1b05ed4b1c4a1e1faad03ee6a65d73b3",
+      "score_orchestration_judge.py": "7f578b05cba26d4572731e6a7192d404dae3473b9bf1b3a2705426fcdb0a4dd6"
+    },
+    "schema": "operant-public-evidence-binding.v1",
+    "source_bundle_sha256": "a730fbd9644f900f30a93ce52287e240913d5d090beb19228d0c834b44c1e3e9",
+    "source_indexes": {
+      "operant_index.jsonl": "6d13063af546067b018ab30149b1f28c2c9d78aa61dd58e9e10d717c34739f38",
+      "operant_orchestration_judge_index.jsonl": "eb66b62e68472d5abc50a3c505173289a41ef5cdf1087be15ea0c3bd13520d48",
+      "operant_orchestration_judge_opus_index.jsonl": "3d19aaf9cbf58ffcbf985e849aefaabe38bc065fc7443a46e48b701658760261"
+    }
+  },
   "known_limitations": [
     {
       "evidence": "Single repeat only.",

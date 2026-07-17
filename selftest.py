@@ -516,6 +516,17 @@ def run_lab_layer_selftests() -> None:
                 "source_results" not in calibration and "/Users/" not in serialized_calibration,
                 serialized_calibration,
             )
+            binding = calibration.get("evidence_binding", {})
+            check(
+                "LAB export: binds source indexes without private paths",
+                binding.get("schema") == "operant-public-evidence-binding.v1"
+                and binding.get("private_paths_exposed") is False
+                and all(
+                    value != "UNKNOWN"
+                    for value in binding.get("source_indexes", {}).values()
+                ),
+                str(binding),
+            )
             check(
                 "LAB public contract: historical export passes",
                 validate_public_artifacts(out_dir) == [],

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import statistics
@@ -65,6 +66,71 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
         if line.strip():
             rows.append(json.loads(line))
     return rows
+
+
+def _sha256(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _digest_inventory(paths: list[Path]) -> dict[str, str]:
+    return {
+        path.name: _sha256(path) if path.is_file() else "UNKNOWN"
+        for path in paths
+    }
+
+
+def build_evidence_binding(source_results: Path) -> dict[str, Any]:
+    """Bind public summaries to private bytes without exposing private paths."""
+    source_indexes = _digest_inventory(
+        [
+            source_results / "operant_index.jsonl",
+            source_results / "operant_orchestration_judge_index.jsonl",
+            source_results / "operant_orchestration_judge_opus_index.jsonl",
+        ]
+    )
+    corpus = _digest_inventory(
+        [
+            ROOT / "operant_cases.json",
+            ROOT / "operant_axis2_cases.json",
+            ROOT / "operant_axis3_cases.json",
+            ROOT / "operant_axis4_cases.json",
+            ROOT / "operant_templates.json",
+        ]
+    )
+    protocol = _digest_inventory(
+        [
+            ROOT / "score_operant.py",
+            ROOT / "score_orchestration.py",
+            ROOT / "score_orchestration_judge.py",
+        ]
+    )
+    historical = source_results.parent / "evidence" / "o2-historical-manifest.json"
+    combined = json.dumps(
+        {"source_indexes": source_indexes, "corpus": corpus, "protocol": protocol},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return {
+        "schema": "operant-public-evidence-binding.v1",
+        "source_indexes": source_indexes,
+        "source_bundle_sha256": hashlib.sha256(combined).hexdigest(),
+        "corpus": corpus,
+        "protocol": protocol,
+        "exporter_sha256": _sha256(Path(__file__)),
+        "historical_evidence_manifest_sha256": (
+            _sha256(historical) if historical.is_file() else "UNKNOWN"
+        ),
+        "private_paths_exposed": False,
+        "claim_boundary": (
+            "Digests authenticate imported bytes. They do not establish "
+            "historical dispatch freshness or served-model identity when source "
+            "evidence predates append-only attempt manifests."
+        ),
+    }
 
 
 def _mean(values: list[float]) -> float | None:
@@ -632,6 +698,7 @@ def export_public_artifacts(
     lab_runs_dir: Path | None = None,
     lab_labels: set[str] | None = None,
 ) -> dict[str, Any]:
+    evidence_binding = build_evidence_binding(source_results)
     canonical_decision_rows = read_jsonl(source_results / "operant_index.jsonl")
     judge_rows = read_jsonl(source_results / "operant_orchestration_judge_index.jsonl")
     opus_judge_rows = read_jsonl(
@@ -672,6 +739,7 @@ def export_public_artifacts(
             opus_judge_repeats=opus_judge_by_family.get(family, {}),
             metadata_override=lab_metadata.get(family),
         )
+        card["evidence_binding"] = evidence_binding
         write_json(out_dir / "model-cards" / f"{family}.json", card)
         model_cards.append(card)
 
@@ -683,6 +751,7 @@ def export_public_artifacts(
         ),
         "included_lab_labels": sorted(lab_labels) if lab_labels else [],
         "presentation": "calibration_profiles_not_flat_leaderboard",
+        "evidence_binding": evidence_binding,
         "models": [
             {
                 "run_family": card["run_family"],
@@ -711,6 +780,7 @@ def export_public_artifacts(
             "Public exemplars may be shown; held-out prompts and raw reports stay "
             "excluded from public exports."
         ),
+        "evidence_binding": evidence_binding,
     }
     lab_status = _lab_run_status(
         lab_rows=lab_rows,

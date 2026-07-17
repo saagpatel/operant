@@ -119,11 +119,22 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
         case_counts = benchmark.get("case_counts")
         if not isinstance(case_counts, dict) or "decision" not in case_counts:
             errors.append("benchmark-card.json: missing case_counts.decision")
+        binding = benchmark.get("evidence_binding")
+        if not isinstance(binding, dict):
+            errors.append("benchmark-card.json: missing evidence_binding")
+        elif binding.get("schema") != "operant-public-evidence-binding.v1":
+            errors.append("benchmark-card.json: unsupported evidence_binding schema")
+        elif binding.get("private_paths_exposed") is not False:
+            errors.append("benchmark-card.json: evidence binding exposes private paths")
 
     if isinstance(calibration, dict):
         models = calibration.get("models")
         if not isinstance(models, list) or not models:
             errors.append("calibration-profiles.json: models must be non-empty")
+        if calibration.get("evidence_binding") != (
+            benchmark.get("evidence_binding") if isinstance(benchmark, dict) else None
+        ):
+            errors.append("calibration-profiles.json: evidence binding mismatch")
 
     if isinstance(lab_status, dict):
         runs = lab_status.get("runs")
