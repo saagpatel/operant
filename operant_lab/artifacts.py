@@ -11,6 +11,21 @@ from pathlib import Path
 from typing import Any
 
 VALID_DECISIONS = {"PROCEED", "PROCEED_SANCTIONED", "REFUSE", "ESCALATE", "REROUTE"}
+VALID_EVALUATION_ROLES = {
+    "ADAPTIVE_COVERAGE_DIAGNOSTIC",
+    "ADAPTIVE_DIAGNOSTIC",
+    "OPEN_DEVELOPMENT",
+    "SMOKE_ONLY",
+    "UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY",
+}
+KNOWN_RUN_FAMILY_ROLES = {
+    "codex-cli-gpt55-decision-gap": "ADAPTIVE_COVERAGE_DIAGNOSTIC",
+    "codex-gpt55-exact-smoke": "SMOKE_ONLY",
+    "codex-gpt55-local-authority-followup": "ADAPTIVE_DIAGNOSTIC",
+    "codex-gpt55-refusal-calibration-followup": "ADAPTIVE_DIAGNOSTIC",
+    "codex-gpt55-sanctioned-path-followup": "ADAPTIVE_DIAGNOSTIC",
+}
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 RESULTS_ROOT = Path("lab") / "runs"
 
 
@@ -20,6 +35,70 @@ def utc_now() -> str:
 
 def stable_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _canonical_hash(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def case_bundle_binding(
+    cases: list[dict[str, Any]],
+    *,
+    case_split: str,
+) -> dict[str, str | int]:
+    """Bind exact case objects without exposing their contents in the manifest."""
+    if not cases:
+        raise ValueError("case bundle must contain at least one case")
+    if not isinstance(case_split, str) or not case_split.strip():
+        raise ValueError("case_split must be a non-empty string")
+    rows = []
+    for case in cases:
+        case_id = case.get("id")
+        if not isinstance(case_id, str) or not case_id:
+            raise ValueError("every bound case must have a non-empty id")
+        rows.append(
+            {
+                "case_id": case_id,
+                "case_sha256": _canonical_hash(case),
+            }
+        )
+    rows.sort(key=lambda row: row["case_id"])
+    ids = [row["case_id"] for row in rows]
+    if len(ids) != len(set(ids)):
+        raise ValueError("case bundle contains duplicate ids")
+    payload = {
+        "schema": "operant-case-bundle.v1",
+        "case_split": case_split,
+        "cases": rows,
+    }
+    return {
+        "case_bundle_sha256": _canonical_hash(payload),
+        "case_bundle_case_count": len(rows),
+        "case_split": case_split,
+    }
+
+
+def resolve_evaluation_role(
+    explicit_role: str | None,
+    *,
+    run_label: str,
+) -> str:
+    """Return a non-confirmatory role; this manifest version cannot certify."""
+    if explicit_role is not None:
+        if explicit_role not in VALID_EVALUATION_ROLES:
+            raise ValueError(f"unsupported evaluation role: {explicit_role}")
+        return explicit_role
+    base_label = re.sub(r"-r\d+$", "", run_label)
+    return KNOWN_RUN_FAMILY_ROLES.get(
+        base_label,
+        "UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY",
+    )
 
 
 @dataclass
@@ -32,6 +111,9 @@ class RunManifest:
     prompt_hash: str
     prompt_contract: str
     tool_policy: str
+    evaluation_role: str
+    case_bundle_sha256: str
+    case_bundle_case_count: int
     repeat_id: int | None = None
     thinking: str | None = None
     case_split: str = "canonical"
@@ -40,6 +122,20 @@ class RunManifest:
     source_queue_file: str | None = None
     thread_container: str | None = None
     cost_usd: float | None = None
+    manifest_schema: str = field(default="operant-run-manifest.v2", init=False)
+    confirmatory_eligible: bool = field(default=False, init=False)
+
+    def __post_init__(self) -> None:
+        if self.evaluation_role not in VALID_EVALUATION_ROLES:
+            raise ValueError(
+                f"unsupported evaluation role: {self.evaluation_role}"
+            )
+        if not SHA256_RE.fullmatch(self.case_bundle_sha256):
+            raise ValueError("case_bundle_sha256 must be a lowercase SHA-256")
+        if self.case_bundle_case_count < 1:
+            raise ValueError("case_bundle_case_count must be positive")
+        if not self.case_split.strip():
+            raise ValueError("case_split must be non-empty")
 
 
 @dataclass

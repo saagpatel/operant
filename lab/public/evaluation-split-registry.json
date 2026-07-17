@@ -6,7 +6,7 @@
   "confirmatory_claim_allowed": false,
   "allowed_public_wording": "No existing OPERANT score is confirmatory under the checked registry.",
   "evidence_bindings": {
-    "docs/evaluation-split-policy.md": "aa6a25d30767f2d32b8c530314be34c56c92e7516ce2e25df384e0d6d344e4d5",
+    "docs/evaluation-split-policy.md": "cb80df4a6672b69749c3492a7569b4fca08a9a501dfc3c9175fcee867ff1ab68",
     "docs/gpt55-codex-error-analysis.md": "8d99f1435eb27dfdebb2e379c22dc9e718963ab0dcd070b678e7e7043c32df2f",
     "docs/gpt55-refusal-calibration-followup-plan.md": "21c1985582f304d7692b9982f0c863bff0f48d3893b039e73cf5a195efc253cd",
     "docs/gpt55-sanctioned-path-followup-plan.md": "25b88eef91f02bd4d94980c66b59fbcf870177db02f51a49872de0df1e3d7806",

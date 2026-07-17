@@ -46,6 +46,23 @@ If any gate evidence is unavailable, confirmatory status remains `UNKNOWN` or
 `NOT_ESTABLISHED`; it is never inferred from secrecy, file presence, a fresh
 seed, or a successful score calculation.
 
+## Run-Level Binding
+
+New runner receipts use `operant-run-manifest.v2`. Each receipt carries:
+
+- a non-confirmatory evaluation role;
+- one SHA-256 digest over the sorted exact case objects and split label used by
+  that invocation;
+- the bound case count and split label;
+- `confirmatory_eligible: false`.
+
+Unknown families default to
+`UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY`. Known model-specific follow-up
+families resolve to adaptive diagnostic roles. The v2 manifest rejects a
+`CONFIRMATORY` role; admitting a future confirmatory set requires a new checked
+workflow after every admission gate above is evidenced. Historical receipts
+without these fields remain historical and `UNKNOWN`; they are not backfilled.
+
 ## Checked Registry
 
 `lab/public/evaluation-split-registry.json` records the current split and run

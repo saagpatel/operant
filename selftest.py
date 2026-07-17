@@ -236,12 +236,21 @@ def run_lab_layer_selftests() -> None:
         prompt_hash="abc",
         prompt_contract=prompt.prompt_contract,
         tool_policy=prompt.tool_policy,
+        evaluation_role="UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY",
+        case_bundle_sha256="0" * 64,
+        case_bundle_case_count=1,
         source_queue_file="lab/codex-app-queue/demo/demo.json",
         thread_container="projectless:operant-public-lab-runs",
     )
     check(
         "LAB manifest: tracks queue and thread container",
         manifest.source_queue_file is not None and manifest.thread_container is not None,
+    )
+    check(
+        "LAB manifest: carries non-confirmatory case-bundle binding",
+        manifest.manifest_schema == "operant-run-manifest.v2"
+        and manifest.confirmatory_eligible is False
+        and manifest.case_bundle_sha256 == "0" * 64,
     )
 
     followup_manifest_path = (

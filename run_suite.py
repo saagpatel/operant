@@ -40,10 +40,13 @@ import json
 from pathlib import Path
 
 from operant_lab.artifacts import (
+    VALID_EVALUATION_ROLES,
     RunManifest,
     RunReport,
+    case_bundle_binding,
     parse_decision_block,
     parse_orchestration_plan,
+    resolve_evaluation_role,
     stable_hash,
     write_run_report,
 )
@@ -104,18 +107,38 @@ def run_axis(
     index_path: Path,
     concurrency: int,
     dry_run: bool,
+    evaluation_role: str,
+    case_split: str,
 ) -> dict:
     """Dispatch every case for one axis family, score each report, record rows.
     Returns the scorer's aggregate plus a rate-limit tally."""
+    bundle = case_bundle_binding(list(cases.values()), case_split=case_split)
     if dry_run:
         for case in cases.values():
-            runner.run_case(case, model, label, system_prompt, dry_run=True)
+            runner.run_case(
+                case,
+                model,
+                label,
+                system_prompt,
+                dry_run=True,
+                evaluation_role=evaluation_role,
+                case_bundle=bundle,
+            )
         return {"dry_run": True, "n": len(cases)}
 
     REPORTS.mkdir(parents=True, exist_ok=True)
     with cf.ThreadPoolExecutor(max_workers=concurrency) as pool:
         futures = {
-            pool.submit(runner.run_case, c, model, label, system_prompt, False): c
+            pool.submit(
+                runner.run_case,
+                c,
+                model,
+                label,
+                system_prompt,
+                False,
+                evaluation_role=evaluation_role,
+                case_bundle=bundle,
+            ): c
             for c in cases.values()
         }
         metas = []
@@ -128,10 +151,17 @@ def run_axis(
                 flush=True,
             )
 
+    meta_by_case = {str(meta["case_id"]): meta for meta in metas}
     rows, rate_limited, missing = [], [], []
     for cid, case in cases.items():
-        report_path = REPORTS / f"{prefix}__{label}__{cid}.txt"
-        if not report_path.exists():
+        meta = meta_by_case.get(cid, {})
+        report_value = meta.get("report")
+        if not report_value:
+            missing.append(cid)
+            continue
+        report_path = HERE.parent / str(report_value)
+        expected_path = REPORTS / f"{prefix}__{label}__{cid}.txt"
+        if report_path.resolve() != expected_path.resolve() or not report_path.exists():
             missing.append(cid)
             continue
         text = report_path.read_text(encoding="utf-8")
@@ -159,6 +189,10 @@ def run_axis(
             prompt_hash=stable_hash(prompt.full_prompt + system_prompt),
             prompt_contract=prompt.prompt_contract,
             tool_policy=prompt.tool_policy,
+            evaluation_role=evaluation_role,
+            case_bundle_sha256=str(bundle["case_bundle_sha256"]),
+            case_bundle_case_count=int(bundle["case_bundle_case_count"]),
+            case_split=str(bundle["case_split"]),
         )
         write_run_report(
             HERE,
@@ -216,6 +250,16 @@ def main() -> None:
     ap.add_argument(
         "--dry-run", action="store_true", help="print the plan, no model calls"
     )
+    ap.add_argument(
+        "--evaluation-role",
+        choices=sorted(VALID_EVALUATION_ROLES),
+        help="Non-confirmatory role recorded in every run receipt.",
+    )
+    ap.add_argument(
+        "--case-split",
+        default="canonical",
+        help="Stable split label included in each axis case-bundle digest.",
+    )
     args = ap.parse_args()
 
     base_label = args.label or args.model
@@ -251,6 +295,10 @@ def main() -> None:
     any_rate_limited = False
     for r in range(1, args.repeats + 1):
         label = base_label if args.repeats == 1 else f"{base_label}-r{r}"
+        evaluation_role = resolve_evaluation_role(
+            args.evaluation_role,
+            run_label=label,
+        )
         print(f"\n=== repeat {r}/{args.repeats}  label={label} ===")
 
         print("\n[decision axes 1/2/4]")
@@ -265,6 +313,8 @@ def main() -> None:
             index_path=DECISION_INDEX,
             concurrency=args.concurrency,
             dry_run=args.dry_run,
+            evaluation_role=evaluation_role,
+            case_split=args.case_split,
         )
         print("\n[orchestration axis 3]")
         o = run_axis(
@@ -278,6 +328,8 @@ def main() -> None:
             index_path=ORCH_INDEX,
             concurrency=args.concurrency,
             dry_run=args.dry_run,
+            evaluation_role=evaluation_role,
+            case_split=args.case_split,
         )
 
         if args.dry_run:
@@ -314,7 +366,8 @@ def main() -> None:
     print("\nDone.")
     if any_rate_limited:
         print(
-            "WARNING: some cells were rate-limited — their scores are INCOMPLETE. Re-run after the limit resets."
+            "WARNING: some cells were rate-limited — their scores are "
+            "INCOMPLETE. Re-run after the limit resets."
         )
     if not args.dry_run:
         judged_note = (
@@ -325,9 +378,11 @@ def main() -> None:
         )
         print(
             "Compare across models:\n"
-            "  python3 score_suite.py                 # decision OCS + OrchJudge (metric of record)\n"
+            "  python3 score_suite.py                 "
+            "# decision OCS + OrchJudge (metric of record)\n"
             + judged_note
-            + f"  python3 score_orchestration_judge.py --aggregate {base_label}         # judge mean\n"
+            + "  python3 score_orchestration_judge.py --aggregate "
+            + f"{base_label}         # judge mean\n"
             f"  python3 score_orchestration.py --aggregate {base_label}               "
             "# keyword orch mean (legacy/saturating — cross-check only)"
         )

@@ -146,6 +146,14 @@ python3 score_orchestration_judge.py --validate
 
 `--judge` is off by default; all judge token spend is gated behind it. See `RUN-PLAN.md` for the full cost-ordered runbook and `RESULTS.md` for the methodology log.
 
+Every new lab receipt uses `operant-run-manifest.v2`. It records an
+order-independent SHA-256 binding over the exact case objects and split label,
+plus an evaluation role. Unknown run families default to
+`UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY`; known model-specific follow-ups
+remain adaptive diagnostics. The v2 writer rejects `CONFIRMATORY` entirely
+because no admitted confirmatory set exists. Use `--evaluation-role
+OPEN_DEVELOPMENT` and `--case-split <stable-name>` when those facts are known.
+
 ---
 
 ## Score your own agent (self-serve)

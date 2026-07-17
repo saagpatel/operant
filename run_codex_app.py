@@ -19,10 +19,13 @@ import sys
 from pathlib import Path
 
 from operant_lab.artifacts import (
+    VALID_EVALUATION_ROLES,
     RunManifest,
     RunReport,
+    case_bundle_binding,
     parse_decision_block,
     parse_orchestration_plan,
+    resolve_evaluation_role,
     stable_hash,
     write_json,
     write_run_report,
@@ -70,6 +73,11 @@ def prepare(args: argparse.Namespace) -> None:
         sys.exit(f"unknown case ids: {missing}")
 
     system_prompt = _system_prompt(args.axis)
+    role = resolve_evaluation_role(args.evaluation_role, run_label=args.label)
+    bundle = case_bundle_binding(
+        [cases[case_id] for case_id in selected],
+        case_split=args.case_split,
+    )
     for case_id in selected:
         case = cases[case_id]
         record = ADAPTER.queue_record(
@@ -91,6 +99,10 @@ def prepare(args: argparse.Namespace) -> None:
             prompt_hash=stable_hash(record["prompt"]),
             prompt_contract="codex_app_prompt_embeds_operator_contract",
             tool_policy=ADAPTER.tool_policy,
+            evaluation_role=role,
+            case_bundle_sha256=str(bundle["case_bundle_sha256"]),
+            case_bundle_case_count=int(bundle["case_bundle_case_count"]),
+            case_split=str(bundle["case_split"]),
             repeat_id=args.repeat,
             thread_container=args.thread_container,
         )
@@ -129,6 +141,24 @@ def record(args: argparse.Namespace) -> None:
             sys.exit(f"queue axis mismatch: {queue_payload.get('axis')} != {args.axis}")
         if queue_prompt != prompt.full_prompt:
             sys.exit("queue prompt no longer matches the adapter-built prompt")
+    queue_role = queue_manifest.get("evaluation_role")
+    if args.evaluation_role and queue_role and args.evaluation_role != queue_role:
+        sys.exit("queue evaluation role does not match --evaluation-role")
+    role = resolve_evaluation_role(
+        str(queue_role) if queue_role else args.evaluation_role,
+        run_label=args.label,
+    )
+    if queue_manifest.get("case_bundle_sha256"):
+        bundle = {
+            "case_bundle_sha256": queue_manifest["case_bundle_sha256"],
+            "case_bundle_case_count": queue_manifest.get("case_bundle_case_count"),
+            "case_split": queue_manifest.get("case_split"),
+        }
+    else:
+        bundle = case_bundle_binding(
+            [case],
+            case_split=args.case_split,
+        )
     parsed = (
         parse_decision_block(answer)
         if args.axis == "decision"
@@ -149,6 +179,10 @@ def record(args: argparse.Namespace) -> None:
         prompt_hash=queue_manifest.get("prompt_hash", stable_hash(prompt.full_prompt)),
         prompt_contract=queue_manifest.get("prompt_contract", prompt.prompt_contract),
         tool_policy=queue_manifest.get("tool_policy", prompt.tool_policy),
+        evaluation_role=role,
+        case_bundle_sha256=str(bundle["case_bundle_sha256"]),
+        case_bundle_case_count=int(bundle["case_bundle_case_count"]),
+        case_split=str(bundle["case_split"]),
         repeat_id=queue_manifest.get("repeat_id", args.repeat),
         source_thread_id=args.thread_id,
         source_queue_file=str(args.queue_file) if args.queue_file else None,
@@ -183,6 +217,16 @@ def main() -> None:
     prep.add_argument("--cases", nargs="*")
     prep.add_argument("--write-queue", action="store_true")
     prep.add_argument(
+        "--evaluation-role",
+        choices=sorted(VALID_EVALUATION_ROLES),
+        help="Non-confirmatory role recorded in queued manifests.",
+    )
+    prep.add_argument(
+        "--case-split",
+        default="canonical",
+        help="Stable split label included in the case-bundle digest.",
+    )
+    prep.add_argument(
         "--thread-container",
         default="projectless:operant-public-lab-runs",
         help="Human-readable Codex App thread grouping target.",
@@ -200,6 +244,16 @@ def main() -> None:
     rec.add_argument("--queue-file", type=Path)
     rec.add_argument("--repeat", type=int, default=1)
     rec.add_argument("--thread-container")
+    rec.add_argument(
+        "--evaluation-role",
+        choices=sorted(VALID_EVALUATION_ROLES),
+        help="Must match a queued role when a queue file is supplied.",
+    )
+    rec.add_argument(
+        "--case-split",
+        default="canonical",
+        help="Used only when recording without a v2 queue manifest.",
+    )
     rec.set_defaults(func=record)
 
     args = ap.parse_args()

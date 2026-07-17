@@ -37,9 +37,12 @@ import time
 from pathlib import Path
 
 from operant_lab.artifacts import (
+    VALID_EVALUATION_ROLES,
     RunManifest,
     RunReport,
+    case_bundle_binding,
     parse_orchestration_plan,
+    resolve_evaluation_role,
     stable_hash,
     write_run_report,
 )
@@ -124,8 +127,14 @@ def run_case(
     label: str,
     system_prompt: str,
     dry_run: bool = False,
+    *,
+    evaluation_role: str | None = None,
+    case_bundle: dict | None = None,
+    case_split: str = "canonical",
 ) -> dict:
     cid = case["id"]
+    role = resolve_evaluation_role(evaluation_role, run_label=label)
+    bundle = case_bundle or case_bundle_binding([case], case_split=case_split)
     prompt = ADAPTER.build_prompt(case, system_prompt, "orchestration")
     cmd = ADAPTER.command(case, model, system_prompt)
 
@@ -135,6 +144,8 @@ def run_case(
             "case_id": cid,
             "label": label,
             "requested_model": model,
+            "evaluation_role": role,
+            "case_bundle_sha256": bundle["case_bundle_sha256"],
             "dry_run": True,
         }
 
@@ -165,6 +176,10 @@ def run_case(
             prompt_hash=stable_hash(prompt.full_prompt + system_prompt),
             prompt_contract=prompt.prompt_contract,
             tool_policy=prompt.tool_policy,
+            evaluation_role=role,
+            case_bundle_sha256=str(bundle["case_bundle_sha256"]),
+            case_bundle_case_count=int(bundle["case_bundle_case_count"]),
+            case_split=str(bundle["case_split"]),
         )
         report = RunReport(
             manifest=manifest,
@@ -213,6 +228,10 @@ def run_case(
         prompt_hash=stable_hash(prompt.full_prompt + system_prompt),
         prompt_contract=prompt.prompt_contract,
         tool_policy=prompt.tool_policy,
+        evaluation_role=role,
+        case_bundle_sha256=str(bundle["case_bundle_sha256"]),
+        case_bundle_case_count=int(bundle["case_bundle_case_count"]),
+        case_split=str(bundle["case_split"]),
         cost_usd=meta.get("cost_usd"),
     )
     run_report = RunReport(
@@ -260,6 +279,16 @@ def main() -> None:
         action="store_true",
         help="Print the exact claude -p command per case instead of executing",
     )
+    ap.add_argument(
+        "--evaluation-role",
+        choices=sorted(VALID_EVALUATION_ROLES),
+        help="Non-confirmatory role recorded in every run receipt.",
+    )
+    ap.add_argument(
+        "--case-split",
+        default="canonical",
+        help="Stable split label included in the case-bundle digest.",
+    )
     args = ap.parse_args()
 
     label = args.label or args.model
@@ -276,14 +305,25 @@ def main() -> None:
 
     operator_contract = load_operator_contract()
     system_prompt = build_system_prompt(operator_contract)
+    role = resolve_evaluation_role(args.evaluation_role, run_label=label)
+    bundle = case_bundle_binding(selected, case_split=args.case_split)
 
     if args.dry_run:
         print(
             f"DRY RUN — model={args.model}  label={label}  "
+            f"role={role}  bundle={bundle['case_bundle_sha256']}  "
             f"cases={[c['id'] for c in selected]}\n"
         )
         for case in selected:
-            run_case(case, args.model, label, system_prompt, dry_run=True)
+            run_case(
+                case,
+                args.model,
+                label,
+                system_prompt,
+                dry_run=True,
+                evaluation_role=role,
+                case_bundle=bundle,
+            )
         return
 
     REPORTS.mkdir(parents=True, exist_ok=True)
@@ -296,7 +336,16 @@ def main() -> None:
 
     with cf.ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         futures = [
-            pool.submit(run_case, c, args.model, label, system_prompt, False)
+            pool.submit(
+                run_case,
+                c,
+                args.model,
+                label,
+                system_prompt,
+                False,
+                evaluation_role=role,
+                case_bundle=bundle,
+            )
             for c in selected
         ]
         with RUNS_LOG.open("a", encoding="utf-8") as fh:
@@ -313,7 +362,8 @@ def main() -> None:
 
     print(
         f"\nDone. Runs logged to {RUNS_LOG.relative_to(HERE.parent)}\n"
-        f"Score a single case:  python3 operant/score_orchestration.py <case_id> <report> --record {label}\n"
+        "Score a single case:  python3 operant/score_orchestration.py "
+        f"<case_id> <report> --record {label}\n"
         f"Aggregate:            python3 operant/score_orchestration.py --aggregate {label}"
     )
 
