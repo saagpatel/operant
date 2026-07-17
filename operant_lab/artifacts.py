@@ -34,6 +34,7 @@ KNOWN_RUN_FAMILY_ROLES = {
     "codex-gpt55-sanctioned-path-followup": "ADAPTIVE_DIAGNOSTIC",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+MAX_EXACT_JSON_INTEGER = (1 << 53) - 1
 RESULTS_ROOT = Path("lab") / "runs"
 DEPENDENCY_LOCK_CANDIDATES = (
     "pylock.toml",
@@ -63,6 +64,9 @@ EXECUTION_BINDING_BASE_KEYS = {
 EXECUTION_BINDING_V3_KEYS = EXECUTION_BINDING_BASE_KEYS | {"subject_runtime"}
 EXECUTION_BINDING_V4_KEYS = EXECUTION_BINDING_V3_KEYS | {
     "post_dispatch_runtime"
+}
+EXECUTION_BINDING_V5_KEYS = EXECUTION_BINDING_V4_KEYS | {
+    "process_image_identity"
 }
 INPUT_BINDING_KEYS = {
     "delivered_prompt_sha256",
@@ -114,6 +118,19 @@ RUN_MANIFEST_V4_KEYS = {
 RUN_MANIFEST_V3_KEYS = RUN_MANIFEST_V4_KEYS - {"manifest_core_sha256"}
 RUN_MANIFEST_V5_KEYS = RUN_MANIFEST_V4_KEYS
 RUN_MANIFEST_V6_KEYS = RUN_MANIFEST_V4_KEYS
+RUN_MANIFEST_V7_KEYS = RUN_MANIFEST_V4_KEYS
+
+
+def _is_sha256(value: Any) -> bool:
+    return isinstance(value, str) and SHA256_RE.fullmatch(value) is not None
+
+
+def _is_nonnegative_finite_number(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if isinstance(value, int):
+        return 0 <= value <= MAX_EXACT_JSON_INTEGER
+    return math.isfinite(value) and value >= 0
 
 
 def utc_now() -> str:
@@ -355,6 +372,25 @@ def _unassessed_post_dispatch_runtime() -> dict[str, Any]:
     }
 
 
+def _unknown_process_image_identity(
+    command: list[str] | None,
+) -> dict[str, Any]:
+    return {
+        "status": "UNKNOWN",
+        "kernel_observed_cdhash": "UNKNOWN",
+        "kernel_observed_signing_id": "UNKNOWN",
+        "kernel_observed_team_id": "UNKNOWN",
+        "kernel_observed_pidversion": "UNKNOWN",
+        "evidence_source": "NOT_CAPTURED",
+        "coverage": "UNKNOWN",
+        "reason": (
+            "KERNEL_EXEC_ATTESTATION_NOT_CONFIGURED"
+            if command
+            else "NO_LOCAL_PROCESS_DISPATCH"
+        ),
+    }
+
+
 def _post_dispatch_runtime_binding(
     pre_dispatch: dict[str, Any],
     command: list[str] | None,
@@ -518,7 +554,7 @@ def build_execution_binding(
         "dispatch_settings_sha256": _canonical_hash(dispatch_settings),
     }
     binding = {
-        "schema": "operant-execution-binding.v4",
+        "schema": "operant-execution-binding.v5",
         "input_binding": input_binding,
         "harness": {
             "files": sorted(harness),
@@ -529,6 +565,7 @@ def build_execution_binding(
         "environment": environment,
         "subject_runtime": _subject_runtime_binding(command, root=root),
         "post_dispatch_runtime": _unassessed_post_dispatch_runtime(),
+        "process_image_identity": _unknown_process_image_identity(command),
         "model_observation": model_observation,
         "replay_class": "INPUT_BOUND_NOT_REPLAYABLE",
         "completion_sha256": "UNKNOWN",
@@ -582,7 +619,10 @@ def complete_execution_binding(
     )
     observation["final_answer_sha256"] = stable_hash(final_answer)
     completed["model_observation"] = observation
-    if completed.get("schema") == "operant-execution-binding.v4":
+    if completed.get("schema") in {
+        "operant-execution-binding.v4",
+        "operant-execution-binding.v5",
+    }:
         pre_dispatch_runtime = completed.get("subject_runtime")
         if not isinstance(pre_dispatch_runtime, dict):
             raise ValueError("execution binding lacks pre-dispatch runtime evidence")
@@ -646,11 +686,13 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         "operant-execution-binding.v2",
         "operant-execution-binding.v3",
         "operant-execution-binding.v4",
+        "operant-execution-binding.v5",
     }:
         errors.append("unsupported execution binding schema")
     expected_keys = {
         "operant-execution-binding.v3": EXECUTION_BINDING_V3_KEYS,
         "operant-execution-binding.v4": EXECUTION_BINDING_V4_KEYS,
+        "operant-execution-binding.v5": EXECUTION_BINDING_V5_KEYS,
     }.get(binding_schema, EXECUTION_BINDING_BASE_KEYS)
     if set(binding) != expected_keys:
         errors.append("execution binding fields are not exact")
@@ -666,18 +708,27 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         "tool_policy_sha256",
         "dispatch_settings_sha256",
     ):
-        if not SHA256_RE.fullmatch(str(input_binding.get(input_field) or "")):
+        if not _is_sha256(input_binding.get(input_field)):
             errors.append(f"{input_field} must be a lowercase SHA-256")
     stdin_hash = input_binding.get("stdin_sha256")
-    if stdin_hash != "NONE" and not SHA256_RE.fullmatch(str(stdin_hash or "")):
+    if stdin_hash != "NONE" and not _is_sha256(stdin_hash):
         errors.append("stdin_sha256 must be SHA-256 or NONE")
     command_hash = input_binding.get("argv_sha256")
-    if command_hash != "UNKNOWN" and not SHA256_RE.fullmatch(str(command_hash or "")):
+    if command_hash != "UNKNOWN" and not _is_sha256(command_hash):
         errors.append("argv_sha256 must be SHA-256 or UNKNOWN")
-    if not str(input_binding.get("cwd_class") or "").strip():
+    cwd_class = input_binding.get("cwd_class")
+    if not isinstance(cwd_class, str) or not cwd_class.strip():
         errors.append("cwd class is missing")
-    if not str(input_binding.get("output_mode") or "").strip():
+    output_mode = input_binding.get("output_mode")
+    if not isinstance(output_mode, str) or not output_mode.strip():
         errors.append("output mode is missing")
+    timeout_seconds = input_binding.get("timeout_seconds")
+    if timeout_seconds != "UNKNOWN" and (
+        not isinstance(timeout_seconds, int)
+        or isinstance(timeout_seconds, bool)
+        or timeout_seconds < 1
+    ):
+        errors.append("timeout_seconds must be positive or UNKNOWN")
 
     harness = binding.get("harness")
     if (
@@ -685,7 +736,16 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         or set(harness) != {"files", "sha256"}
         or not isinstance(harness.get("files"), list)
         or not harness["files"]
-        or not SHA256_RE.fullmatch(str(harness.get("sha256") or ""))
+        or any(
+            not isinstance(name, str)
+            or not name
+            or Path(name).is_absolute()
+            or ".." in Path(name).parts
+            or Path(name).as_posix() != name
+            for name in harness["files"]
+        )
+        or harness["files"] != sorted(set(harness["files"]))
+        or not _is_sha256(harness.get("sha256"))
     ):
         errors.append("harness binding is incomplete")
 
@@ -699,7 +759,7 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         if dependency.get("status") not in {"LOCKED", "UNKNOWN"}:
             errors.append("dependency lock status is invalid")
         elif dependency["status"] == "LOCKED":
-            if not SHA256_RE.fullmatch(str(dependency.get("sha256") or "")):
+            if not _is_sha256(dependency.get("sha256")):
                 errors.append("bound dependency lock lacks SHA-256")
         elif dependency.get("sha256") != "UNKNOWN":
             errors.append("unknown dependency lock must not assert SHA-256")
@@ -713,7 +773,7 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
             or any(name not in DEPENDENCY_LOCK_CANDIDATES for name in files)
         ):
             errors.append("lockfile evidence is incomplete")
-        if not SHA256_RE.fullmatch(str(dependency.get("sha256") or "")):
+        if not _is_sha256(dependency.get("sha256")):
             errors.append("bound dependency lock lacks SHA-256")
         if dependency.get("reason") != "ACTIVE_ENVIRONMENT_NOT_PROVEN":
             errors.append("lockfile evidence overstates active environment linkage")
@@ -743,6 +803,7 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
             "operant-execution-binding.v2",
             "operant-execution-binding.v3",
             "operant-execution-binding.v4",
+            "operant-execution-binding.v5",
         }:
             expected_source_fields.add("reconstruction")
         if set(source) != expected_source_fields:
@@ -752,16 +813,14 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         dirty_hash = source.get("dirty_state_sha256")
         reconstruction = source.get("reconstruction")
         if binding_schema == "operant-execution-binding.v1":
-            if commit != "UNKNOWN" and not re.fullmatch(
-                r"[0-9a-f]{40,64}",
-                str(commit),
+            if commit != "UNKNOWN" and (
+                not isinstance(commit, str)
+                or not re.fullmatch(r"[0-9a-f]{40,64}", commit)
             ):
                 errors.append("source commit is invalid")
             if dirty not in {True, False, "UNKNOWN"}:
                 errors.append("source dirty state is invalid")
-            if dirty_hash != "UNKNOWN" and not SHA256_RE.fullmatch(
-                str(dirty_hash or "")
-            ):
+            if dirty_hash != "UNKNOWN" and not _is_sha256(dirty_hash):
                 errors.append("source dirty-state digest is invalid")
         elif commit == "UNKNOWN":
             if (
@@ -770,11 +829,14 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
                 or reconstruction != "UNKNOWN"
             ):
                 errors.append("unknown source state carries contradictory evidence")
-        elif not re.fullmatch(r"[0-9a-f]{40,64}", str(commit)):
+        elif (
+            not isinstance(commit, str)
+            or not re.fullmatch(r"[0-9a-f]{40,64}", commit)
+        ):
             errors.append("source commit is invalid")
         elif (
             not isinstance(dirty, bool)
-            or not SHA256_RE.fullmatch(str(dirty_hash or ""))
+            or not _is_sha256(dirty_hash)
             or reconstruction
             != ("DIRTY_DIGEST_ONLY" if dirty else "CLEAN_COMMIT")
         ):
@@ -795,11 +857,18 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         "operant-execution-binding.v2",
         "operant-execution-binding.v3",
         "operant-execution-binding.v4",
+        "operant-execution-binding.v5",
     }:
         facts = environment["facts"]
         for name in ENVIRONMENT_FACT_KEYS - {"cpu_count"}:
             if not isinstance(facts.get(name), str) or not facts[name].strip():
                 errors.append(f"environment {name} must be a non-empty string")
+        executable_name = facts.get("python_executable_name")
+        if (
+            isinstance(executable_name, str)
+            and Path(executable_name).name != executable_name
+        ):
+            errors.append("environment python executable must be a basename")
         cpu_count = facts.get("cpu_count")
         if cpu_count != "UNKNOWN" and (
             not isinstance(cpu_count, int)
@@ -811,6 +880,7 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
     if binding_schema in {
         "operant-execution-binding.v3",
         "operant-execution-binding.v4",
+        "operant-execution-binding.v5",
     }:
         runtime = binding.get("subject_runtime")
         runtime_fields = {
@@ -848,9 +918,7 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
                     not isinstance(resolved_name, str)
                     or not resolved_name
                     or Path(resolved_name).name != resolved_name
-                    or not SHA256_RE.fullmatch(
-                        str(runtime.get("executable_sha256") or "")
-                    )
+                    or not _is_sha256(runtime.get("executable_sha256"))
                     or not isinstance(size, int)
                     or isinstance(size, bool)
                     or size < 0
@@ -876,7 +944,10 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
             else:
                 errors.append("subject runtime status is invalid")
 
-    if binding_schema == "operant-execution-binding.v4":
+    if binding_schema in {
+        "operant-execution-binding.v4",
+        "operant-execution-binding.v5",
+    }:
         post_runtime = binding.get("post_dispatch_runtime")
         post_fields = {
             "status",
@@ -914,9 +985,7 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
                     not isinstance(post_name, str)
                     or not post_name
                     or Path(post_name).name != post_name
-                    or not SHA256_RE.fullmatch(
-                        str(post_runtime.get("executable_sha256") or "")
-                    )
+                    or not _is_sha256(post_runtime.get("executable_sha256"))
                     or not isinstance(post_size, int)
                     or isinstance(post_size, bool)
                     or post_size < 0
@@ -988,13 +1057,11 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         elif status == "AMBIGUOUS" and len(observed) < 2:
             errors.append("ambiguous model identity lacks multiple observations")
         raw_digest = observation.get("raw_result_envelope_sha256")
-        if raw_digest != "UNKNOWN" and not SHA256_RE.fullmatch(
-            str(raw_digest or "")
-        ):
+        if raw_digest != "UNKNOWN" and not _is_sha256(raw_digest):
             errors.append("raw result envelope digest is invalid")
         final_answer_digest = observation.get("final_answer_sha256")
-        if final_answer_digest != "UNKNOWN" and not SHA256_RE.fullmatch(
-            str(final_answer_digest or "")
+        if final_answer_digest != "UNKNOWN" and not _is_sha256(
+            final_answer_digest
         ):
             errors.append("final answer digest is invalid")
         if observation.get("served_model_identity") != "UNKNOWN":
@@ -1015,7 +1082,53 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         observation.get("comparison_status") != "UNKNOWN"
         or observation.get("raw_result_envelope_sha256") != "UNKNOWN"
     )
-    if binding_schema == "operant-execution-binding.v4":
+    if binding_schema == "operant-execution-binding.v5":
+        process_identity = binding.get("process_image_identity")
+        identity_fields = {
+            "status",
+            "kernel_observed_cdhash",
+            "kernel_observed_signing_id",
+            "kernel_observed_team_id",
+            "kernel_observed_pidversion",
+            "evidence_source",
+            "coverage",
+            "reason",
+        }
+        if (
+            not isinstance(process_identity, dict)
+            or set(process_identity) != identity_fields
+        ):
+            errors.append("process image identity binding is incomplete")
+        elif (
+            process_identity.get("status") != "UNKNOWN"
+            or process_identity.get("kernel_observed_cdhash") != "UNKNOWN"
+            or process_identity.get("kernel_observed_signing_id") != "UNKNOWN"
+            or process_identity.get("kernel_observed_team_id") != "UNKNOWN"
+            or process_identity.get("kernel_observed_pidversion") != "UNKNOWN"
+            or process_identity.get("evidence_source") != "NOT_CAPTURED"
+            or process_identity.get("coverage") != "UNKNOWN"
+            or process_identity.get("reason")
+            not in {
+                "KERNEL_EXEC_ATTESTATION_NOT_CONFIGURED",
+                "NO_LOCAL_PROCESS_DISPATCH",
+            }
+        ):
+            errors.append("process image identity evidence is overstated")
+        else:
+            subject_runtime = binding.get("subject_runtime")
+            expected_reason = (
+                "NO_LOCAL_PROCESS_DISPATCH"
+                if isinstance(subject_runtime, dict)
+                and subject_runtime.get("reason") == "NO_EXECUTABLE_DISPATCH"
+                else "KERNEL_EXEC_ATTESTATION_NOT_CONFIGURED"
+            )
+            if process_identity.get("reason") != expected_reason:
+                errors.append("process image identity reason contradicts dispatch")
+
+    if binding_schema in {
+        "operant-execution-binding.v4",
+        "operant-execution-binding.v5",
+    }:
         post_status = (
             binding.get("post_dispatch_runtime", {}).get("status")
             if isinstance(binding.get("post_dispatch_runtime"), dict)
@@ -1089,11 +1202,9 @@ def _validate_run_manifest_v3(manifest: dict[str, Any]) -> list[str]:
         errors.append("evaluation role is invalid")
     if manifest.get("confirmatory_eligible") is not False:
         errors.append("v3 manifest cannot claim confirmatory eligibility")
-    if not SHA256_RE.fullmatch(str(manifest.get("prompt_hash") or "")):
+    if not _is_sha256(manifest.get("prompt_hash")):
         errors.append("prompt_hash must be a lowercase SHA-256")
-    if not SHA256_RE.fullmatch(
-        str(manifest.get("case_bundle_sha256") or "")
-    ):
+    if not _is_sha256(manifest.get("case_bundle_sha256")):
         errors.append("case_bundle_sha256 must be a lowercase SHA-256")
     return errors
 
@@ -1138,11 +1249,9 @@ def _validate_run_manifest_current(
     )
     if manifest.get("manifest_core_sha256") != expected_core:
         errors.append("manifest core digest mismatch")
-    if not SHA256_RE.fullmatch(str(manifest.get("prompt_hash") or "")):
+    if not _is_sha256(manifest.get("prompt_hash")):
         errors.append("prompt_hash must be a lowercase SHA-256")
-    if not SHA256_RE.fullmatch(
-        str(manifest.get("case_bundle_sha256") or "")
-    ):
+    if not _is_sha256(manifest.get("case_bundle_sha256")):
         errors.append("case_bundle_sha256 must be a lowercase SHA-256")
     case_count = manifest.get("case_bundle_case_count")
     if (
@@ -1191,15 +1300,10 @@ def _validate_run_manifest_current(
             or ".." in Path(queue_file).parts
         ):
             errors.append("source_queue_file must be a safe relative path")
-        if not SHA256_RE.fullmatch(str(queue_sha or "")):
+        if not _is_sha256(queue_sha):
             errors.append("source_queue_sha256 must be a lowercase SHA-256")
     cost = manifest.get("cost_usd")
-    if cost is not None and (
-        not isinstance(cost, (int, float))
-        or isinstance(cost, bool)
-        or not math.isfinite(cost)
-        or cost < 0
-    ):
+    if cost is not None and not _is_nonnegative_finite_number(cost):
         errors.append("cost_usd must be non-negative or null")
 
     binding = manifest.get("execution_binding")
@@ -1269,6 +1373,18 @@ def validate_run_manifest_v6(manifest: Any) -> list[str]:
         )
     except (AttributeError, IndexError, KeyError, TypeError, ValueError):
         return ["v6 manifest contains invalid JSON types"]
+
+
+def validate_run_manifest_v7(manifest: Any) -> list[str]:
+    """Return v7 validation errors for every JSON value."""
+    try:
+        return _validate_run_manifest_current(
+            manifest,
+            manifest_schema="operant-run-manifest.v7",
+            binding_schema="operant-execution-binding.v5",
+        )
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return ["v7 manifest contains invalid JSON types"]
 
 
 def case_bundle_binding(
@@ -1349,17 +1465,14 @@ class RunManifest:
     thread_container: str | None = None
     cost_usd: float | None = None
     manifest_core_sha256: str = field(default="UNKNOWN", init=False)
-    manifest_schema: str = field(default="operant-run-manifest.v6", init=False)
+    manifest_schema: str = field(default="operant-run-manifest.v7", init=False)
     confirmatory_eligible: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
-        if self.cost_usd is not None and (
-            not isinstance(self.cost_usd, (int, float))
-            or isinstance(self.cost_usd, bool)
-            or not math.isfinite(self.cost_usd)
-            or self.cost_usd < 0
+        if self.cost_usd is not None and not _is_nonnegative_finite_number(
+            self.cost_usd
         ):
-            raise ValueError("invalid v6 run manifest: cost_usd is invalid")
+            raise ValueError("invalid v7 run manifest: cost_usd is invalid")
         manifest = asdict(self)
         self.manifest_core_sha256 = _canonical_hash(
             {
@@ -1368,9 +1481,9 @@ class RunManifest:
                 if key != "manifest_core_sha256"
             }
         )
-        errors = validate_run_manifest_v6(asdict(self))
+        errors = validate_run_manifest_v7(asdict(self))
         if errors:
-            raise ValueError("invalid v6 run manifest: " + "; ".join(errors))
+            raise ValueError("invalid v7 run manifest: " + "; ".join(errors))
 
 
 @dataclass
@@ -1435,6 +1548,9 @@ def _scoring_block_reason(manifest: dict[str, Any]) -> str | None:
     elif schema == "operant-run-manifest.v6":
         if validate_run_manifest_v6(manifest):
             return "invalid_execution_binding"
+    elif schema == "operant-run-manifest.v7":
+        if validate_run_manifest_v7(manifest):
+            return "invalid_execution_binding"
     else:
         return "invalid_execution_binding"
     binding = manifest.get("execution_binding")
@@ -1494,6 +1610,7 @@ def receipt_scoring_block_reason(
         "operant-run-manifest.v4",
         "operant-run-manifest.v5",
         "operant-run-manifest.v6",
+        "operant-run-manifest.v7",
     }:
         bound_answer = (
             manifest.get("execution_binding", {})
@@ -1540,6 +1657,7 @@ def receipt_output_scoring_block_reason(
         "operant-run-manifest.v4",
         "operant-run-manifest.v5",
         "operant-run-manifest.v6",
+        "operant-run-manifest.v7",
     }:
         bound_answer = (
             manifest.get("execution_binding", {})

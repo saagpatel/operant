@@ -275,7 +275,7 @@ def run_lab_layer_selftests() -> None:
     )
     check(
         "LAB manifest: carries non-confirmatory case-bundle binding",
-        manifest.manifest_schema == "operant-run-manifest.v6"
+        manifest.manifest_schema == "operant-run-manifest.v7"
         and manifest.confirmatory_eligible is False
         and manifest.case_bundle_sha256 == "0" * 64,
     )

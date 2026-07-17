@@ -146,14 +146,14 @@ python3 score_orchestration_judge.py --validate
 
 `--judge` is off by default; all judge token spend is gated behind it. See `RUN-PLAN.md` for the full cost-ordered runbook and `RESULTS.md` for the methodology log.
 
-Every new lab receipt uses `operant-run-manifest.v6`. In addition to the
+Every new lab receipt uses `operant-run-manifest.v7`. In addition to the
 order-independent case/split binding and evaluation role introduced in v2, it
-records an `operant-execution-binding.v4` over the delivered prompt, logical
+records an `operant-execution-binding.v5` over the delivered prompt, logical
 system prompt, command or stdin shape, tool policy, timeout, output mode,
 dispatch settings such as thinking level, harness bytes, source state,
 dependency-lock state, and a sanitized environment snapshot. These hashes bind
 inputs; they do **not** prove that a run is
-replayable, so v6 receipts conservatively report
+replayable, so v7 receipts conservatively report
 `INPUT_BOUND_NOT_REPLAYABLE`.
 
 The persisted manifest also carries a `manifest_core_sha256` over its
@@ -167,13 +167,19 @@ environment. New receipts bind the resolved pre-dispatch executable candidate's
 basename, SHA-256, and byte size without invoking it, or preserve an explicit
 UNKNOWN reason. This does not prove that the same bytes were executed. Runtime
 version remains `UNKNOWN` because version commands are not invoked without a
-proven no-side-effect contract. After a returned subprocess attempt, v6
+proven no-side-effect contract. After a returned subprocess attempt, v7
 recaptures the executable candidate and classifies the pre/post candidate as
 `MATCHED`, `DRIFTED`, or `UNKNOWN`. A drifted candidate blocks scoring. A match
 only proves that the two captured candidate snapshots agree; it does not attest
 the process image, exclude change-and-restore races, or prove which bytes the
 kernel executed. Launch failures, timeouts, and manual App dispatches do not
 manufacture a post-dispatch pass.
+
+Kernel-observed process-image identity is separately recorded as `UNKNOWN`.
+Unprivileged PID paths and one-point dynamic code-signing observations are not
+promoted to attestation. The only defensible future macOS route identified by
+the feasibility review requires Apple Endpoint Security privileges and consent;
+see [`docs/process-image-attestation-boundary.md`](docs/process-image-attestation-boundary.md).
 
 Provider-reported model candidates are retained as evidence. They are not
 promoted to served-model identity, which remains `UNKNOWN`. An exact requested
@@ -421,11 +427,11 @@ python3 run_codex_app.py record \
   --answer-file <path-to-final-answer-txt>
 ```
 
-Recording requires the exact v6 `--queue-file` created before dispatch. It
+Recording requires the exact v7 `--queue-file` created before dispatch. It
 writes the legacy report file under `results/reports/` and an immutable lab
 report under `lab/runs/<label>/`, while failing fast if the prompt, requested
 model, thinking level, thread container, or execution binding no longer matches
-the prepared queue. Historical or queue-less App runs are not backfilled as v6.
+the prepared queue. Historical or queue-less App runs are not backfilled as v7.
 
 ### Safe resume inventory
 

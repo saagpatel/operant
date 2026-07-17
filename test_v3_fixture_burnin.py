@@ -136,6 +136,12 @@ class V3FixtureBurnInTests(unittest.TestCase):
                     ]["comparison"],
                     "MATCHED",
                 )
+                self.assertEqual(
+                    receipt["manifest"]["execution_binding"][
+                        "process_image_identity"
+                    ]["reason"],
+                    "KERNEL_EXEC_ATTESTATION_NOT_CONFIGURED",
+                )
                 self.assertEqual(observation["final_answer_sha256"], stable_hash(answer))
                 self.assertEqual(receipt["final_answer"], answer)
                 self.assertEqual(receipt["parse_status"], "ok")
@@ -510,6 +516,12 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 ]["comparison"],
                 "MATCHED",
             )
+            self.assertEqual(
+                receipt["manifest"]["execution_binding"][
+                    "process_image_identity"
+                ]["reason"],
+                "KERNEL_EXEC_ATTESTATION_NOT_CONFIGURED",
+            )
             self.assertNotEqual(
                 receipt["manifest"]["execution_binding"]["completion_sha256"],
                 "UNKNOWN",
@@ -714,6 +726,10 @@ class V3FixtureBurnInTests(unittest.TestCase):
             self.assertEqual(
                 binding["post_dispatch_runtime"]["reason"],
                 "NO_EXECUTABLE_DISPATCH",
+            )
+            self.assertEqual(
+                binding["process_image_identity"]["reason"],
+                "NO_LOCAL_PROCESS_DISPATCH",
             )
             self.assertEqual(
                 binding["model_observation"]["final_answer_sha256"],

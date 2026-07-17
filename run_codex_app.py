@@ -166,7 +166,7 @@ def record(args: argparse.Namespace) -> None:
     case = cases[args.case_id]
     prompt = ADAPTER.build_prompt(case, system_prompt, args.axis)
     if args.queue_file is None:
-        sys.exit("record requires the exact v6 --queue-file prepared before dispatch")
+        sys.exit("record requires the exact v7 --queue-file prepared before dispatch")
     source_queue_bytes = args.queue_file.read_bytes()
     queue_payload = json.loads(source_queue_bytes)
     queue_manifest = (queue_payload or {}).get("manifest", {})
@@ -237,10 +237,10 @@ def record(args: argparse.Namespace) -> None:
         else parse_orchestration_plan(answer)
     )
     prepared_binding = queue_manifest.get("execution_binding")
-    if queue_manifest.get("manifest_schema") != "operant-run-manifest.v6":
-        sys.exit("record requires a v6 queue manifest; historical runs are not backfilled")
+    if queue_manifest.get("manifest_schema") != "operant-run-manifest.v7":
+        sys.exit("record requires a v7 queue manifest; historical runs are not backfilled")
     if not isinstance(prepared_binding, dict):
-        sys.exit("v6 queue manifest is missing execution_binding")
+        sys.exit("v7 queue manifest is missing execution_binding")
     binding_errors = validate_execution_binding(prepared_binding)
     if binding_errors:
         sys.exit("invalid queued execution binding: " + "; ".join(binding_errors))
@@ -408,7 +408,7 @@ def main() -> None:
     rec.add_argument(
         "--case-split",
         default="canonical",
-        help="Compatibility argument; the required v6 queue supplies the bound split.",
+        help="Compatibility argument; the required v7 queue supplies the bound split.",
     )
     rec.set_defaults(func=record)
 
