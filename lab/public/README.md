@@ -96,4 +96,4 @@ The runner writes an OCS report card, a machine-readable summary JSON, and a bad
 python3 operant_lab_cli.py check-public-artifacts
 ```
 
-That contract verifies required files, JSON parseability, model-card presence, forbidden prompt/answer/transcript fields, separation between Codex App and local CLI profiles, and absence of private path or secret-shaped strings in public text artifacts.
+That contract verifies required files, JSON parseability, model-card presence, current exporter/corpus/protocol digests, forbidden prompt/answer/transcript fields, separation between Codex App and local CLI profiles, and absence of private path or secret-shaped strings in public text artifacts. If the private source indexes are available, add `--source-results <your-local-results-path>`. Add `--lab-runs <your-local-runs-path>` and `--private-case-overlays <your-private-cases-path>` to reconnect local receipt and oracle hashes without emitting paths or contents.

@@ -239,6 +239,19 @@ export directory:
 python3 operant_lab_cli.py check-public-artifacts
 ```
 
+That command also binds the checked-in artifacts to the current exporter,
+public corpus, and scoring-protocol bytes.
+When the private source indexes, local receipts, and private follow-up cases are
+available, reconnect the public hashes to those exact bytes without emitting
+paths or contents:
+
+```bash
+python3 operant_lab_cli.py check-public-artifacts \
+  --source-results <your-local-results-path> \
+  --lab-runs <your-local-runs-path> \
+  --private-case-overlays <your-private-cases-path>
+```
+
 This writes:
 
 - `lab/public/README.md`

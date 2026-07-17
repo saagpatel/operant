@@ -54,10 +54,13 @@ REQUIRED_HISTORICAL_CLAIM_STATUS = {
 
 REQUIRED_LOCAL_CLAIM_STATUS = {
     "evidence_class": "self_reported_local_receipt",
-    "score_recalculation_from_bound_bytes": "SUPPORTED",
+    "score_recalculation_from_bound_bytes": "CURRENT_CHECKOUT_ONLY",
     "source_receipt_byte_binding": "SUPPORTED",
     "current_public_corpus_identity": "SUPPORTED",
     "current_public_protocol_identity": "SUPPORTED",
+    "private_case_overlay_identity": "CURRENT_CHECKOUT_HASH_BOUND",
+    "as_run_private_case_overlay_identity": "UNKNOWN",
+    "independent_as_run_score_recalculation": "UNKNOWN",
     "served_model_identity": "UNKNOWN",
     "independent_replication": "UNKNOWN",
     "cross_profile_ranking": "NOT_DURABLE",
@@ -102,10 +105,27 @@ EXPECTED_BINDING_KEYS = {
         "score_operant.py",
         "score_orchestration.py",
         "score_orchestration_judge.py",
+        "inventory.py",
+    },
+}
+
+CURRENT_BINDING_PATHS = {
+    "current_public_corpus": {
+        name: Path(name) for name in EXPECTED_BINDING_KEYS["current_public_corpus"]
+    },
+    "current_public_protocol": {
+        "score_operant.py": Path("score_operant.py"),
+        "score_orchestration.py": Path("score_orchestration.py"),
+        "score_orchestration_judge.py": Path("score_orchestration_judge.py"),
+        "inventory.py": Path("operant_lab") / "inventory.py",
     },
 }
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+PRIVATE_FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.json$")
+RECEIPT_KEY_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\.json$"
+)
 
 
 def _read_json(path: Path, errors: list[str]) -> Any:
@@ -159,7 +179,67 @@ def _validate_digest_map(
     return value
 
 
-def _validate_evidence_binding(binding: dict[str, Any], errors: list[str]) -> None:
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _safe_sha256(path: Path, *, label: str, errors: list[str]) -> str | None:
+    try:
+        return _sha256(path)
+    except OSError:
+        errors.append(
+            f"benchmark-card.json: cannot read required evidence bytes for {label}"
+        )
+        return None
+
+
+def _contained_regular_file(
+    root: Path,
+    key: str,
+    *,
+    label: str,
+    nested: bool,
+    errors: list[str],
+) -> Path | None:
+    candidate = root / key
+    symlink_paths = [root, candidate]
+    if nested:
+        symlink_paths.append(candidate.parent)
+    if any(path.is_symlink() for path in symlink_paths):
+        errors.append(
+            f"benchmark-card.json: {label} evidence must not use symlinks for {key}"
+        )
+        return None
+    try:
+        resolved_root = root.resolve(strict=True)
+        resolved_candidate = candidate.resolve(strict=True)
+        resolved_candidate.relative_to(resolved_root)
+    except (OSError, ValueError):
+        errors.append(
+            f"benchmark-card.json: {label} evidence is unavailable or outside "
+            f"the selected root for {key}"
+        )
+        return None
+    if not resolved_candidate.is_file():
+        errors.append(
+            f"benchmark-card.json: {label} evidence is not a regular file for {key}"
+        )
+        return None
+    return resolved_candidate
+
+
+def _validate_evidence_binding(
+    binding: dict[str, Any],
+    errors: list[str],
+    *,
+    source_results: Path | None = None,
+    lab_runs_dir: Path | None = None,
+    private_case_overlays_dir: Path | None = None,
+) -> None:
     maps: dict[str, dict[str, str]] = {}
     for label in (
         "source_indexes",
@@ -181,11 +261,156 @@ def _validate_evidence_binding(binding: dict[str, Any], errors: list[str]) -> No
     )
     if lab_receipts is not None:
         maps["lab_receipts"] = lab_receipts
+        if not all(RECEIPT_KEY_RE.fullmatch(str(key)) for key in lab_receipts):
+            errors.append(
+                "benchmark-card.json: evidence binding lab_receipts contains "
+                "unsafe key"
+            )
+    private_case_overlays = _validate_digest_map(
+        binding.get("private_case_overlays"),
+        label="private_case_overlays",
+        errors=errors,
+    )
+    if private_case_overlays is not None:
+        maps["private_case_overlays"] = private_case_overlays
+        if lab_receipts and not private_case_overlays:
+            errors.append(
+                "benchmark-card.json: local receipt binding requires private "
+                "case overlay digests"
+            )
+        if not all(
+            PRIVATE_FILE_RE.fullmatch(str(key)) for key in private_case_overlays
+        ):
+            errors.append(
+                "benchmark-card.json: evidence binding private_case_overlays "
+                "contains unsafe key"
+            )
 
     for label in ("source_bundle_sha256", "exporter_sha256"):
         value = binding.get(label)
         if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
             errors.append(f"benchmark-card.json: evidence binding {label} is unusable")
+    exporter_path = Path(__file__).with_name("export.py")
+    if not exporter_path.is_file():
+        errors.append(
+            "benchmark-card.json: current exporter evidence file is unavailable"
+        )
+    else:
+        exporter_digest = _safe_sha256(
+            exporter_path,
+            label="export.py",
+            errors=errors,
+        )
+        if (
+            exporter_digest is not None
+            and binding.get("exporter_sha256") != exporter_digest
+        ):
+            errors.append(
+                "benchmark-card.json: evidence binding exporter digest does not "
+                "match the current exporter"
+            )
+
+    if source_results is not None:
+        expected_source_digests: dict[str, str] = {}
+        for name in sorted(EXPECTED_BINDING_KEYS["source_indexes"]):
+            path = source_results / name
+            if not path.is_file():
+                errors.append(
+                    "benchmark-card.json: source verification missing required "
+                    f"index {name}"
+                )
+                continue
+            digest = _safe_sha256(path, label=name, errors=errors)
+            if digest is not None:
+                expected_source_digests[name] = digest
+        if (
+            len(expected_source_digests)
+            == len(EXPECTED_BINDING_KEYS["source_indexes"])
+            and binding.get("source_indexes") != expected_source_digests
+        ):
+            errors.append(
+                "benchmark-card.json: evidence binding source indexes do not "
+                "match the supplied private source bytes"
+            )
+
+    if lab_runs_dir is not None and isinstance(lab_receipts, dict):
+        expected_lab_receipts: dict[str, str] = {}
+        for key in sorted(lab_receipts):
+            if not RECEIPT_KEY_RE.fullmatch(str(key)):
+                continue
+            path = _contained_regular_file(
+                lab_runs_dir,
+                str(key),
+                label="lab receipt",
+                nested=True,
+                errors=errors,
+            )
+            if path is None:
+                continue
+            digest = _safe_sha256(path, label=str(key), errors=errors)
+            if digest is not None:
+                expected_lab_receipts[str(key)] = digest
+        if (
+            len(expected_lab_receipts) == len(lab_receipts)
+            and lab_receipts != expected_lab_receipts
+        ):
+            errors.append(
+                "benchmark-card.json: evidence binding lab receipts do not "
+                "match the supplied local receipt bytes"
+            )
+
+    if (
+        private_case_overlays_dir is not None
+        and isinstance(private_case_overlays, dict)
+    ):
+        expected_private_overlays: dict[str, str] = {}
+        for key in sorted(private_case_overlays):
+            if not PRIVATE_FILE_RE.fullmatch(str(key)):
+                continue
+            path = _contained_regular_file(
+                private_case_overlays_dir,
+                str(key),
+                label="private case",
+                nested=False,
+                errors=errors,
+            )
+            if path is None:
+                continue
+            digest = _safe_sha256(path, label=str(key), errors=errors)
+            if digest is not None:
+                expected_private_overlays[str(key)] = digest
+        if (
+            len(expected_private_overlays) == len(private_case_overlays)
+            and private_case_overlays != expected_private_overlays
+        ):
+            errors.append(
+                "benchmark-card.json: evidence binding private case overlays do "
+                "not match the supplied private case bytes"
+            )
+
+    repo_root = Path(__file__).resolve().parent.parent
+    for label in ("current_public_corpus", "current_public_protocol"):
+        expected_current_digests: dict[str, str] = {}
+        for name in sorted(EXPECTED_BINDING_KEYS[label]):
+            path = repo_root / CURRENT_BINDING_PATHS[label][name]
+            if not path.is_file():
+                errors.append(
+                    "benchmark-card.json: current checkout is missing required "
+                    f"{label} file {name}"
+                )
+                continue
+            digest = _safe_sha256(path, label=name, errors=errors)
+            if digest is not None:
+                expected_current_digests[name] = digest
+        if (
+            len(expected_current_digests) == len(EXPECTED_BINDING_KEYS[label])
+            and binding.get(label) != expected_current_digests
+        ):
+            errors.append(
+                "benchmark-card.json: evidence binding "
+                f"{label} does not match the current checkout bytes"
+            )
+
     for label in (
         "historical_as_run_corpus",
         "historical_as_run_protocol",
@@ -201,6 +426,7 @@ def _validate_evidence_binding(binding: dict[str, Any], errors: list[str]) -> No
         "lab_receipts",
         "current_public_corpus",
         "current_public_protocol",
+        "private_case_overlays",
     }:
         combined = json.dumps(
             {
@@ -208,6 +434,7 @@ def _validate_evidence_binding(binding: dict[str, Any], errors: list[str]) -> No
                 "lab_receipts": maps["lab_receipts"],
                 "current_public_corpus": maps["current_public_corpus"],
                 "current_public_protocol": maps["current_public_protocol"],
+                "private_case_overlays": maps["private_case_overlays"],
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -326,7 +553,13 @@ def _validate_card_aggregates(card: dict[str, Any], errors: list[str]) -> None:
         errors.append(f"model card {label}: orchestration mean aggregate mismatch")
 
 
-def validate_public_artifacts(public_dir: Path) -> list[str]:
+def validate_public_artifacts(
+    public_dir: Path,
+    *,
+    source_results: Path | None = None,
+    lab_runs_dir: Path | None = None,
+    private_case_overlays_dir: Path | None = None,
+) -> list[str]:
     """Return contract errors for a public export directory."""
     errors: list[str] = []
     if not public_dir.exists():
@@ -382,14 +615,20 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
         binding = benchmark.get("evidence_binding")
         if not isinstance(binding, dict):
             errors.append("benchmark-card.json: missing evidence_binding")
-        elif binding.get("schema") != "operant-public-evidence-binding.v3":
+        elif binding.get("schema") != "operant-public-evidence-binding.v4":
             errors.append("benchmark-card.json: unsupported evidence_binding schema")
         elif binding.get("private_paths_exposed") is not False:
             errors.append("benchmark-card.json: evidence binding exposes private paths")
         elif not isinstance(binding.get("lab_receipts"), dict):
             errors.append("benchmark-card.json: missing bound lab receipts")
         else:
-            _validate_evidence_binding(binding, errors)
+            _validate_evidence_binding(
+                binding,
+                errors,
+                source_results=source_results,
+                lab_runs_dir=lab_runs_dir,
+                private_case_overlays_dir=private_case_overlays_dir,
+            )
         claim_status = benchmark.get("claim_status")
         if claim_status != REQUIRED_BENCHMARK_CLAIM_STATUS:
             errors.append("benchmark-card.json: unsafe or missing claim_status")

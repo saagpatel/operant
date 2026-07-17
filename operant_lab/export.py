@@ -62,7 +62,9 @@ PUBLIC_CLAIM_BOUNDARY = (
     "Current-public corpus and protocol hashes identify this checkout only; they are "
     "not the historical as-run inputs. Historical as-run corpus, protocol, dispatch "
     "freshness, and served-model identity remain UNKNOWN. Local lab receipts are "
-    "self-reported. Neither source supports durable cross-model ranking, "
+    "self-reported. Current private follow-up case bytes are hash-bound but not "
+    "published and are not proven to be the as-run oracle bytes; independent as-run "
+    "recalculation remains UNKNOWN. Neither source supports durable cross-model ranking, "
     "model-equivalence, deployment-safety, or certification claims."
 )
 
@@ -80,10 +82,13 @@ HISTORICAL_CLAIM_STATUS = {
 
 LOCAL_LAB_CLAIM_STATUS = {
     "evidence_class": "self_reported_local_receipt",
-    "score_recalculation_from_bound_bytes": "SUPPORTED",
+    "score_recalculation_from_bound_bytes": "CURRENT_CHECKOUT_ONLY",
     "source_receipt_byte_binding": "SUPPORTED",
     "current_public_corpus_identity": "SUPPORTED",
     "current_public_protocol_identity": "SUPPORTED",
+    "private_case_overlay_identity": "CURRENT_CHECKOUT_HASH_BOUND",
+    "as_run_private_case_overlay_identity": "UNKNOWN",
+    "independent_as_run_score_recalculation": "UNKNOWN",
     "served_model_identity": "UNKNOWN",
     "independent_replication": "UNKNOWN",
     "cross_profile_ranking": "NOT_DURABLE",
@@ -169,7 +174,11 @@ def build_evidence_binding(
             ROOT / "score_operant.py",
             ROOT / "score_orchestration.py",
             ROOT / "score_orchestration_judge.py",
+            ROOT / "operant_lab" / "inventory.py",
         ]
+    )
+    private_case_overlays = _digest_inventory(
+        sorted((ROOT / "lab" / "followup" / "private").glob("*cases*.json"))
     )
     lab_receipts = _lab_receipt_digests(lab_runs_dir, lab_labels)
     combined = json.dumps(
@@ -178,14 +187,16 @@ def build_evidence_binding(
             "lab_receipts": lab_receipts,
             "current_public_corpus": current_public_corpus,
             "current_public_protocol": current_public_protocol,
+            "private_case_overlays": private_case_overlays,
         },
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
     return {
-        "schema": "operant-public-evidence-binding.v3",
+        "schema": "operant-public-evidence-binding.v4",
         "source_indexes": source_indexes,
         "lab_receipts": lab_receipts,
+        "private_case_overlays": private_case_overlays,
         "source_bundle_sha256": hashlib.sha256(combined).hexdigest(),
         "current_public_corpus": current_public_corpus,
         "current_public_protocol": current_public_protocol,
@@ -788,9 +799,14 @@ def _public_readme(
         "python3 operant_lab_cli.py check-public-artifacts\n"
         "```\n\n"
         "That contract verifies required files, JSON parseability, model-card "
-        "presence, forbidden prompt/answer/transcript fields, separation between "
-        "Codex App and local CLI profiles, and absence of private path or "
-        "secret-shaped strings in public text artifacts.\n"
+        "presence, current exporter/corpus/protocol digests, forbidden "
+        "prompt/answer/transcript fields, separation between Codex App and local "
+        "CLI profiles, and absence of private path or secret-shaped strings in "
+        "public text artifacts. If the private source indexes are available, add "
+        "`--source-results <your-local-results-path>`. Add `--lab-runs "
+        "<your-local-runs-path>` and `--private-case-overlays "
+        "<your-private-cases-path>` to reconnect local receipt and oracle hashes "
+        "without emitting paths or contents.\n"
     )
 
 
@@ -835,6 +851,17 @@ def export_public_artifacts(
     )
     for row in opus_judge_rows:
         opus_judge_by_family[_base_label(row["run_label"])][row["run_label"]].append(row)
+
+    final_evidence_binding = build_evidence_binding(
+        source_results,
+        lab_runs_dir=lab_runs_dir,
+        lab_labels=lab_labels,
+    )
+    if final_evidence_binding != evidence_binding:
+        raise RuntimeError(
+            "research evidence changed while exporting; refusing to write a "
+            "mixed-state public artifact set"
+        )
 
     _reject_unmarked_stale_cards(out_dir, set(decision_by_family))
     out_dir.mkdir(parents=True, exist_ok=True)

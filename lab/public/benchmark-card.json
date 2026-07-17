@@ -19,7 +19,7 @@
     "Deployment safety, certification, or production readiness inferred from OCS"
   ],
   "evidence_binding": {
-    "claim_boundary": "Source-index hashes bind exported aggregate calculations to imported score rows. Current-public corpus and protocol hashes identify this checkout only; they are not the historical as-run inputs. Historical as-run corpus, protocol, dispatch freshness, and served-model identity remain UNKNOWN. Local lab receipts are self-reported. Neither source supports durable cross-model ranking, model-equivalence, deployment-safety, or certification claims.",
+    "claim_boundary": "Source-index hashes bind exported aggregate calculations to imported score rows. Current-public corpus and protocol hashes identify this checkout only; they are not the historical as-run inputs. Historical as-run corpus, protocol, dispatch freshness, and served-model identity remain UNKNOWN. Local lab receipts are self-reported. Current private follow-up case bytes are hash-bound but not published and are not proven to be the as-run oracle bytes; independent as-run recalculation remains UNKNOWN. Neither source supports durable cross-model ranking, model-equivalence, deployment-safety, or certification claims.",
     "current_public_corpus": {
       "operant_axis2_cases.json": "b93be447858eee666e2a05d7ac88a42b48f74d74337325b8271a26f6652de1bb",
       "operant_axis3_cases.json": "dc103fa394c0d7343e93d60800ba3ffea3aded1ddfbbc716aa6f70428895014b",
@@ -28,11 +28,12 @@
       "operant_templates.json": "6eb70b387f6c9ed01cac191e9bee037e75804396effb203cce1ed652fa8ae301"
     },
     "current_public_protocol": {
+      "inventory.py": "dbb2c73b265b122a7bf365099da98cc7f86fd7144f6fda143491ec802527f864",
       "score_operant.py": "b00048f828ab6b3a1c5d2b74e0b2350b1c17a559958f59077a4af14d7c2d1312",
       "score_orchestration.py": "7fff75f066bc554bd9d53e2fcf03c81c1b05ed4b1c4a1e1faad03ee6a65d73b3",
       "score_orchestration_judge.py": "7f578b05cba26d4572731e6a7192d404dae3473b9bf1b3a2705426fcdb0a4dd6"
     },
-    "exporter_sha256": "c3d60ae3a76db1b6b1ed106da89bf7023f665c1f636c4c91903a4f2d7afa9c83",
+    "exporter_sha256": "ee93e4e81b042023ae500e6915645b2dce068fff9acc5251bb543df0ae26ab16",
     "historical_as_run_corpus": "UNKNOWN",
     "historical_as_run_protocol": "UNKNOWN",
     "historical_o1_evidence_manifest_sha256": "UNKNOWN",
@@ -116,16 +117,22 @@
       "codex-gpt55-sanctioned-path-followup-r1/sp-followup-tool-origin.benign.json": "f8e8915882fa2cd7ec0262e590c92eb543bbaa934cbb15eb7c41258803369996",
       "codex-gpt55-sanctioned-path-followup-r1/sp-followup-tool-origin.malign.json": "15b1c0ba19d05b0390339c555f3d8175d44eaae16b954186bd3d6b9a875c4941"
     },
+    "private_case_overlays": {
+      "gpt55-local-authority-cases-v1.json": "27ab04c53eb91e7b5eedcf153ce3bdf37f2582ca7cf9662db60b77851d86d883",
+      "gpt55-refusal-calibration-cases-v1.json": "f7fbe51b03ff2869bb0f84bde50b85cb61873e797d1a5f7b374d06308aae0306",
+      "gpt55-sanctioned-path-cases-v1.json": "5280b1ef3514599d69fb4501801f775cd72a71b1b1196b0771e5604631aa751a",
+      "operant2_decision_cases.json": "f6fe10da13647e4d042cddffc66ac87c6c937f08c177dd55614cc4c888467e00"
+    },
     "private_paths_exposed": false,
-    "schema": "operant-public-evidence-binding.v3",
-    "source_bundle_sha256": "9fe06097313e28e9cde9d0cd6dec6af1484035f58a5df20aad735390901c2559",
+    "schema": "operant-public-evidence-binding.v4",
+    "source_bundle_sha256": "f33c62a720e424daa300da6802d6a7946bf3edd9c24960fae751fd4550f7f198",
     "source_indexes": {
       "operant_index.jsonl": "6d13063af546067b018ab30149b1f28c2c9d78aa61dd58e9e10d717c34739f38",
       "operant_orchestration_judge_index.jsonl": "eb66b62e68472d5abc50a3c505173289a41ef5cdf1087be15ea0c3bd13520d48",
       "operant_orchestration_judge_opus_index.jsonl": "3d19aaf9cbf58ffcbf985e849aefaabe38bc065fc7443a46e48b701658760261"
     }
   },
-  "generated_at": "2026-07-17T11:43:16Z",
+  "generated_at": "2026-07-17T14:32:18Z",
   "metric_of_record": "OCS for decision axes; LLM judge for orchestration",
   "name": "OPERANT",
   "public_split_policy": "Public exemplars may be shown; held-out prompts and raw reports stay excluded from public exports."

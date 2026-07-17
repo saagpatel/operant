@@ -60,7 +60,12 @@ def inventory_lab_runs(args: argparse.Namespace) -> None:
 
 
 def check_public_artifacts(args: argparse.Namespace) -> None:
-    errors = validate_public_artifacts(args.public_dir)
+    errors = validate_public_artifacts(
+        args.public_dir,
+        source_results=args.source_results,
+        lab_runs_dir=args.lab_runs,
+        private_case_overlays_dir=args.private_case_overlays,
+    )
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
@@ -102,6 +107,27 @@ def main() -> None:
         help="validate sanitized public artifact export contract",
     )
     check_public.add_argument("--public-dir", type=Path, default=DEFAULT_PUBLIC)
+    check_public.add_argument(
+        "--source-results",
+        type=Path,
+        help=(
+            "optionally recompute private source-index digests without exposing "
+            "paths or row contents"
+        ),
+    )
+    check_public.add_argument(
+        "--lab-runs",
+        type=Path,
+        help="optionally reconnect published receipt hashes to local run bytes",
+    )
+    check_public.add_argument(
+        "--private-case-overlays",
+        type=Path,
+        help=(
+            "optionally reconnect private case/oracle hashes without exposing "
+            "paths or case contents"
+        ),
+    )
     check_public.set_defaults(func=check_public_artifacts)
 
     args = ap.parse_args()
