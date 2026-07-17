@@ -11,7 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import utc_now, write_json
-from .inventory import inventory_runs, load_decision_cases
+from .inventory import (
+    BOUND_NONCONFIRMATORY,
+    INVALID_BINDING,
+    UNKNOWN_BINDING,
+    inventory_runs,
+    load_decision_cases,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -405,6 +411,101 @@ def _model_card_caveats(base_label: str) -> list[dict[str, str]]:
     return list(MODEL_CARD_CAVEATS.get(base_label, []))
 
 
+def _combined_binding_status(statuses: list[str]) -> str:
+    if not statuses or set(statuses) == {UNKNOWN_BINDING}:
+        return UNKNOWN_BINDING
+    if INVALID_BINDING in statuses:
+        return INVALID_BINDING
+    if set(statuses) == {BOUND_NONCONFIRMATORY}:
+        return BOUND_NONCONFIRMATORY
+    return "MIXED_UNKNOWN"
+
+
+def _binding_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    bindings = [
+        row.get("evaluation_binding", {})
+        for row in rows
+        if isinstance(row.get("evaluation_binding"), dict)
+    ]
+    statuses = [str(binding.get("status") or UNKNOWN_BINDING) for binding in bindings]
+    status = _combined_binding_status(statuses)
+    role_counts = Counter(
+        str(binding.get("evaluation_role") or "UNKNOWN") for binding in bindings
+    )
+    schema_counts = Counter(
+        str(binding.get("manifest_schema") or "UNKNOWN") for binding in bindings
+    )
+    digests = {
+        str(binding["case_bundle_sha256"])
+        for binding in bindings
+        if binding.get("status") == BOUND_NONCONFIRMATORY
+        and binding.get("case_bundle_sha256") != "UNKNOWN"
+    }
+    return {
+        "status": status,
+        "manifest_schema_counts": dict(sorted(schema_counts.items())),
+        "evaluation_role_counts": dict(sorted(role_counts.items())),
+        "case_bundle_count": len(digests),
+        "case_bundle_sha256": (
+            next(iter(digests))
+            if len(digests) == 1
+            else "MULTIPLE"
+            if digests
+            else "UNKNOWN"
+        ),
+        "confirmatory_eligible": (
+            False if status == BOUND_NONCONFIRMATORY else "UNKNOWN"
+        ),
+    }
+
+
+def _unknown_binding_summary() -> dict[str, Any]:
+    return {
+        "status": UNKNOWN_BINDING,
+        "manifest_schema_counts": {"UNKNOWN": 1},
+        "evaluation_role_counts": {"UNKNOWN": 1},
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+    }
+
+
+def _model_card_evaluation_binding(
+    decision_repeats: dict[str, list[dict[str, Any]]],
+    bindings_by_label: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    repeats = {
+        label: bindings_by_label.get(label, _unknown_binding_summary())
+        for label in sorted(decision_repeats)
+    }
+    statuses = [str(binding["status"]) for binding in repeats.values()]
+    status = _combined_binding_status(statuses)
+    return {
+        "status": status,
+        "confirmatory_eligible": (
+            False if status == BOUND_NONCONFIRMATORY else "UNKNOWN"
+        ),
+        "repeats": repeats,
+    }
+
+
+def _require_publishable_evaluation_bindings(
+    lab_status: dict[str, Any],
+) -> None:
+    invalid_labels = []
+    for run in lab_status.get("runs", []):
+        if not isinstance(run, dict):
+            continue
+        binding = run.get("evaluation_binding")
+        if isinstance(binding, dict) and binding.get("status") == INVALID_BINDING:
+            invalid_labels.append(str(run.get("run_label") or "<unknown>"))
+    if invalid_labels:
+        raise RuntimeError(
+            "refusing public export with invalid evaluation bindings: "
+            + ", ".join(sorted(invalid_labels))
+        )
+
+
 def _lab_run_status(
     *,
     lab_rows: list[dict[str, Any]],
@@ -481,6 +582,7 @@ def _lab_run_status(
             "parse_status_counts": dict(sorted(parse_status_counts.items())),
             "score_outcome_counts": dict(sorted(score_outcome_counts.items())),
             "scoring_policy": _lab_scoring_policy(subject_shell),
+            "evaluation_binding": _binding_summary(label_inventory),
         }
         relation = _lab_relation(family, subject_shell)
         if relation:
@@ -505,6 +607,7 @@ def model_card(
     judge_repeats: dict[str, list[dict[str, Any]]],
     opus_judge_repeats: dict[str, list[dict[str, Any]]],
     metadata_override: dict[str, Any] | None = None,
+    evaluation_bindings_by_label: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     decision_summaries = {
         label: aggregate_decision(rows) for label, rows in sorted(decision_repeats.items())
@@ -553,6 +656,10 @@ def model_card(
             "opus_judge": opus_judge_summaries,
             "mean_score": _mean([v for v in judge_values if v is not None]),
         },
+        "evaluation_binding": _model_card_evaluation_binding(
+            decision_repeats,
+            evaluation_bindings_by_label or {},
+        ),
     }
     caveats = _model_card_caveats(base_label)
     if caveats:
@@ -869,6 +976,17 @@ def export_public_artifacts(
             "mixed-state public artifact set"
         )
 
+    lab_status = _lab_run_status(
+        lab_rows=lab_rows,
+        lab_metadata=lab_metadata,
+        lab_runs_dir=lab_runs_dir,
+        lab_labels=lab_labels,
+    )
+    _require_publishable_evaluation_bindings(lab_status)
+    bindings_by_label = {
+        str(run["run_label"]): run["evaluation_binding"]
+        for run in lab_status["runs"]
+    }
     _reject_unmarked_stale_cards(out_dir, set(decision_by_family))
     out_dir.mkdir(parents=True, exist_ok=True)
     model_cards = []
@@ -879,6 +997,7 @@ def export_public_artifacts(
             judge_repeats=judge_by_family.get(family, {}),
             opus_judge_repeats=opus_judge_by_family.get(family, {}),
             metadata_override=lab_metadata.get(family),
+            evaluation_bindings_by_label=bindings_by_label,
         )
         card["evidence_binding"] = evidence_binding
         card["claim_status"] = _card_claim_status(card)
@@ -937,12 +1056,6 @@ def export_public_artifacts(
         },
         "claims_at_risk": CLAIMS_AT_RISK,
     }
-    lab_status = _lab_run_status(
-        lab_rows=lab_rows,
-        lab_metadata=lab_metadata,
-        lab_runs_dir=lab_runs_dir,
-        lab_labels=lab_labels,
-    )
     methodology = (
         "# OPERANT Methodology\n\n"
         "OPERANT measures operating-decision calibration rather than patch success. "

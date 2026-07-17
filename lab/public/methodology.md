@@ -16,14 +16,6 @@ The public split is sanitized by design: prompts, final answers, full transcript
 
 ## Adaptive and Confirmatory Separation
 
-Withholding prompt text protects confidentiality but does not by itself create a
-confirmatory set. The generated public and private splits share templates, slot
-pools, decision structure, and scoring boundaries, so the nominal private side
-is a publicly derivable surface holdout only. The GPT-5.5 sanctioned-path,
-refusal-calibration, and local-authority follow-ups were selected from observed
-errors and are adaptive diagnostics. Historical selection and exposure history
-for the reference suite is incomplete. The current confirmatory status is
-therefore **NOT ESTABLISHED**; no exported score is confirmatory under the
-checked split registry.
+Withholding prompt text protects confidentiality but does not by itself create a confirmatory set. The generated public and private splits share templates, slot pools, decision structure, and scoring boundaries; the nominal private side is a publicly derivable surface holdout only. The GPT-5.5 sanctioned-path, refusal-calibration, and local-authority follow-ups were selected from observed errors and are adaptive diagnostics. Historical selection and exposure history for the reference suite is incomplete. The current confirmatory status is therefore **NOT ESTABLISHED**; no exported score is confirmatory under the checked split registry.
 
 Self-service receipts produced by `score_my_agent.py` are self-reported open benchmark results. They are comparable only under the same operator contract, corpus, axes, repeats, subject shell, and judge policy. They are not certification unless explicitly framed as a pilot review, and a pilot review still verifies the receipt rather than certifying a vendor or deployment.

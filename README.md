@@ -292,7 +292,12 @@ leaderboard.
 included run labels, subject shells, recorded-vs-queued counts, parse/score
 status counts, and scoring policy without prompts or final answers. Use it for
 run coverage and interpretation policy; use `model-cards/*.json` for scored
-calibration profiles.
+calibration profiles. New exports also project the run-manifest evaluation role
+and case-bundle binding as sanitized status metadata. Complete v2 bindings are
+reported only as `V2_BOUND_NONCONFIRMATORY`; historical or absent bindings stay
+`UNKNOWN`, mixed coverage stays `MIXED_UNKNOWN`, and malformed bindings block a
+new public export. Existing tracked public artifacts are not rewritten merely
+to add these fields.
 
 For concise shareable summaries of the public lab surface, see
 `docs/public-release-note.md`, `docs/public-changelog.md`,

@@ -8,9 +8,12 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .artifacts import stable_hash
+from .artifacts import SHA256_RE, VALID_EVALUATION_ROLES, stable_hash
 
 ROOT = Path(__file__).resolve().parents[1]
+BOUND_NONCONFIRMATORY = "V2_BOUND_NONCONFIRMATORY"
+UNKNOWN_BINDING = "UNKNOWN"
+INVALID_BINDING = "INVALID"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -151,6 +154,111 @@ def _score_outcome(
     return "unscored"
 
 
+def _manifest_binding_projection(
+    manifest: dict[str, Any],
+    *,
+    source: str,
+) -> dict[str, Any]:
+    """Expose only non-sensitive v2 binding metadata; legacy absence stays UNKNOWN."""
+    schema = manifest.get("manifest_schema")
+    unknown = {
+        "status": UNKNOWN_BINDING,
+        "source": source,
+        "manifest_schema": str(schema) if schema else "UNKNOWN",
+        "evaluation_role": "UNKNOWN",
+        "case_bundle_sha256": "UNKNOWN",
+        "case_bundle_case_count": "UNKNOWN",
+        "case_split": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+    }
+    if schema != "operant-run-manifest.v2":
+        return unknown
+
+    role = manifest.get("evaluation_role")
+    digest = manifest.get("case_bundle_sha256")
+    count = manifest.get("case_bundle_case_count")
+    split = manifest.get("case_split")
+    confirmatory = manifest.get("confirmatory_eligible")
+    valid = (
+        isinstance(role, str)
+        and role in VALID_EVALUATION_ROLES
+        and isinstance(digest, str)
+        and SHA256_RE.fullmatch(digest) is not None
+        and isinstance(count, int)
+        and not isinstance(count, bool)
+        and count > 0
+        and isinstance(split, str)
+        and bool(split.strip())
+        and confirmatory is False
+    )
+    if not valid:
+        return {
+            **unknown,
+            "status": INVALID_BINDING,
+            "manifest_schema": "operant-run-manifest.v2",
+        }
+    return {
+        "status": BOUND_NONCONFIRMATORY,
+        "source": source,
+        "manifest_schema": "operant-run-manifest.v2",
+        "evaluation_role": role,
+        "case_bundle_sha256": digest,
+        "case_bundle_case_count": count,
+        "case_split": split,
+        "confirmatory_eligible": False,
+    }
+
+
+def _evaluation_binding(
+    *,
+    queue_manifest: dict[str, Any],
+    run_manifest: dict[str, Any],
+    has_run: bool,
+) -> dict[str, Any]:
+    source = "run_receipt" if has_run else "queue_manifest"
+    selected = run_manifest if has_run else queue_manifest
+    projection = _manifest_binding_projection(selected, source=source)
+    if not has_run or not queue_manifest:
+        return projection
+
+    queue_projection = _manifest_binding_projection(
+        queue_manifest,
+        source="queue_manifest",
+    )
+    if queue_projection["status"] == INVALID_BINDING:
+        return {
+            **projection,
+            "status": INVALID_BINDING,
+            "evaluation_role": "UNKNOWN",
+            "case_bundle_sha256": "UNKNOWN",
+            "case_bundle_case_count": "UNKNOWN",
+            "case_split": "UNKNOWN",
+            "confirmatory_eligible": "UNKNOWN",
+        }
+    if (
+        projection["status"] == BOUND_NONCONFIRMATORY
+        and queue_projection["status"] == BOUND_NONCONFIRMATORY
+    ):
+        comparable = (
+            "evaluation_role",
+            "case_bundle_sha256",
+            "case_bundle_case_count",
+            "case_split",
+            "confirmatory_eligible",
+        )
+        if any(projection[key] != queue_projection[key] for key in comparable):
+            return {
+                **projection,
+                "status": INVALID_BINDING,
+                "evaluation_role": "UNKNOWN",
+                "case_bundle_sha256": "UNKNOWN",
+                "case_bundle_case_count": "UNKNOWN",
+                "case_split": "UNKNOWN",
+                "confirmatory_eligible": "UNKNOWN",
+            }
+    return projection
+
+
 def inventory_runs(
     *,
     queue_dir: Path,
@@ -219,6 +327,11 @@ def inventory_runs(
                     score_operant=score_operant,
                 ),
                 "risk_tags": _risk_tags(case, manifest),
+                "evaluation_binding": _evaluation_binding(
+                    queue_manifest=queue_manifest,
+                    run_manifest=run_manifest,
+                    has_run=run_data is not None,
+                ),
             }
         )
     return rows

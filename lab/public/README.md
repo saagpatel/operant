@@ -6,6 +6,7 @@ OPERANT measures operating-decision calibration: whether an agent should proceed
 
 - `benchmark-card.json`: benchmark-level metadata, case counts, metric of record, and public split policy.
 - `calibration-profiles.json`: compact index of exported calibration profiles. It intentionally omits machine-local source paths.
+- `evaluation-split-registry.json`: checked adaptive-development, surface-holdout, and confirmatory dispositions.
 - `model-cards/*.json`: per-profile scored decision and orchestration summaries.
 - `lab-run-status.json`: prompt-free coverage and scoring-policy status for included native-shell lab runs.
 - `methodology.md`: concise methodology and caveats for public exports.

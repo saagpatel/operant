@@ -9,6 +9,8 @@ import statistics
 from pathlib import Path
 from typing import Any
 
+from .artifacts import VALID_EVALUATION_ROLES
+
 REQUIRED_PUBLIC_FILES = {
     "README.md",
     "benchmark-card.json",
@@ -108,6 +110,11 @@ EXPECTED_BINDING_KEYS = {
         "score_orchestration_judge.py",
         "inventory.py",
     },
+}
+VALID_EVALUATION_BINDING_STATUSES = {
+    "V2_BOUND_NONCONFIRMATORY",
+    "UNKNOWN",
+    "MIXED_UNKNOWN",
 }
 
 CURRENT_BINDING_PATHS = {
@@ -554,6 +561,131 @@ def _validate_card_aggregates(card: dict[str, Any], errors: list[str]) -> None:
         errors.append(f"model card {label}: orchestration mean aggregate mismatch")
 
 
+def _validate_evaluation_binding_summary(
+    binding: Any,
+    *,
+    label: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(binding, dict):
+        errors.append(f"{label}: invalid evaluation_binding")
+        return
+    status = binding.get("status")
+    if status not in VALID_EVALUATION_BINDING_STATUSES:
+        errors.append(f"{label}: unsafe evaluation binding status")
+    confirmatory = binding.get("confirmatory_eligible")
+    if status == "V2_BOUND_NONCONFIRMATORY":
+        if confirmatory is not False:
+            errors.append(f"{label}: bound evaluation must be non-confirmatory")
+        schema_counts = binding.get("manifest_schema_counts")
+        role_counts = binding.get("evaluation_role_counts")
+        bundle_count = binding.get("case_bundle_count")
+        bundle_digest = binding.get("case_bundle_sha256")
+        if (
+            not isinstance(schema_counts, dict)
+            or set(schema_counts) != {"operant-run-manifest.v2"}
+            or any(
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value < 1
+                for value in schema_counts.values()
+            )
+        ):
+            errors.append(f"{label}: bound evaluation lacks v2-only schema counts")
+        if (
+            not isinstance(role_counts, dict)
+            or not role_counts
+            or not set(role_counts).issubset(VALID_EVALUATION_ROLES)
+            or any(
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value < 1
+                for value in role_counts.values()
+            )
+        ):
+            errors.append(f"{label}: bound evaluation lacks explicit role counts")
+        if (
+            not isinstance(bundle_count, int)
+            or isinstance(bundle_count, bool)
+            or bundle_count < 1
+        ):
+            errors.append(f"{label}: bound evaluation lacks case bundle count")
+        if not (
+            isinstance(bundle_digest, str)
+            and (
+                bundle_count == 1
+                and re.fullmatch(r"[0-9a-f]{64}", bundle_digest)
+                or bundle_count > 1
+                and bundle_digest == "MULTIPLE"
+            )
+        ):
+            errors.append(f"{label}: bound evaluation lacks case bundle digest")
+    elif confirmatory != "UNKNOWN":
+        errors.append(f"{label}: unbound evaluation must keep eligibility UNKNOWN")
+    if status == "UNKNOWN":
+        unknown_schemas = binding.get("manifest_schema_counts")
+        unknown_roles = binding.get("evaluation_role_counts")
+        unknown_counts_valid = all(
+            isinstance(count, int) and not isinstance(count, bool) and count > 0
+            for counts in (unknown_schemas, unknown_roles)
+            if isinstance(counts, dict)
+            for count in counts.values()
+        )
+        if (
+            not isinstance(unknown_schemas, dict)
+            or set(unknown_schemas) != {"UNKNOWN"}
+            or not isinstance(unknown_roles, dict)
+            or set(unknown_roles) != {"UNKNOWN"}
+            or not unknown_counts_valid
+            or binding.get("case_bundle_count") != 0
+            or binding.get("case_bundle_sha256") != "UNKNOWN"
+        ):
+            errors.append(f"{label}: UNKNOWN evaluation contains asserted binding")
+
+
+def _validate_model_card_evaluation_binding(
+    card: dict[str, Any],
+    errors: list[str],
+) -> None:
+    binding = card.get("evaluation_binding")
+    if binding is None:
+        label = str(card.get("run_family", "<unknown>"))
+        errors.append(f"model card {label}: missing evaluation_binding")
+        return
+    label = str(card.get("run_family", "<unknown>"))
+    if not isinstance(binding, dict):
+        errors.append(f"model card {label}: invalid evaluation_binding")
+        return
+    repeats = binding.get("repeats")
+    decision_repeats = card.get("decision", {}).get("repeats", {})
+    if not isinstance(repeats, dict) or set(repeats) != set(decision_repeats):
+        errors.append(f"model card {label}: evaluation binding repeats mismatch")
+        return
+    statuses: list[str] = []
+    for run_label, summary in repeats.items():
+        _validate_evaluation_binding_summary(
+            summary,
+            label=f"model card {label}/{run_label}",
+            errors=errors,
+        )
+        if isinstance(summary, dict):
+            statuses.append(str(summary.get("status")))
+    expected_status = (
+        "UNKNOWN"
+        if not statuses or set(statuses) == {"UNKNOWN"}
+        else "V2_BOUND_NONCONFIRMATORY"
+        if set(statuses) == {"V2_BOUND_NONCONFIRMATORY"}
+        else "MIXED_UNKNOWN"
+    )
+    if binding.get("status") != expected_status:
+        errors.append(f"model card {label}: evaluation binding status mismatch")
+    expected_confirmatory: bool | str = (
+        False if expected_status == "V2_BOUND_NONCONFIRMATORY" else "UNKNOWN"
+    )
+    if binding.get("confirmatory_eligible") != expected_confirmatory:
+        errors.append(f"model card {label}: evaluation eligibility mismatch")
+
+
 def validate_public_artifacts(
     public_dir: Path,
     *,
@@ -691,6 +823,7 @@ def validate_public_artifacts(
                     "recorded_cases",
                     "total_queued_cases",
                     "scoring_policy",
+                    "evaluation_binding",
                 ):
                     if field not in run:
                         label = run.get("run_label", "<unknown>")
@@ -702,6 +835,15 @@ def validate_public_artifacts(
                     label = run.get("run_label", "<unknown>")
                     errors.append(
                         f"lab-run-status.json: {label} has no bound recorded or queued cases"
+                    )
+                if "evaluation_binding" in run:
+                    _validate_evaluation_binding_summary(
+                        run["evaluation_binding"],
+                        label=(
+                            "lab-run-status.json: "
+                            f"{run.get('run_label', '<unknown>')}"
+                        ),
+                        errors=errors,
                     )
             app_runs = [r for r in runs if r.get("subject_shell") == "codex-app"]
             cli_runs = [r for r in runs if r.get("subject_shell") == "codex-cli"]
@@ -742,6 +884,9 @@ def validate_public_artifacts(
             errors.append(f"model card {label}: unsafe or missing claim_status")
         if not is_orphaned:
             _validate_card_aggregates(card, errors)
+            _validate_model_card_evaluation_binding(card, errors)
+        elif "evaluation_binding" in card:
+            _validate_model_card_evaluation_binding(card, errors)
         if is_orphaned and not str(card.get("orphan_reason", "")).strip():
             label = card.get("run_family", "<unknown>")
             errors.append(f"model card {label}: missing orphan_reason")

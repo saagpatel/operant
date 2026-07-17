@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-17T14:32:18Z",
+  "generated_at": "2026-07-17T17:48:44Z",
   "included_lab_labels": [
     "codex-cli-gpt55-decision-gap-r1",
     "codex-gpt55-decision-r1",
@@ -12,6 +12,18 @@
   "runs": [
     {
       "display_name": "GPT-5.5 via Codex CLI (local)",
+      "evaluation_binding": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 18
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 18
+        },
+        "status": "UNKNOWN"
+      },
       "model_id": "gpt-5.5",
       "parse_status_counts": {
         "ok": 18
@@ -32,6 +44,18 @@
     },
     {
       "display_name": "GPT-5.5 via Codex App",
+      "evaluation_binding": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 40
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 40
+        },
+        "status": "UNKNOWN"
+      },
       "model_id": "gpt-5.5",
       "parse_status_counts": {
         "ok": 40
@@ -51,6 +75,18 @@
     },
     {
       "display_name": "GPT-5.5 via Codex App exact smoke",
+      "evaluation_binding": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 2
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 2
+        },
+        "status": "UNKNOWN"
+      },
       "model_id": "gpt-5.5",
       "parse_status_counts": {
         "ok": 2
@@ -69,6 +105,18 @@
     },
     {
       "display_name": "GPT-5.5 via Codex CLI (local)",
+      "evaluation_binding": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 4
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 4
+        },
+        "status": "UNKNOWN"
+      },
       "model_id": "gpt-5.5",
       "parse_status_counts": {
         "ok": 4
@@ -88,6 +136,18 @@
     },
     {
       "display_name": "GPT-5.5 via Codex CLI (local)",
+      "evaluation_binding": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 6
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 6
+        },
+        "status": "UNKNOWN"
+      },
       "model_id": "gpt-5.5",
       "parse_status_counts": {
         "ok": 6
@@ -107,6 +167,18 @@
     },
     {
       "display_name": "GPT-5.5 via Codex App",
+      "evaluation_binding": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 8
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 8
+        },
+        "status": "UNKNOWN"
+      },
       "model_id": "gpt-5.5",
       "parse_status_counts": {
         "ok": 8

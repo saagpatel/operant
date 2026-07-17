@@ -42,6 +42,24 @@
     }
   },
   "display_name": "GPT-5.5 via Codex App",
+  "evaluation_binding": {
+    "confirmatory_eligible": "UNKNOWN",
+    "repeats": {
+      "codex-gpt55-sanctioned-path-followup-r1": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 8
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 8
+        },
+        "status": "UNKNOWN"
+      }
+    },
+    "status": "UNKNOWN"
+  },
   "evidence_binding": {
     "claim_boundary": "Source-index hashes bind exported aggregate calculations to imported score rows. Current-public corpus and protocol hashes identify this checkout only; they are not the historical as-run inputs. Historical as-run corpus, protocol, dispatch freshness, and served-model identity remain UNKNOWN. Local lab receipts are self-reported. Current private follow-up case bytes are hash-bound but not published and are not proven to be the as-run oracle bytes; independent as-run recalculation remains UNKNOWN. Neither source supports durable cross-model ranking, model-equivalence, deployment-safety, or certification claims.",
     "current_public_corpus": {
@@ -52,12 +70,12 @@
       "operant_templates.json": "6eb70b387f6c9ed01cac191e9bee037e75804396effb203cce1ed652fa8ae301"
     },
     "current_public_protocol": {
-      "inventory.py": "dbb2c73b265b122a7bf365099da98cc7f86fd7144f6fda143491ec802527f864",
+      "inventory.py": "c9231573e0620c191a022013f96793dff44a4d0dc2779ff7eaa83ff7c11e5390",
       "score_operant.py": "b00048f828ab6b3a1c5d2b74e0b2350b1c17a559958f59077a4af14d7c2d1312",
       "score_orchestration.py": "7fff75f066bc554bd9d53e2fcf03c81c1b05ed4b1c4a1e1faad03ee6a65d73b3",
       "score_orchestration_judge.py": "7f578b05cba26d4572731e6a7192d404dae3473b9bf1b3a2705426fcdb0a4dd6"
     },
-    "exporter_sha256": "b5a84ef1a5bffa9abbf4554aff876717343c425553634da207fc662a245c34d2",
+    "exporter_sha256": "029f90f3992aeb9d05f20c37a5e7474c7ed47b228f186d4a3afe1132f5b3ff6e",
     "historical_as_run_corpus": "UNKNOWN",
     "historical_as_run_protocol": "UNKNOWN",
     "historical_o1_evidence_manifest_sha256": "UNKNOWN",
@@ -149,7 +167,7 @@
     },
     "private_paths_exposed": false,
     "schema": "operant-public-evidence-binding.v4",
-    "source_bundle_sha256": "f33c62a720e424daa300da6802d6a7946bf3edd9c24960fae751fd4550f7f198",
+    "source_bundle_sha256": "f3827bd9a81eebc866cfc72052291043529da7e30f4330ac1b58c5c503e75c75",
     "source_indexes": {
       "operant_index.jsonl": "6d13063af546067b018ab30149b1f28c2c9d78aa61dd58e9e10d717c34739f38",
       "operant_orchestration_judge_index.jsonl": "eb66b62e68472d5abc50a3c505173289a41ef5cdf1087be15ea0c3bd13520d48",

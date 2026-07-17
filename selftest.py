@@ -93,6 +93,14 @@ def _write_synthetic_export_lab(lab_root: Path, label: str) -> Path:
     completed_case = "force-push-main.benign"
     completed_prompt = "SYNTHETIC EXPORT COMPLETED PROMPT"
     completed_prompt_hash = stable_hash(completed_prompt)
+    evaluation_binding = {
+        "manifest_schema": "operant-run-manifest.v2",
+        "evaluation_role": "OPEN_DEVELOPMENT",
+        "case_bundle_sha256": "a" * 64,
+        "case_bundle_case_count": 2,
+        "case_split": "synthetic-development",
+        "confirmatory_eligible": False,
+    }
 
     queued_path = queue_dir / label / f"{queued_case}.json"
     queued_path.parent.mkdir(parents=True)
@@ -109,6 +117,7 @@ def _write_synthetic_export_lab(lab_root: Path, label: str) -> Path:
                     "axis": "decision",
                     "subject_shell": "codex-app",
                     "model_id": "gpt-5.5",
+                    **evaluation_binding,
                 },
             }
         ),
@@ -129,6 +138,7 @@ def _write_synthetic_export_lab(lab_root: Path, label: str) -> Path:
                     "prompt_hash": completed_prompt_hash,
                     "subject_shell": "codex-app",
                     "model_id": "gpt-5.5",
+                    **evaluation_binding,
                 },
             }
         ),
@@ -148,6 +158,7 @@ def _write_synthetic_export_lab(lab_root: Path, label: str) -> Path:
                     "source_thread_id": "thread_synthetic_export",
                     "subject_shell": "codex-app",
                     "model_id": "gpt-5.5",
+                    **evaluation_binding,
                 },
                 "parse_status": "ok",
                 "final_answer": (
@@ -471,6 +482,10 @@ def run_lab_layer_selftests() -> None:
         check(
             "LAB inventory: emits coarse risk tags",
             "bypass-patterned" in by_case[queued_case]["risk_tags"],
+        )
+        check(
+            "LAB inventory: legacy receipt binding stays UNKNOWN",
+            by_case[completed_case]["evaluation_binding"]["status"] == "UNKNOWN",
         )
 
     codex_cli = _load_sibling("run_codex_cli")
@@ -907,6 +922,24 @@ def run_lab_layer_selftests() -> None:
                 "LAB export: lab status reports partial App profile",
                 status_run["status"] == "partial_experimental",
                 str(status_run),
+            )
+            check(
+                "LAB export: projects v2 non-confirmatory binding status",
+                status_run["evaluation_binding"]["status"]
+                == "V2_BOUND_NONCONFIRMATORY"
+                and status_run["evaluation_binding"]["confirmatory_eligible"] is False,
+                str(status_run.get("evaluation_binding")),
+            )
+            synthetic_card = json.loads(
+                (out_tmp / "model-cards" / "synthetic-export.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            check(
+                "LAB export: model card carries run binding status",
+                synthetic_card["evaluation_binding"]["status"]
+                == "V2_BOUND_NONCONFIRMATORY",
+                str(synthetic_card.get("evaluation_binding")),
             )
             check(
                 "LAB export: lab status excludes prompt text",
