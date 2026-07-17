@@ -11,15 +11,14 @@ from typing import Any
 
 from .artifacts import VALID_EVALUATION_ROLES
 from .lineage import validate_lineage_checkpoint
+from .public_generation import (
+    GENERATION_MANIFEST_NAME,
+    PUBLIC_CORE_FILES,
+    public_generation_lock,
+    validate_generation_manifest,
+)
 
-REQUIRED_PUBLIC_FILES = {
-    "README.md",
-    "benchmark-card.json",
-    "calibration-profiles.json",
-    "evaluation-split-registry.json",
-    "lab-run-status.json",
-    "methodology.md",
-}
+REQUIRED_PUBLIC_FILES = {*PUBLIC_CORE_FILES, GENERATION_MANIFEST_NAME}
 
 FORBIDDEN_PUBLIC_KEYS = {
     "answer",
@@ -112,6 +111,8 @@ EXPECTED_BINDING_KEYS = {
         "artifacts.py",
         "inventory.py",
         "lineage.py",
+        "public_contract.py",
+        "public_generation.py",
     },
 }
 VALID_EVALUATION_BINDING_STATUSES = {
@@ -131,6 +132,8 @@ CURRENT_BINDING_PATHS = {
         "artifacts.py": Path("operant_lab") / "artifacts.py",
         "inventory.py": Path("operant_lab") / "inventory.py",
         "lineage.py": Path("operant_lab") / "lineage.py",
+        "public_contract.py": Path("operant_lab") / "public_contract.py",
+        "public_generation.py": Path("operant_lab") / "public_generation.py",
     },
 }
 
@@ -761,7 +764,7 @@ def _validate_model_card_evaluation_binding(
         errors.append(f"model card {label}: evaluation eligibility mismatch")
 
 
-def validate_public_artifacts(
+def _validate_public_artifacts_locked(
     public_dir: Path,
     *,
     source_results: Path | None = None,
@@ -772,8 +775,12 @@ def validate_public_artifacts(
     errors: list[str] = []
     if not public_dir.exists():
         return [f"{public_dir}: directory does not exist"]
+    if public_dir.is_symlink():
+        return [f"{public_dir}: directory must not be a symlink"]
     if not public_dir.is_dir():
         return [f"{public_dir}: not a directory"]
+    generation_errors = validate_generation_manifest(public_dir)
+    errors.extend(generation_errors)
 
     for name in sorted(REQUIRED_PUBLIC_FILES):
         if not (public_dir / name).is_file():
@@ -840,7 +847,7 @@ def validate_public_artifacts(
         binding = benchmark.get("evidence_binding")
         if not isinstance(binding, dict):
             errors.append("benchmark-card.json: missing evidence_binding")
-        elif binding.get("schema") != "operant-public-evidence-binding.v5":
+        elif binding.get("schema") != "operant-public-evidence-binding.v6":
             errors.append("benchmark-card.json: unsupported evidence_binding schema")
         elif binding.get("private_paths_exposed") is not False:
             errors.append("benchmark-card.json: evidence binding exposes private paths")
@@ -1088,3 +1095,20 @@ def validate_public_artifacts(
             errors.append(f"{name}: missing fail-closed historical evidence boundary")
 
     return errors
+
+
+def validate_public_artifacts(
+    public_dir: Path,
+    *,
+    source_results: Path | None = None,
+    lab_runs_dir: Path | None = None,
+    private_case_overlays_dir: Path | None = None,
+) -> list[str]:
+    """Validate one stable, exactly committed public generation."""
+    with public_generation_lock(public_dir, shared=True):
+        return _validate_public_artifacts_locked(
+            public_dir,
+            source_results=source_results,
+            lab_runs_dir=lab_runs_dir,
+            private_case_overlays_dir=private_case_overlays_dir,
+        )

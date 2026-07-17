@@ -158,6 +158,24 @@ python3 operant_lab_cli.py initialize-receipt-lineage
 python3 operant_lab_cli.py check-receipt-lineage
 ```
 
+## Public Generation Integrity
+
+`lab/public/public-artifact-manifest.json` is the final commit marker for one
+sanitized public export generation. One directory lock serializes cooperating
+exporters and validators. Every public file is atomically replaced, then the
+marker is atomically replaced last. The marker binds the exact allowed file set,
+byte length, and SHA-256 for the six top-level artifacts and every active or
+explicitly orphaned model card. Missing, extra, nested, symlinked, truncated, or
+cross-generation files make the entire public directory invalid.
+
+An interrupted export can temporarily make the public directory unavailable or
+invalid; the protocol does not promise uninterrupted reader availability or
+whole-directory filesystem atomicity. The final marker prevents a partial or
+mixed tree from validating. This is unsigned structural consistency among
+cooperating local tools, not proof of authorship, publication time, external
+immutability, or resistance to a coordinated rewrite that recomputes every
+digest and the marker.
+
 ## Checked Registry
 
 `lab/public/evaluation-split-registry.json` records the current split and run

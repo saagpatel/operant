@@ -218,6 +218,13 @@ immutable history, or chronology; coordinated replacement of local state and
 every surviving external checkpoint also remains undetectable. See
 [`docs/evaluation-split-policy.md`](docs/evaluation-split-policy.md#local-receipt-lineage).
 
+Public exports are committed by
+`lab/public/public-artifact-manifest.json`, which binds the exact allowed file
+set, byte lengths, and SHA-256 digests after serialized atomic file
+replacement. Mixed generations, partial writes, extra files, and missing files
+fail validation. The marker is unsigned: authorship, publication time, external
+immutability, and coordinated rewrite resistance remain `UNKNOWN`.
+
 CI exercises these rules with zero-cost local fixtures across the native,
 Codex CLI, and Codex App producer paths and through suite/export consumers.
 Those fixtures verify harness behavior only; they are not evidence of provider

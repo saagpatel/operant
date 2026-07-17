@@ -540,7 +540,7 @@ def run_lab_layer_selftests() -> None:
     source = Path("/Users/d/Projects/evals/agent_eval/operant/results")
     if source.exists():
         with tempfile.TemporaryDirectory() as tmp:
-            out_dir = Path(tmp)
+            out_dir = Path(tmp) / "public"
             summary = export_public_artifacts(source, out_dir)
             check("LAB export: imports model cards", summary["model_cards"] >= 3)
             check("LAB export: imports decision rows", summary["decision_rows"] == 440)
@@ -568,7 +568,7 @@ def run_lab_layer_selftests() -> None:
             binding = calibration.get("evidence_binding", {})
             check(
                 "LAB export: binds source indexes without private paths",
-                binding.get("schema") == "operant-public-evidence-binding.v5"
+                binding.get("schema") == "operant-public-evidence-binding.v6"
                 and binding.get("private_paths_exposed") is False
                 and all(
                     value != "UNKNOWN"

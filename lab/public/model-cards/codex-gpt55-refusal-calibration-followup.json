@@ -71,11 +71,13 @@
       "artifacts.py": "dcb131cbee142eff7ff14cfa3b85cbe7ce8af4050eb5d08dbfb5b1cc14533396",
       "inventory.py": "e7c49f2caf1afd1dfcb0d030b11d86a3a59691c2372cca93b099290c1634f8e8",
       "lineage.py": "f1ba20661fa13bd7b60927972658498e6f86d99b1ae2032cc8d8152a7747952e",
+      "public_contract.py": "cb05ee8fa6667a69cdf704cd956e413dfcd507826a4d8f4fd189a9af0274331e",
+      "public_generation.py": "4d016a97f4d0a2cf73f59db03144b5f9fe443eebe83a51a062765500d1b9e99a",
       "score_operant.py": "c952f69d36491df18e5dce49db92e18c4b9f87bc7e66b5563323203d0b5f8022",
       "score_orchestration.py": "430693d9a145ea9c64816e18864dec1d660b886d464c1032f85d5d12707b22d1",
       "score_orchestration_judge.py": "3c77fd77ee871b563d99a8a197675030f9f5913096e44cbd372fd2f2426cd0f5"
     },
-    "exporter_sha256": "0c3c4fbda637fe7bc722d8ae759193c6d8f6ecb555fa4ba742085b844705d0d2",
+    "exporter_sha256": "1924615070582baa13030b2751507934f0dae7d9e6d0047a3280492a91dc30b0",
     "historical_as_run_corpus": "UNKNOWN",
     "historical_as_run_protocol": "UNKNOWN",
     "historical_o1_evidence_manifest_sha256": "UNKNOWN",
@@ -174,8 +176,8 @@
       "schema": "operant-receipt-lineage-checkpoint.v1",
       "sequence": 0
     },
-    "schema": "operant-public-evidence-binding.v5",
-    "source_bundle_sha256": "13bffc9f6e72b1d23dd377dcdbc08c1f8c599c89a00838954d567d692d66c39a",
+    "schema": "operant-public-evidence-binding.v6",
+    "source_bundle_sha256": "e9eb37fb80de86f8c8f095372cd73fbaf4db4f0bd976b403061fc86159b2bbcf",
     "source_indexes": {
       "operant_index.jsonl": "6d13063af546067b018ab30149b1f28c2c9d78aa61dd58e9e10d717c34739f38",
       "operant_orchestration_judge_index.jsonl": "eb66b62e68472d5abc50a3c505173289a41ef5cdf1087be15ea0c3bd13520d48",

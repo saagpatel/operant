@@ -15,7 +15,6 @@ from .artifacts import (
     receipt_scoring_block_reason,
     stable_hash,
     utc_now,
-    write_json,
 )
 from .inventory import (
     BOUND_NONCONFIRMATORY,
@@ -27,6 +26,14 @@ from .inventory import (
 from .lineage import (
     lineage_checkpoint,
     validate_receipt_lineage,
+)
+from .public_generation import (
+    public_generation_lock,
+    require_supported_public_layout,
+    validate_generation_manifest,
+    write_generation_manifest,
+    write_json_atomic,
+    write_text_atomic,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -197,6 +204,8 @@ def build_evidence_binding(
             ROOT / "operant_lab" / "artifacts.py",
             ROOT / "operant_lab" / "inventory.py",
             ROOT / "operant_lab" / "lineage.py",
+            ROOT / "operant_lab" / "public_contract.py",
+            ROOT / "operant_lab" / "public_generation.py",
         ]
     )
     private_case_overlays = _digest_inventory(
@@ -221,7 +230,7 @@ def build_evidence_binding(
         separators=(",", ":"),
     ).encode("utf-8")
     return {
-        "schema": "operant-public-evidence-binding.v5",
+        "schema": "operant-public-evidence-binding.v6",
         "source_indexes": source_indexes,
         "lab_receipts": lab_receipts,
         "private_case_overlays": private_case_overlays,
@@ -997,7 +1006,7 @@ def _public_readme(
     )
 
 
-def export_public_artifacts(
+def _export_public_artifacts_locked(
     source_results: Path,
     out_dir: Path,
     *,
@@ -1073,6 +1082,7 @@ def export_public_artifacts(
         for run in lab_status["runs"]
     }
     _reject_unmarked_stale_cards(out_dir, set(decision_by_family))
+    require_supported_public_layout(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     model_cards = []
     for family in sorted(decision_by_family):
@@ -1086,7 +1096,7 @@ def export_public_artifacts(
         )
         card["evidence_binding"] = evidence_binding
         card["claim_status"] = _card_claim_status(card)
-        write_json(out_dir / "model-cards" / f"{family}.json", card)
+        write_json_atomic(out_dir / "model-cards" / f"{family}.json", card)
         model_cards.append(card)
 
     calibration = {
@@ -1163,6 +1173,11 @@ def export_public_artifacts(
         "Public lab exports are calibration-profile first. Native-shell results "
         "and raw API results must be labeled separately; local CLI gap runs do "
         "not backfill or merge into Codex App native-shell profiles.\n\n"
+        "The public artifact manifest binds one exact export generation by file "
+        "membership, byte length, and SHA-256. A missing marker, partial write, "
+        "extra file, or cross-generation mixture invalidates the whole public "
+        "directory. This unsigned marker does not prove authorship, publication "
+        "time, external immutability, or resistance to coordinated rewrite.\n\n"
         "`lab-run-status.json` reports public coverage status without prompts "
         "or final answers. It identifies completed and partial experimental "
         "profiles, queued-only cases excluded from scoring, exact smoke runs, "
@@ -1196,9 +1211,9 @@ def export_public_artifacts(
         lab_status=lab_status,
     )
 
-    write_json(out_dir / "benchmark-card.json", benchmark_card)
-    write_json(out_dir / "calibration-profiles.json", calibration)
-    write_json(out_dir / "lab-run-status.json", lab_status)
+    write_json_atomic(out_dir / "benchmark-card.json", benchmark_card)
+    write_json_atomic(out_dir / "calibration-profiles.json", calibration)
+    write_json_atomic(out_dir / "lab-run-status.json", lab_status)
     split_registry = json.loads(
         (ROOT / "lab" / "public" / "evaluation-split-registry.json").read_text(
             encoding="utf-8"
@@ -1217,9 +1232,16 @@ def export_public_artifacts(
         split_registry["private_overlay_digests"] = evidence_binding[
             "private_case_overlays"
         ]
-    write_json(out_dir / "evaluation-split-registry.json", split_registry)
-    (out_dir / "README.md").write_text(public_readme, encoding="utf-8")
-    (out_dir / "methodology.md").write_text(methodology, encoding="utf-8")
+    write_json_atomic(out_dir / "evaluation-split-registry.json", split_registry)
+    write_text_atomic(out_dir / "README.md", public_readme)
+    write_text_atomic(out_dir / "methodology.md", methodology)
+    generation = write_generation_manifest(out_dir)
+    generation_errors = validate_generation_manifest(out_dir)
+    if generation_errors:
+        raise RuntimeError(
+            "public generation did not stabilize: "
+            + "; ".join(generation_errors)
+        )
     return {
         "model_cards": len(model_cards),
         "decision_rows": len(decision_rows),
@@ -1227,4 +1249,22 @@ def export_public_artifacts(
         "lab_status_runs": len(lab_status["runs"]),
         "judge_rows": len(judge_rows),
         "out_dir": str(out_dir),
+        "generation_sha256": generation["generation_sha256"],
     }
+
+
+def export_public_artifacts(
+    source_results: Path,
+    out_dir: Path,
+    *,
+    lab_runs_dir: Path | None = None,
+    lab_labels: set[str] | None = None,
+) -> dict[str, Any]:
+    """Serialize and commit one exact public artifact generation."""
+    with public_generation_lock(out_dir, shared=False, create=True):
+        return _export_public_artifacts_locked(
+            source_results,
+            out_dir,
+            lab_runs_dir=lab_runs_dir,
+            lab_labels=lab_labels,
+        )
