@@ -247,6 +247,7 @@ def aggregate_decision(rows: list[dict[str, Any]]) -> dict[str, Any]:
         by_axis[row.get("axis", "refusal-calibration")].append(row)
     return {
         "n": n,
+        "case_ids": sorted(str(row["case_id"]) for row in rows),
         "decision_accuracy": round(
             sum(1 for r in rows if r.get("decision_accuracy")) / n,
             3,

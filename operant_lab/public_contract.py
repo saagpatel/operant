@@ -6,7 +6,6 @@ import hashlib
 import json
 import re
 import statistics
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -229,10 +228,29 @@ def _validate_decision_summary(
     tpr = summary.get("tpr")
     fpr = summary.get("fpr")
     ocs = summary.get("ocs")
+    n = summary.get("n")
+    accuracy = summary.get("decision_accuracy")
+    case_ids = summary.get("case_ids")
+    if not isinstance(n, int) or isinstance(n, bool) or n <= 0:
+        errors.append(f"model card {label}: decision n must be a positive integer")
+    if (
+        not isinstance(case_ids, list)
+        or any(not isinstance(case_id, str) or not case_id for case_id in case_ids)
+        or len(case_ids) != len(set(case_ids))
+        or len(case_ids) != n
+    ):
+        errors.append(f"model card {label}: decision case_ids do not match n")
     if not all(isinstance(value, (int, float)) for value in (tpr, fpr, ocs)):
         errors.append(f"model card {label}: decision summary lacks numeric TPR/FPR/OCS")
-    elif ocs != round(float(tpr) - float(fpr), 3):
-        errors.append(f"model card {label}: decision OCS does not equal TPR - FPR")
+    else:
+        if not (0.0 <= float(tpr) <= 1.0 and 0.0 <= float(fpr) <= 1.0):
+            errors.append(f"model card {label}: TPR/FPR outside [0, 1]")
+        if not -1.0 <= float(ocs) <= 1.0:
+            errors.append(f"model card {label}: OCS outside [-1, 1]")
+        if ocs != round(float(tpr) - float(fpr), 3):
+            errors.append(f"model card {label}: decision OCS does not equal TPR - FPR")
+    if not isinstance(accuracy, (int, float)) or not 0.0 <= float(accuracy) <= 1.0:
+        errors.append(f"model card {label}: decision accuracy outside [0, 1]")
     axes = summary.get("axis", {})
     if not isinstance(axes, dict):
         errors.append(f"model card {label}: invalid axis summaries")
@@ -287,6 +305,8 @@ def _validate_card_aggregates(card: dict[str, Any], errors: list[str]) -> None:
         if isinstance(summary, dict)
         and isinstance(summary.get("mean_score"), (int, float))
     ]
+    if any(not 0.0 <= value <= 1.0 for value in judge_values):
+        errors.append(f"model card {label}: orchestration repeat mean outside [0, 1]")
     if orchestration.get("mean_score") != _mean(judge_values):
         errors.append(f"model card {label}: orchestration mean aggregate mismatch")
 
@@ -515,20 +535,27 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
             errors.append(
                 "benchmark-card.json: active local profiles lack bound lab receipts"
             )
-        receipt_counts = (
-            Counter(str(key).split("/", 1)[0] for key in lab_receipts)
-            if isinstance(lab_receipts, dict)
-            else Counter()
-        )
-        expected_receipt_counts: dict[str, int] = {}
+        expected_receipt_keys: set[str] = set()
         for family in local_families:
             repeats = active_cards[family].get("decision", {}).get("repeats", {})
             if not isinstance(repeats, dict):
                 continue
             for run_label, summary in repeats.items():
-                if isinstance(summary, dict) and isinstance(summary.get("n"), int):
-                    expected_receipt_counts[str(run_label)] = int(summary["n"])
-        if dict(receipt_counts) != expected_receipt_counts:
+                if not isinstance(summary, dict):
+                    continue
+                case_ids = summary.get("case_ids", [])
+                if isinstance(case_ids, list):
+                    expected_receipt_keys.update(
+                        f"{run_label}/{case_id}.json"
+                        for case_id in case_ids
+                        if isinstance(case_id, str)
+                    )
+        actual_receipt_keys = (
+            set(str(key) for key in lab_receipts)
+            if isinstance(lab_receipts, dict)
+            else set()
+        )
+        if actual_receipt_keys != expected_receipt_keys:
             errors.append(
                 "benchmark-card.json: lab receipt coverage does not match scored repeats"
             )
