@@ -192,7 +192,7 @@ class RunManifestBindingTests(unittest.TestCase):
                 case_bundle_case_count=0,
             )
 
-    def test_written_receipt_carries_v4_execution_contract(self) -> None:
+    def test_written_receipt_carries_v5_execution_contract(self) -> None:
         binding = case_bundle_binding(
             [_case("a", "alpha")],
             case_split="development",
@@ -228,7 +228,7 @@ class RunManifestBindingTests(unittest.TestCase):
                 ),
             )
             written = json.loads(path.read_text(encoding="utf-8"))["manifest"]
-        self.assertEqual(written["manifest_schema"], "operant-run-manifest.v4")
+        self.assertEqual(written["manifest_schema"], "operant-run-manifest.v5")
         self.assertEqual(written["evaluation_role"], "OPEN_DEVELOPMENT")
         self.assertEqual(
             written["case_bundle_sha256"],
@@ -281,7 +281,7 @@ class RunManifestBindingTests(unittest.TestCase):
             self.assertEqual(outcomes.count("created"), 1)
             self.assertEqual(outcomes.count("blocked"), 7)
 
-    def test_app_prepare_serializes_v4_schema_and_pre_dispatch_binding(self) -> None:
+    def test_app_prepare_serializes_v5_schema_and_pre_dispatch_binding(self) -> None:
         import run_codex_app
 
         args = argparse.Namespace(
@@ -325,7 +325,7 @@ class RunManifestBindingTests(unittest.TestCase):
         queued = json.loads(output.getvalue())
         self.assertEqual(
             queued["manifest"]["manifest_schema"],
-            "operant-run-manifest.v4",
+            "operant-run-manifest.v5",
         )
         self.assertEqual(
             queued["manifest"]["execution_binding"]["pre_dispatch_sha256"],
@@ -430,7 +430,7 @@ class RunManifestBindingTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(
                     SystemExit,
-                    "requires the exact v4 --queue-file",
+                    "requires the exact v5 --queue-file",
                 ):
                     run_codex_app.record(args)
 

@@ -166,7 +166,7 @@ def record(args: argparse.Namespace) -> None:
     case = cases[args.case_id]
     prompt = ADAPTER.build_prompt(case, system_prompt, args.axis)
     if args.queue_file is None:
-        sys.exit("record requires the exact v4 --queue-file prepared before dispatch")
+        sys.exit("record requires the exact v5 --queue-file prepared before dispatch")
     source_queue_bytes = args.queue_file.read_bytes()
     queue_payload = json.loads(source_queue_bytes)
     queue_manifest = (queue_payload or {}).get("manifest", {})
@@ -237,10 +237,10 @@ def record(args: argparse.Namespace) -> None:
         else parse_orchestration_plan(answer)
     )
     prepared_binding = queue_manifest.get("execution_binding")
-    if queue_manifest.get("manifest_schema") != "operant-run-manifest.v4":
-        sys.exit("record requires a v4 queue manifest; historical runs are not backfilled")
+    if queue_manifest.get("manifest_schema") != "operant-run-manifest.v5":
+        sys.exit("record requires a v5 queue manifest; historical runs are not backfilled")
     if not isinstance(prepared_binding, dict):
-        sys.exit("v4 queue manifest is missing execution_binding")
+        sys.exit("v5 queue manifest is missing execution_binding")
     binding_errors = validate_execution_binding(prepared_binding)
     if binding_errors:
         sys.exit("invalid queued execution binding: " + "; ".join(binding_errors))
@@ -394,7 +394,7 @@ def main() -> None:
     rec.add_argument(
         "--case-split",
         default="canonical",
-        help="Compatibility argument; the required v4 queue supplies the bound split.",
+        help="Compatibility argument; the required v5 queue supplies the bound split.",
     )
     rec.set_defaults(func=record)
 

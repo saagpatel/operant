@@ -70,13 +70,13 @@
       "operant_templates.json": "6eb70b387f6c9ed01cac191e9bee037e75804396effb203cce1ed652fa8ae301"
     },
     "current_public_protocol": {
-      "artifacts.py": "cfcf8d8b3aeb998e9a370a921ced8442adeaf674c20790fcd731838f55f01c1b",
-      "inventory.py": "29247c45bbba0df0cbad7c02c067ee231edc68a32fb6b02250b635b2faca84c7",
+      "artifacts.py": "07397a279b0f51343ada46db2a74d4d58e1cbd3764a7e87d46f73ce73eea9647",
+      "inventory.py": "5fe8796ef0ec848cd4fefafdfda8a3e6b62ec1f6977b101d89dc822fe322a23e",
       "score_operant.py": "c952f69d36491df18e5dce49db92e18c4b9f87bc7e66b5563323203d0b5f8022",
       "score_orchestration.py": "430693d9a145ea9c64816e18864dec1d660b886d464c1032f85d5d12707b22d1",
       "score_orchestration_judge.py": "3c77fd77ee871b563d99a8a197675030f9f5913096e44cbd372fd2f2426cd0f5"
     },
-    "exporter_sha256": "10a60c45cc9d7414ee91808f68d6cbb5cbbbbd95542b3812b68bf7429f4bb379",
+    "exporter_sha256": "1863d589879c4a6cae188f768d03953fbaf9b599f13e2c005b5f192dcce395bf",
     "historical_as_run_corpus": "UNKNOWN",
     "historical_as_run_protocol": "UNKNOWN",
     "historical_o1_evidence_manifest_sha256": "UNKNOWN",
@@ -168,7 +168,7 @@
     },
     "private_paths_exposed": false,
     "schema": "operant-public-evidence-binding.v4",
-    "source_bundle_sha256": "167049efb92d56e0ccc9376c2575adf543b261f22b1b2ea8c36e2b7b4a7ba629",
+    "source_bundle_sha256": "eaa36042762b2181bf74ec4012388c9d92bab2fa6d7a65fce91cc7f451685fca",
     "source_indexes": {
       "operant_index.jsonl": "6d13063af546067b018ab30149b1f28c2c9d78aa61dd58e9e10d717c34739f38",
       "operant_orchestration_judge_index.jsonl": "eb66b62e68472d5abc50a3c505173289a41ef5cdf1087be15ea0c3bd13520d48",

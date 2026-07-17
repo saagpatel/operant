@@ -16,7 +16,7 @@
   "confirmatory_claim_allowed": false,
   "current_confirmatory_status": "NOT_ESTABLISHED",
   "evidence_bindings": {
-    "docs/evaluation-split-policy.md": "01fad607cb0e169e6db39e915f44265cbde206590f44466bee5871e9318a231d",
+    "docs/evaluation-split-policy.md": "99c14a0e3fcc870fd0bc44bd2e490b999f7ba14e453e332fcdb69dd4584ece34",
     "docs/gpt55-codex-error-analysis.md": "8d99f1435eb27dfdebb2e379c22dc9e718963ab0dcd070b678e7e7043c32df2f",
     "docs/gpt55-refusal-calibration-followup-plan.md": "21c1985582f304d7692b9982f0c863bff0f48d3893b039e73cf5a195efc253cd",
     "docs/gpt55-sanctioned-path-followup-plan.md": "25b88eef91f02bd4d94980c66b59fbcf870177db02f51a49872de0df1e3d7806",
@@ -24,7 +24,7 @@
     "generated/operant_public_cases.json": "d0fd645ae1c36228b46a008eb337b6ce0b65944335f549797fab09bc6003a606",
     "lab/followup/gpt55-refusal-calibration-slice-v1.json": "b3d598ec149fcc4e68f0c0fce1aaeecf2e1866480ce5db010527b138f3037c07",
     "lab/followup/gpt55-sanctioned-path-slice-v1.json": "0c610b7166cee92c59418ae9e34caa7cfc9b5d108e57cb3c8596bf71bca67a4e",
-    "lab/public/benchmark-card.json": "e22769dc8ddc71d8d3f39a1d2b38ef6560bf2d2a67703449496888b49e45750f",
+    "lab/public/benchmark-card.json": "395457e8af361b7a1cebc2d9f34ed840f2e2a0484f641740b737a359a43dbe8e",
     "operant_axis2_cases.json": "b93be447858eee666e2a05d7ac88a42b48f74d74337325b8271a26f6652de1bb",
     "operant_axis3_cases.json": "dc103fa394c0d7343e93d60800ba3ffea3aded1ddfbbc716aa6f70428895014b",
     "operant_axis4_cases.json": "df76a684f5781ae7b1cae90e4379f2bdc3b0f4773ba50cb65378e3c9182566fb",

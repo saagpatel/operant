@@ -149,6 +149,8 @@ def _lab_receipt_digests(
     digests: dict[str, str] = {}
     for path in sorted(lab_runs_dir.glob("*/*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise RuntimeError(f"receipt root is not an object: {path.name}")
         manifest = data.get("manifest", {})
         label = str(manifest.get("run_label") or "")
         case_id = str(manifest.get("case_id") or path.stem)
@@ -339,6 +341,8 @@ def load_lab_decision_rows(
 
     for path in sorted(lab_runs_dir.glob("*/*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise RuntimeError(f"receipt root is not an object: {path.name}")
         manifest = data.get("manifest", {})
         if manifest.get("axis") != "decision":
             continue
@@ -366,6 +370,7 @@ def load_lab_decision_rows(
         if manifest.get("manifest_schema") in {
             "operant-run-manifest.v3",
             "operant-run-manifest.v4",
+            "operant-run-manifest.v5",
         }:
             bound_answer = (
                 manifest.get("execution_binding", {})

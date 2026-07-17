@@ -8,6 +8,7 @@ import math
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -47,7 +48,7 @@ VALID_MODEL_IDENTITY_STATUSES = {
     "MISMATCH",
     "UNKNOWN",
 }
-EXECUTION_BINDING_KEYS = {
+EXECUTION_BINDING_BASE_KEYS = {
     "schema",
     "input_binding",
     "harness",
@@ -59,6 +60,7 @@ EXECUTION_BINDING_KEYS = {
     "pre_dispatch_sha256",
     "completion_sha256",
 }
+EXECUTION_BINDING_V3_KEYS = EXECUTION_BINDING_BASE_KEYS | {"subject_runtime"}
 INPUT_BINDING_KEYS = {
     "delivered_prompt_sha256",
     "logical_system_sha256",
@@ -107,6 +109,7 @@ RUN_MANIFEST_V4_KEYS = {
     "confirmatory_eligible",
 }
 RUN_MANIFEST_V3_KEYS = RUN_MANIFEST_V4_KEYS - {"manifest_core_sha256"}
+RUN_MANIFEST_V5_KEYS = RUN_MANIFEST_V4_KEYS
 
 
 def utc_now() -> str:
@@ -151,7 +154,7 @@ def _git_output(root: Path, *args: str) -> bytes | None:
             capture_output=True,
             check=False,
         )
-    except OSError:
+    except (OSError, RuntimeError, ValueError):
         return None
     return proc.stdout if proc.returncode == 0 else None
 
@@ -250,6 +253,89 @@ def _environment_binding() -> dict[str, Any]:
     return {
         "facts": facts,
         "sha256": _canonical_hash(facts),
+    }
+
+
+def _subject_runtime_binding(
+    command: list[str] | None,
+    *,
+    root: Path,
+) -> dict[str, Any]:
+    version_reason = "NOT_QUERIED_TO_PRESERVE_NO_SIDE_EFFECT_BOUNDARY"
+    if not command or not command[0]:
+        return {
+            "status": "UNKNOWN",
+            "requested_executable_name": "UNKNOWN",
+            "resolved_executable_name": "UNKNOWN",
+            "executable_sha256": "UNKNOWN",
+            "executable_size_bytes": "UNKNOWN",
+            "version": "UNKNOWN",
+            "version_reason": version_reason,
+            "coverage": "UNKNOWN",
+            "reason": "NO_EXECUTABLE_DISPATCH",
+        }
+    requested = Path(command[0]).name or "UNKNOWN"
+    command_path = Path(command[0])
+    if command_path.is_absolute():
+        candidate = command[0]
+    elif os.sep in command[0] or (os.altsep and os.altsep in command[0]):
+        candidate = str(root / command_path)
+    else:
+        candidate = shutil.which(command[0])
+    if not candidate:
+        return {
+            "status": "UNKNOWN",
+            "requested_executable_name": requested,
+            "resolved_executable_name": "UNKNOWN",
+            "executable_sha256": "UNKNOWN",
+            "executable_size_bytes": "UNKNOWN",
+            "version": "UNKNOWN",
+            "version_reason": version_reason,
+            "coverage": "UNKNOWN",
+            "reason": "EXECUTABLE_NOT_FOUND",
+        }
+    try:
+        resolved = Path(candidate).resolve(strict=True)
+        if not resolved.is_file() or not os.access(resolved, os.X_OK):
+            raise OSError("resolved executable is not a regular executable file")
+        before = resolved.stat()
+        digest = _file_sha256(resolved)
+        after = resolved.stat()
+        if (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+        ) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        ):
+            raise OSError("resolved executable changed during capture")
+        size = after.st_size
+    except (OSError, RuntimeError, ValueError):
+        return {
+            "status": "UNKNOWN",
+            "requested_executable_name": requested,
+            "resolved_executable_name": "UNKNOWN",
+            "executable_sha256": "UNKNOWN",
+            "executable_size_bytes": "UNKNOWN",
+            "version": "UNKNOWN",
+            "version_reason": version_reason,
+            "coverage": "UNKNOWN",
+            "reason": "EXECUTABLE_CAPTURE_FAILED",
+        }
+    return {
+        "status": "PRE_DISPATCH_EXECUTABLE_BYTES_BOUND",
+        "requested_executable_name": requested,
+        "resolved_executable_name": resolved.name,
+        "executable_sha256": digest,
+        "executable_size_bytes": size,
+        "version": "UNKNOWN",
+        "version_reason": version_reason,
+        "coverage": "PRE_DISPATCH_CANDIDATE_BYTES_ONLY",
+        "reason": None,
     }
 
 
@@ -366,7 +452,7 @@ def build_execution_binding(
         "dispatch_settings_sha256": _canonical_hash(dispatch_settings),
     }
     binding = {
-        "schema": "operant-execution-binding.v2",
+        "schema": "operant-execution-binding.v3",
         "input_binding": input_binding,
         "harness": {
             "files": sorted(harness),
@@ -375,6 +461,7 @@ def build_execution_binding(
         "dependency_lock": dependency,
         "source_state": _source_state(root),
         "environment": environment,
+        "subject_runtime": _subject_runtime_binding(command, root=root),
         "model_observation": model_observation,
         "replay_class": "INPUT_BOUND_NOT_REPLAYABLE",
         "completion_sha256": "UNKNOWN",
@@ -472,16 +559,22 @@ def execution_input_mismatches(
     ]
 
 
-def validate_execution_binding(binding: dict[str, Any]) -> list[str]:
+def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
     errors = []
-    if set(binding) != EXECUTION_BINDING_KEYS:
-        errors.append("execution binding fields are not exact")
     binding_schema = binding.get("schema")
     if binding_schema not in {
         "operant-execution-binding.v1",
         "operant-execution-binding.v2",
+        "operant-execution-binding.v3",
     }:
         errors.append("unsupported execution binding schema")
+    expected_keys = (
+        EXECUTION_BINDING_V3_KEYS
+        if binding_schema == "operant-execution-binding.v3"
+        else EXECUTION_BINDING_BASE_KEYS
+    )
+    if set(binding) != expected_keys:
+        errors.append("execution binding fields are not exact")
     input_binding = binding.get("input_binding")
     if not isinstance(input_binding, dict):
         errors.append("input binding is missing")
@@ -567,7 +660,10 @@ def validate_execution_binding(binding: dict[str, Any]) -> list[str]:
             "dirty",
             "dirty_state_sha256",
         }
-        if binding_schema == "operant-execution-binding.v2":
+        if binding_schema in {
+            "operant-execution-binding.v2",
+            "operant-execution-binding.v3",
+        }:
             expected_source_fields.add("reconstruction")
         if set(source) != expected_source_fields:
             errors.append("source state fields are not exact")
@@ -615,7 +711,10 @@ def validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         errors.append("environment fact fields are not exact")
     elif environment.get("sha256") != _try_canonical_hash(environment["facts"]):
         errors.append("environment digest mismatch")
-    elif binding_schema == "operant-execution-binding.v2":
+    elif binding_schema in {
+        "operant-execution-binding.v2",
+        "operant-execution-binding.v3",
+    }:
         facts = environment["facts"]
         for name in ENVIRONMENT_FACT_KEYS - {"cpu_count"}:
             if not isinstance(facts.get(name), str) or not facts[name].strip():
@@ -627,6 +726,71 @@ def validate_execution_binding(binding: dict[str, Any]) -> list[str]:
             or cpu_count < 1
         ):
             errors.append("environment cpu_count must be positive or UNKNOWN")
+
+    if binding_schema == "operant-execution-binding.v3":
+        runtime = binding.get("subject_runtime")
+        runtime_fields = {
+            "status",
+            "requested_executable_name",
+            "resolved_executable_name",
+            "executable_sha256",
+            "executable_size_bytes",
+            "version",
+            "version_reason",
+            "coverage",
+            "reason",
+        }
+        if not isinstance(runtime, dict) or set(runtime) != runtime_fields:
+            errors.append("subject runtime binding is incomplete")
+        else:
+            status = runtime.get("status")
+            requested_name = runtime.get("requested_executable_name")
+            if (
+                not isinstance(requested_name, str)
+                or not requested_name
+                or Path(requested_name).name != requested_name
+            ):
+                errors.append("subject runtime requested name is invalid")
+            if (
+                runtime.get("version") != "UNKNOWN"
+                or runtime.get("version_reason")
+                != "NOT_QUERIED_TO_PRESERVE_NO_SIDE_EFFECT_BOUNDARY"
+            ):
+                errors.append("subject runtime version evidence is overstated")
+            if status == "PRE_DISPATCH_EXECUTABLE_BYTES_BOUND":
+                resolved_name = runtime.get("resolved_executable_name")
+                size = runtime.get("executable_size_bytes")
+                if (
+                    not isinstance(resolved_name, str)
+                    or not resolved_name
+                    or Path(resolved_name).name != resolved_name
+                    or not SHA256_RE.fullmatch(
+                        str(runtime.get("executable_sha256") or "")
+                    )
+                    or not isinstance(size, int)
+                    or isinstance(size, bool)
+                    or size < 0
+                    or runtime.get("coverage")
+                    != "PRE_DISPATCH_CANDIDATE_BYTES_ONLY"
+                    or runtime.get("reason") is not None
+                ):
+                    errors.append("subject runtime byte binding is inconsistent")
+            elif status == "UNKNOWN":
+                if (
+                    runtime.get("resolved_executable_name") != "UNKNOWN"
+                    or runtime.get("executable_sha256") != "UNKNOWN"
+                    or runtime.get("executable_size_bytes") != "UNKNOWN"
+                    or runtime.get("coverage") != "UNKNOWN"
+                    or runtime.get("reason")
+                    not in {
+                        "NO_EXECUTABLE_DISPATCH",
+                        "EXECUTABLE_NOT_FOUND",
+                        "EXECUTABLE_CAPTURE_FAILED",
+                    }
+                ):
+                    errors.append("unknown subject runtime carries evidence")
+            else:
+                errors.append("subject runtime status is invalid")
 
     observation = binding.get("model_observation")
     if not isinstance(observation, dict):
@@ -723,7 +887,15 @@ def validate_execution_binding(binding: dict[str, Any]) -> list[str]:
     return errors
 
 
-def validate_run_manifest_v3(manifest: dict[str, Any]) -> list[str]:
+def validate_execution_binding(binding: Any) -> list[str]:
+    """Return validation errors for every JSON value; never raise on shape."""
+    try:
+        return _validate_execution_binding(binding)
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return ["execution binding contains invalid JSON types"]
+
+
+def _validate_run_manifest_v3(manifest: dict[str, Any]) -> list[str]:
     """Validate the historical v3 shape without silently upgrading it."""
     errors: list[str] = []
     if set(manifest) != RUN_MANIFEST_V3_KEYS:
@@ -755,12 +927,17 @@ def validate_run_manifest_v3(manifest: dict[str, Any]) -> list[str]:
     return errors
 
 
-def validate_run_manifest_v4(manifest: dict[str, Any]) -> list[str]:
-    """Validate persisted v4 metadata without relying on constructor history."""
+def _validate_run_manifest_current(
+    manifest: dict[str, Any],
+    *,
+    manifest_schema: str,
+    binding_schema: str,
+) -> list[str]:
+    """Validate a core-digested manifest without constructor history."""
     errors: list[str] = []
-    if set(manifest) != RUN_MANIFEST_V4_KEYS:
+    if set(manifest) != RUN_MANIFEST_V5_KEYS:
         errors.append("manifest fields are not exact")
-    if manifest.get("manifest_schema") != "operant-run-manifest.v4":
+    if manifest.get("manifest_schema") != manifest_schema:
         errors.append("unsupported manifest schema")
     for field_name in (
         "run_label",
@@ -780,7 +957,7 @@ def validate_run_manifest_v4(manifest: dict[str, Any]) -> list[str]:
     if manifest.get("evaluation_role") not in VALID_EVALUATION_ROLES:
         errors.append("evaluation role is invalid")
     if manifest.get("confirmatory_eligible") is not False:
-        errors.append("v4 manifest cannot claim confirmatory eligibility")
+        errors.append("core-digested manifest cannot claim confirmatory eligibility")
     expected_core = _try_canonical_hash(
         {
             key: value
@@ -862,8 +1039,10 @@ def validate_run_manifest_v4(manifest: dict[str, Any]) -> list[str]:
     if binding_errors:
         errors.extend(f"execution binding: {error}" for error in binding_errors)
         return errors
-    if binding.get("schema") != "operant-execution-binding.v2":
-        errors.append("v4 manifest requires execution binding v2")
+    if binding.get("schema") != binding_schema:
+        errors.append(
+            f"{manifest_schema} requires {binding_schema}"
+        )
     requested_model = binding["model_observation"]["requested_model_id"]
     if manifest.get("model_id") != requested_model:
         errors.append("model_id does not match requested model binding")
@@ -875,6 +1054,38 @@ def validate_run_manifest_v4(manifest: dict[str, Any]) -> list[str]:
     ]:
         errors.append("tool_policy does not match execution binding")
     return errors
+
+
+def validate_run_manifest_v3(manifest: Any) -> list[str]:
+    """Return historical-v3 validation errors for every JSON value."""
+    try:
+        return _validate_run_manifest_v3(manifest)
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return ["v3 manifest contains invalid JSON types"]
+
+
+def validate_run_manifest_v4(manifest: Any) -> list[str]:
+    """Return v4 validation errors for every JSON value."""
+    try:
+        return _validate_run_manifest_current(
+            manifest,
+            manifest_schema="operant-run-manifest.v4",
+            binding_schema="operant-execution-binding.v2",
+        )
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return ["v4 manifest contains invalid JSON types"]
+
+
+def validate_run_manifest_v5(manifest: Any) -> list[str]:
+    """Return v5 validation errors for every JSON value."""
+    try:
+        return _validate_run_manifest_current(
+            manifest,
+            manifest_schema="operant-run-manifest.v5",
+            binding_schema="operant-execution-binding.v3",
+        )
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return ["v5 manifest contains invalid JSON types"]
 
 
 def case_bundle_binding(
@@ -955,7 +1166,7 @@ class RunManifest:
     thread_container: str | None = None
     cost_usd: float | None = None
     manifest_core_sha256: str = field(default="UNKNOWN", init=False)
-    manifest_schema: str = field(default="operant-run-manifest.v4", init=False)
+    manifest_schema: str = field(default="operant-run-manifest.v5", init=False)
     confirmatory_eligible: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
@@ -965,7 +1176,7 @@ class RunManifest:
             or not math.isfinite(self.cost_usd)
             or self.cost_usd < 0
         ):
-            raise ValueError("invalid v4 run manifest: cost_usd is invalid")
+            raise ValueError("invalid v5 run manifest: cost_usd is invalid")
         manifest = asdict(self)
         self.manifest_core_sha256 = _canonical_hash(
             {
@@ -974,9 +1185,9 @@ class RunManifest:
                 if key != "manifest_core_sha256"
             }
         )
-        errors = validate_run_manifest_v4(asdict(self))
+        errors = validate_run_manifest_v5(asdict(self))
         if errors:
-            raise ValueError("invalid v4 run manifest: " + "; ".join(errors))
+            raise ValueError("invalid v5 run manifest: " + "; ".join(errors))
 
 
 @dataclass
@@ -1023,7 +1234,7 @@ class RunReport:
             raise ValueError("final answer does not match completed execution binding")
 
 
-def scoring_block_reason(manifest: dict[str, Any]) -> str | None:
+def _scoring_block_reason(manifest: dict[str, Any]) -> str | None:
     schema = manifest.get("manifest_schema")
     if schema in {None, "operant-run-manifest.v1", "operant-run-manifest.v2"}:
         if "execution_binding" in manifest:
@@ -1034,6 +1245,9 @@ def scoring_block_reason(manifest: dict[str, Any]) -> str | None:
             return "invalid_execution_binding"
     elif schema == "operant-run-manifest.v4":
         if validate_run_manifest_v4(manifest):
+            return "invalid_execution_binding"
+    elif schema == "operant-run-manifest.v5":
+        if validate_run_manifest_v5(manifest):
             return "invalid_execution_binding"
     else:
         return "invalid_execution_binding"
@@ -1051,6 +1265,14 @@ def scoring_block_reason(manifest: dict[str, Any]) -> str | None:
     return None
 
 
+def scoring_block_reason(manifest: Any) -> str | None:
+    """Return a conservative score gate for every JSON value."""
+    try:
+        return _scoring_block_reason(manifest)
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return "invalid_execution_binding"
+
+
 def receipt_scoring_block_reason(
     root: Path,
     *,
@@ -1065,6 +1287,8 @@ def receipt_scoring_block_reason(
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return "invalid_execution_binding"
+    if not isinstance(data, dict):
+        return "invalid_execution_binding"
     manifest = data.get("manifest")
     if not isinstance(manifest, dict):
         return "invalid_execution_binding"
@@ -1076,6 +1300,7 @@ def receipt_scoring_block_reason(
     if manifest.get("manifest_schema") in {
         "operant-run-manifest.v3",
         "operant-run-manifest.v4",
+        "operant-run-manifest.v5",
     }:
         bound_answer = (
             manifest.get("execution_binding", {})
@@ -1112,12 +1337,15 @@ def receipt_output_scoring_block_reason(
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return "invalid_execution_binding"
+    if not isinstance(data, dict):
+        return "invalid_execution_binding"
     if data.get("final_answer") != final_answer:
         return "receipt_output_mismatch"
     manifest = data.get("manifest", {})
     if manifest.get("manifest_schema") in {
         "operant-run-manifest.v3",
         "operant-run-manifest.v4",
+        "operant-run-manifest.v5",
     }:
         bound_answer = (
             manifest.get("execution_binding", {})
