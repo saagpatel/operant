@@ -519,7 +519,7 @@ def run_lab_layer_selftests() -> None:
             binding = calibration.get("evidence_binding", {})
             check(
                 "LAB export: binds source indexes without private paths",
-                binding.get("schema") == "operant-public-evidence-binding.v1"
+                binding.get("schema") == "operant-public-evidence-binding.v2"
                 and binding.get("private_paths_exposed") is False
                 and all(
                     value != "UNKNOWN"
@@ -528,9 +528,32 @@ def run_lab_layer_selftests() -> None:
                 str(binding),
             )
             check(
+                "LAB export: marks historical model claims not durable",
+                calibration.get("claim_status", {})
+                .get("historical_reference_profiles", {})
+                .get("cross_model_ranking")
+                == "NOT_DURABLE",
+                str(calibration.get("claim_status")),
+            )
+            check(
                 "LAB public contract: historical export passes",
                 validate_public_artifacts(out_dir) == [],
             )
+            stale_path = out_dir / "model-cards" / "stale-profile.json"
+            stale_path.write_text(
+                json.dumps({"run_family": "stale-profile"}) + "\n",
+                encoding="utf-8",
+            )
+            try:
+                export_public_artifacts(source, out_dir)
+                check("LAB export: rejects unmarked stale model card", False)
+            except RuntimeError as exc:
+                check(
+                    "LAB export: rejects unmarked stale model card",
+                    "orphaned_public_artifact" in str(exc),
+                    str(exc),
+                )
+            stale_path.unlink()
             label = "synthetic-export-r1"
             runs_dir = _write_synthetic_export_lab(Path(tmp) / "lab", label)
             out_tmp = Path(tmp) / "out-with-lab"
@@ -539,6 +562,14 @@ def run_lab_layer_selftests() -> None:
                 out_tmp,
                 lab_runs_dir=runs_dir,
                 lab_labels={label},
+            )
+            bound_lab = json.loads(
+                (out_tmp / "benchmark-card.json").read_text(encoding="utf-8")
+            )["evidence_binding"]["lab_receipts"]
+            check(
+                "LAB export: binds selected local receipt bytes",
+                len(bound_lab) == 1 and all(len(value) == 64 for value in bound_lab.values()),
+                str(bound_lab),
             )
             status = json.loads(
                 (out_tmp / "lab-run-status.json").read_text(encoding="utf-8")

@@ -107,7 +107,16 @@
     "opus_judge": {},
     "sonnet_judge": {}
   },
-  "presentation": "calibration_profile",
+  "presentation": "orphaned_historical_artifact_not_active_profile",
+  "claim_status": {
+    "evidence_class": "orphaned_public_artifact",
+    "score_recalculation_from_bound_bytes": "UNKNOWN",
+    "source_receipt_byte_binding": "UNKNOWN",
+    "served_model_identity": "UNKNOWN",
+    "independent_replication": "UNKNOWN",
+    "cross_profile_ranking": "NOT_DURABLE"
+  },
+  "orphan_reason": "No matching current source receipt is available for this previously published run family. The available local Fable batch is a different run family and corpus. Preserved as inactive research history; do not use for comparison.",
   "protocol": {
     "axes": "decision only",
     "case_delivery": "single-session batch delivery",

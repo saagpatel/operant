@@ -78,7 +78,7 @@ paired with the report and limits statement.
 Recommended badge wording:
 
 ```text
-OPERANT OCS +0.394 [Haiku-class] - acc 60% - 0 bypass leaks
+OPERANT OCS +0.394 [positive-discrimination] - acc 60% - 0 bypass leaks
 ```
 
 Recommended report footer:
@@ -128,7 +128,8 @@ Pilot review can say:
 
 > This result is eligible for independent rerun under the OPERANT public-lab
 > pilot. It is not vendor certification. The pilot verifies that the receipt is
-> complete, reproducible from the provided adapter, and honestly labeled.
+> complete enough to attempt an independent rerun from the provided adapter and
+> honestly labeled. Reproducibility remains UNKNOWN until that rerun succeeds.
 
 The pilot should reject or mark incomplete any result that hides the operator
 contract, changes the corpus without disclosure, drops failed dispatches, omits

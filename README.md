@@ -2,7 +2,14 @@
 
 [![CI](https://github.com/saagpatel/operant/actions/workflows/ci.yml/badge.svg)](https://github.com/saagpatel/operant/actions/workflows/ci.yml)
 
-*An open benchmark for whether an LLM agent makes correct operating decisions. Results below are from the 2026-06-18 headline run (Claude Haiku 4.5, Sonnet 4.6, Opus 4.8).*
+*An open benchmark for whether an LLM agent makes correct operating decisions.*
+
+> **Research-integrity status (2026-07-17):** the 2026-06-18 named-model rows below
+> are historical calculation views, not durable model-performance claims. Their
+> imported bytes are hash-bound, but the receipts predate append-only attempt
+> manifests; dispatch freshness and served-model identity are **UNKNOWN**. Model
+> ordering, significance, and model-equivalence claims require fresh identity-bound
+> replication. The bundled scorer and corpus remain usable for new experiments.
 
 ---
 
@@ -20,7 +27,7 @@ python3 score_my_agent.py --adapter examples/heuristic_agent.py:respond \
 It scores all 40 decision cases and writes a shareable OCS report card (plus an SVG badge) to `results/self-serve/`:
 
 ```
-OPERANT OCS +0.394 [Haiku-class] · acc 60% · 0 bypass leaks
+OPERANT OCS +0.394 [positive-discrimination] · acc 60% · 0 bypass leaks
 
 | Axis                | OCS    | Accuracy | Cases |
 |---------------------|-------:|---------:|------:|
@@ -30,7 +37,7 @@ OPERANT OCS +0.394 [Haiku-class] · acc 60% · 0 bypass leaks
 | all decision        | +0.394 |    60%   |   40  |
 ```
 
-That `+0.394` is the bundled heuristic baseline, not a frontier model — it is there so the harness runs end-to-end with zero setup. To score *your* agent (a Python callable, any CLI, or an HTTP endpoint) and get a comparable row, see [Score your own agent](#score-your-own-agent-self-serve). For the published model results, jump to [Results](#results).
+That `+0.394` is the bundled heuristic baseline, not a frontier model — it is there so the harness runs end-to-end with zero setup. To score *your* agent (a Python callable, any CLI, or an HTTP endpoint) and get a protocol-bound receipt, see [Score your own agent](#score-your-own-agent-self-serve). Historical model calculations are retained in [Results](#results) with the evidence boundary above.
 
 ## Benchmark Design
 
@@ -59,6 +66,9 @@ All cases are synthetic — grounded in a documented harness threat-model (11 ho
 ---
 
 ## Results
+
+The following numbers are retained as historical calculations over imported bytes.
+They do not currently support durable named-model attribution, ranking, or significance.
 
 **Headline run:** Haiku ×1, Sonnet ×5, Opus ×5 — **539 total dispatches, 0 rate-limited, 0 unparseable.** Models: `claude-haiku-4-5-20251001`, `claude-sonnet-4-6`, `claude-opus-4-8`.
 
@@ -92,7 +102,7 @@ The Sonnet-vs-Opus gap (0.012) is within judge noise; the two are peers on orche
 
 ---
 
-## Reproduce
+## Run a new experiment
 
 Requirements: Python 3 (standard library only for scoring; `claude` CLI on PATH for dispatch). Set `ANTHROPIC_API_KEY`. No package install beyond the `claude` CLI.
 
@@ -103,7 +113,7 @@ python3 selftest.py                  # must print: ALL SELFTESTS PASSED
 # 2. Wiring check — dry run, no model calls
 python3 run_suite.py --model claude-sonnet-4-6 --label sonnet --dry-run
 
-# 3. Full headline run (one command per model)
+# 3. New dispatches (costly; these do not reproduce the historical served models)
 python3 run_suite.py --model claude-haiku-4-5-20251001 --label haiku --judge
 python3 run_suite.py --model claude-sonnet-4-6 --label sonnet --repeats 5 --judge
 python3 run_suite.py --model claude-opus-4-8   --label opus   --repeats 5 --judge
@@ -123,10 +133,11 @@ python3 score_orchestration_judge.py --validate
 
 ## Score your own agent (self-serve)
 
-OPERANT ships a bring-your-own-agent runner: point it at any agent and get a comparable
+OPERANT ships a bring-your-own-agent runner: point it at any agent and get a protocol-bound
 OCS score plus a shareable report card. The scoring core is model-agnostic — it reads
-your agent's answer text and reuses the exact scorers that produced the reference Claude
-numbers above. The only thing you supply is how a prompt becomes your agent's answer.
+your agent's answer text and scores those captured bytes deterministically. The only
+thing you supply is how a prompt becomes your agent's answer; served-model identity and
+independent replication remain outside the receipt.
 
 ### Flagship sample: a comparable cross-provider row
 
@@ -139,13 +150,11 @@ canonical 40 decision cases, embedded delivery, decision-only, n=1, read-only):
 | Claude Sonnet 4.6 | **+0.864** | 92.5% | 1.000 | 0.136 | 0 |
 | GPT-5.5 (via Codex CLI) | **+0.843** | 90.0% | 0.889 | 0.045 | 0 |
 
-Both land Opus-class. The 0.021 gap is within single-run noise (a tie); the real signal
-is the error profile. Sonnet is high-recall (caught every guarded case, slightly
-trigger-happy on benign twins); GPT-5.5 is high-precision (almost no false alarms, missed
-2 genuine withholds). Neither leaked a hard-deny action. Full table, error-profile read,
-and exact reproduce commands: [`docs/self-serve-flagship.md`](docs/self-serve-flagship.md).
-These rows are comparable only to each other, **not** to the system-prompt, 5-repeat
-headline numbers above.
+Both receipts have positive OCS, but the 0.021 gap is within single-run noise and does
+not support a ranking. The stored rows are self-reported and their served-model identity
+is **UNKNOWN** absent provider-bound receipts. Full table and protocol:
+[`docs/self-serve-flagship.md`](docs/self-serve-flagship.md). These rows must not be
+treated as equivalent to the historical named-model calculations above.
 
 ```bash
 # 0. Try it now on the bundled demo agent — zero setup, zero model spend (decision axis only)
@@ -167,7 +176,7 @@ python3 score_my_agent.py --endpoint https://my-agent/run \
 It writes, under `results/self-serve/`:
 
 - `<label>-ocs-report.md` — a shareable OCS report card (score, per-axis OCS, confusion
-  matrix, comparison vs the published Claude reference bands, bypass + parse failures).
+  matrix, comparison boundary, bypass + parse failures).
 - `<label>-ocs-summary.json` — the machine-readable summary.
 - `operant-ocs-badge.svg` + `operant-ocs-badge.md` — a self-contained badge and a
   pasteable markdown/text snippet.
@@ -393,5 +402,5 @@ Reviewer states are:
 - **Small n.** 5 independent repeats per model. The permutation p-value is exact and assumption-free, but n=5 is small; bootstrap CIs are wide and reported with their n. Haiku has a single draw.
 - **Three models, one provider.** Covers three Claude tiers only. `claude-fable-5` was excluded because headless dispatch wasn't accessible at run time — an access artifact, not a design choice. No other providers.
 - **Single-operator authorship.** All cases authored by one person, grounded in one harness's threat model. Surface-twin and contamination-proofing mechanisms partially compensate; independent case authorship would strengthen it.
-- **Orchestration axis saturation.** The keyword scorer saturates and is unfit for ranking; the LLM-judge separates Haiku clearly but Sonnet/Opus are within judge-noise on axis 3. The decision-axis OCS cleanly separates all three.
+- **Orchestration axis saturation.** The keyword scorer saturates and is unfit for ranking. Historical judge calculations remain available, but named-model comparisons are not durable without fresh identity-bound replication.
 - **Operator-contract dependency.** The runner loads the operator contract from `~/.claude/CLAUDE.md` at runtime, falling back to a minimal inline contract if absent. Fresh checkouts use the fallback; results may differ from the headline run, which used a full personal operator contract.

@@ -1,7 +1,15 @@
 # OPERANT — Headline Multi-Model Run (Results)
 
+> **Historical evidence boundary (2026-07-17):** this is an as-run methodology log
+> over hash-bound imported bytes. The receipts predate append-only attempt manifests,
+> so dispatch freshness and served-model identity are **UNKNOWN**. Numerical
+> recalculation is supported; named-model attribution, ordering, significance, judge
+> bias magnitude, and independent reproducibility are not currently durable claims.
+> Commands in this document start new experiments; they do not reproduce the
+> historical served models.
+>
 > **New here? Start with [`README.md`](README.md)** — the front door (what OPERANT
-> is, the headline findings, the two lessons, one-button reproduction). This file
+> is, the historical findings, the two lessons, new-run instructions). This file
 > is the dense methodology *log*: the as-run numbers and the full keyword-vs-judge
 > story, in the order it actually unfolded.
 >

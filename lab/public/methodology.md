@@ -4,6 +4,10 @@ OPERANT measures operating-decision calibration rather than patch success. Match
 
 The decision-axis headline metric is OCS: `TPR - FPR` over the binary signal `withheld direct execution`. TPR counts warranted withholding on guarded cases; FPR counts over-withholding on benign-open twins. Exact decision accuracy is reported separately because label precision still matters, but OCS is the headline calibration read.
 
+## Evidence Boundary
+
+Exported hashes support byte integrity and deterministic recalculation from imported score rows. Historical reference receipts predate append-only attempt manifests, leaving dispatch freshness and served-model identity UNKNOWN. Local native-shell receipts are self-reported. The export therefore does not support durable cross-model rankings, model-equivalence, independent replication, deployment safety, or certification. Those comparison claims are not durable.
+
 Public lab exports are calibration-profile first. Native-shell results and raw API results must be labeled separately; local CLI gap runs do not backfill or merge into Codex App native-shell profiles.
 
 `lab-run-status.json` reports public coverage status without prompts or final answers. It identifies completed and partial experimental profiles, queued-only cases excluded from scoring, exact smoke runs, and local gap profiles under their own subject shell.

@@ -38,6 +38,34 @@ FORBIDDEN_PUBLIC_TEXT_PATTERNS = {
     ),
 }
 
+REQUIRED_HISTORICAL_CLAIM_STATUS = {
+    "evidence_class": "historical_unverified_receipt",
+    "score_recalculation_from_bound_bytes": "SUPPORTED",
+    "dispatch_freshness": "UNKNOWN",
+    "served_model_identity": "UNKNOWN",
+    "independent_replication": "UNKNOWN",
+    "cross_model_ranking": "NOT_DURABLE",
+    "inferential_statistics_as_model_evidence": "NOT_DURABLE",
+}
+
+REQUIRED_LOCAL_CLAIM_STATUS = {
+    "evidence_class": "self_reported_local_receipt",
+    "score_recalculation_from_bound_bytes": "SUPPORTED",
+    "source_receipt_byte_binding": "SUPPORTED",
+    "served_model_identity": "UNKNOWN",
+    "independent_replication": "UNKNOWN",
+    "cross_profile_ranking": "NOT_DURABLE",
+}
+
+REQUIRED_ORPHANED_CLAIM_STATUS = {
+    "evidence_class": "orphaned_public_artifact",
+    "score_recalculation_from_bound_bytes": "UNKNOWN",
+    "source_receipt_byte_binding": "UNKNOWN",
+    "served_model_identity": "UNKNOWN",
+    "independent_replication": "UNKNOWN",
+    "cross_profile_ranking": "NOT_DURABLE",
+}
+
 
 def _read_json(path: Path, errors: list[str]) -> Any:
     try:
@@ -122,10 +150,19 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
         binding = benchmark.get("evidence_binding")
         if not isinstance(binding, dict):
             errors.append("benchmark-card.json: missing evidence_binding")
-        elif binding.get("schema") != "operant-public-evidence-binding.v1":
+        elif binding.get("schema") != "operant-public-evidence-binding.v2":
             errors.append("benchmark-card.json: unsupported evidence_binding schema")
         elif binding.get("private_paths_exposed") is not False:
             errors.append("benchmark-card.json: evidence binding exposes private paths")
+        elif not isinstance(binding.get("lab_receipts"), dict):
+            errors.append("benchmark-card.json: missing bound lab receipts")
+        claim_status = benchmark.get("claim_status")
+        if not isinstance(claim_status, dict):
+            errors.append("benchmark-card.json: missing claim_status")
+        elif claim_status.get("historical_model_performance") != "NOT_DURABLE":
+            errors.append("benchmark-card.json: historical model claims must be NOT_DURABLE")
+        if not isinstance(benchmark.get("claims_at_risk"), list):
+            errors.append("benchmark-card.json: missing claims_at_risk")
 
     if isinstance(calibration, dict):
         models = calibration.get("models")
@@ -135,6 +172,17 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
             benchmark.get("evidence_binding") if isinstance(benchmark, dict) else None
         ):
             errors.append("calibration-profiles.json: evidence binding mismatch")
+        if calibration.get("presentation") != "calibration_profiles_not_flat_leaderboard":
+            errors.append("calibration-profiles.json: unsafe presentation mode")
+        if not isinstance(calibration.get("claims_at_risk"), list):
+            errors.append("calibration-profiles.json: missing claims_at_risk")
+        listed_families = {
+            model.get("run_family")
+            for model in models
+            if isinstance(model, dict)
+        } if isinstance(models, list) else set()
+    else:
+        listed_families = set()
 
     if isinstance(lab_status, dict):
         runs = lab_status.get("runs")
@@ -156,6 +204,14 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
                     if field not in run:
                         label = run.get("run_label", "<unknown>")
                         errors.append(f"lab-run-status.json: {label} missing {field}")
+                if (
+                    int(run.get("recorded_cases", 0) or 0) == 0
+                    and int(run.get("total_queued_cases", 0) or 0) == 0
+                ):
+                    label = run.get("run_label", "<unknown>")
+                    errors.append(
+                        f"lab-run-status.json: {label} has no bound recorded or queued cases"
+                    )
             app_runs = [r for r in runs if r.get("subject_shell") == "codex-app"]
             cli_runs = [r for r in runs if r.get("subject_shell") == "codex-cli"]
             if app_runs and cli_runs:
@@ -180,5 +236,56 @@ def validate_public_artifacts(public_dir: Path) -> list[str]:
             if field not in card:
                 label = card.get("run_family", "<unknown>")
                 errors.append(f"model card {label}: missing {field}")
+        is_orphaned = card.get("run_family") not in listed_families
+        expected_status = (
+            REQUIRED_ORPHANED_CLAIM_STATUS
+            if is_orphaned
+            else (
+                REQUIRED_LOCAL_CLAIM_STATUS
+                if card.get("data_source") == "local_lab_runs"
+                else REQUIRED_HISTORICAL_CLAIM_STATUS
+            )
+        )
+        if card.get("claim_status") != expected_status:
+            label = card.get("run_family", "<unknown>")
+            errors.append(f"model card {label}: unsafe or missing claim_status")
+        expected_presentation = (
+            "orphaned_historical_artifact_not_active_profile"
+            if is_orphaned
+            else (
+                "self_reported_local_receipt"
+                if card.get("data_source") == "local_lab_runs"
+                else "historical_calculation_profile_not_model_leaderboard"
+            )
+        )
+        if card.get("presentation") != expected_presentation:
+            label = card.get("run_family", "<unknown>")
+            errors.append(f"model card {label}: unsafe presentation mode")
+        if not is_orphaned and card.get("evidence_binding") != (
+            benchmark.get("evidence_binding") if isinstance(benchmark, dict) else None
+        ):
+            label = card.get("run_family", "<unknown>")
+            errors.append(f"model card {label}: evidence binding mismatch")
+        if (
+            not is_orphaned
+            and card.get("data_source") == "local_lab_runs"
+            and isinstance(lab_status, dict)
+            and card.get("run_family")
+            not in {
+                run.get("run_family")
+                for run in lab_status.get("runs", [])
+                if isinstance(run, dict)
+            }
+        ):
+            label = card.get("run_family", "<unknown>")
+            errors.append(f"model card {label}: missing lab run status")
+
+    for name in ("README.md", "methodology.md"):
+        path = public_dir / name
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "UNKNOWN" not in text or "not durable" not in text.lower():
+            errors.append(f"{name}: missing fail-closed historical evidence boundary")
 
     return errors

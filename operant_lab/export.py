@@ -57,6 +57,40 @@ MODEL_CARD_CAVEATS = {
     ],
 }
 
+PUBLIC_CLAIM_BOUNDARY = (
+    "Hashes bind exported calculations to imported bytes. Historical reference "
+    "receipts predate append-only attempt manifests, so dispatch freshness and "
+    "served-model identity remain UNKNOWN. Local lab receipts are self-reported. "
+    "Neither source supports durable cross-model ranking, model-equivalence, "
+    "deployment-safety, or certification claims."
+)
+
+HISTORICAL_CLAIM_STATUS = {
+    "evidence_class": "historical_unverified_receipt",
+    "score_recalculation_from_bound_bytes": "SUPPORTED",
+    "dispatch_freshness": "UNKNOWN",
+    "served_model_identity": "UNKNOWN",
+    "independent_replication": "UNKNOWN",
+    "cross_model_ranking": "NOT_DURABLE",
+    "inferential_statistics_as_model_evidence": "NOT_DURABLE",
+}
+
+LOCAL_LAB_CLAIM_STATUS = {
+    "evidence_class": "self_reported_local_receipt",
+    "score_recalculation_from_bound_bytes": "SUPPORTED",
+    "source_receipt_byte_binding": "SUPPORTED",
+    "served_model_identity": "UNKNOWN",
+    "independent_replication": "UNKNOWN",
+    "cross_profile_ranking": "NOT_DURABLE",
+}
+
+CLAIMS_AT_RISK = [
+    "Named-model ordering or significance derived from historical reference receipts",
+    "Equivalence of a self-service OCS result to any named model",
+    "Served-model identity for historical or local native-shell receipts",
+    "Deployment safety, certification, or production readiness inferred from OCS",
+]
+
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
@@ -83,7 +117,30 @@ def _digest_inventory(paths: list[Path]) -> dict[str, str]:
     }
 
 
-def build_evidence_binding(source_results: Path) -> dict[str, Any]:
+def _lab_receipt_digests(
+    lab_runs_dir: Path | None,
+    lab_labels: set[str] | None,
+) -> dict[str, str]:
+    if lab_runs_dir is None or not lab_runs_dir.exists():
+        return {}
+    digests: dict[str, str] = {}
+    for path in sorted(lab_runs_dir.glob("*/*.json")):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        manifest = data.get("manifest", {})
+        label = str(manifest.get("run_label") or "")
+        case_id = str(manifest.get("case_id") or path.stem)
+        if not label or (lab_labels and label not in lab_labels):
+            continue
+        digests[f"{label}/{case_id}.json"] = _sha256(path)
+    return digests
+
+
+def build_evidence_binding(
+    source_results: Path,
+    *,
+    lab_runs_dir: Path | None = None,
+    lab_labels: set[str] | None = None,
+) -> dict[str, Any]:
     """Bind public summaries to private bytes without exposing private paths."""
     source_indexes = _digest_inventory(
         [
@@ -108,15 +165,22 @@ def build_evidence_binding(source_results: Path) -> dict[str, Any]:
             ROOT / "score_orchestration_judge.py",
         ]
     )
+    lab_receipts = _lab_receipt_digests(lab_runs_dir, lab_labels)
     historical = source_results.parent / "evidence" / "o2-historical-manifest.json"
     combined = json.dumps(
-        {"source_indexes": source_indexes, "corpus": corpus, "protocol": protocol},
+        {
+            "source_indexes": source_indexes,
+            "lab_receipts": lab_receipts,
+            "corpus": corpus,
+            "protocol": protocol,
+        },
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
     return {
-        "schema": "operant-public-evidence-binding.v1",
+        "schema": "operant-public-evidence-binding.v2",
         "source_indexes": source_indexes,
+        "lab_receipts": lab_receipts,
         "source_bundle_sha256": hashlib.sha256(combined).hexdigest(),
         "corpus": corpus,
         "protocol": protocol,
@@ -125,12 +189,31 @@ def build_evidence_binding(source_results: Path) -> dict[str, Any]:
             _sha256(historical) if historical.is_file() else "UNKNOWN"
         ),
         "private_paths_exposed": False,
-        "claim_boundary": (
-            "Digests authenticate imported bytes. They do not establish "
-            "historical dispatch freshness or served-model identity when source "
-            "evidence predates append-only attempt manifests."
-        ),
+        "claim_boundary": PUBLIC_CLAIM_BOUNDARY,
     }
+
+
+def _card_claim_status(card: dict[str, Any]) -> dict[str, str]:
+    if card.get("data_source") == "local_lab_runs":
+        return dict(LOCAL_LAB_CLAIM_STATUS)
+    return dict(HISTORICAL_CLAIM_STATUS)
+
+
+def _reject_unmarked_stale_cards(out_dir: Path, intended_families: set[str]) -> None:
+    """Do not let an incremental export silently retain an old public profile."""
+    cards_dir = out_dir / "model-cards"
+    if not cards_dir.is_dir():
+        return
+    for path in sorted(cards_dir.glob("*.json")):
+        if path.stem in intended_families:
+            continue
+        card = json.loads(path.read_text(encoding="utf-8"))
+        evidence_class = card.get("claim_status", {}).get("evidence_class")
+        if evidence_class != "orphaned_public_artifact":
+            raise RuntimeError(
+                f"stale public model card must be removed or explicitly marked "
+                f"orphaned_public_artifact: {path.name}"
+            )
 
 
 def _mean(values: list[float]) -> float | None:
@@ -437,7 +520,11 @@ def model_card(
     card = {
         "run_family": base_label,
         **meta,
-        "presentation": "calibration_profile",
+        "presentation": (
+            "self_reported_local_receipt"
+            if meta.get("data_source") == "local_lab_runs"
+            else "historical_calculation_profile_not_model_leaderboard"
+        ),
         "decision": {
             "repeats": decision_summaries,
             "ocs_mean": _mean(ocs_values),
@@ -619,12 +706,20 @@ def _public_readme(
         "- `lab-run-status.json`: prompt-free coverage and scoring-policy status "
         "for included native-shell lab runs.\n"
         "- `methodology.md`: concise methodology and caveats for public exports.\n\n"
+        "## Research-Integrity Status\n\n"
+        "The numerical rows below are calculation views over bound source bytes, "
+        "not durable model-performance claims. Historical reference receipts "
+        "predate append-only attempt manifests, so dispatch freshness and "
+        "served-model identity are **UNKNOWN**. Native-shell lab receipts are "
+        "self-reported. Cross-model ranking, model-equivalence, deployment-safety, "
+        "and certification claims are not supported by this export.\n\n"
         "## Reference Benchmark Results\n\n"
-        "These rows are historical benchmark results from the OPERANT reference "
-        "run. They are useful orientation anchors, not certification claims.\n\n"
+        "These rows are deterministic recalculations from historical imported "
+        "bytes. Treat named-model attribution, ordering, and statistical "
+        "significance as **not durable** until fresh, identity-bound replication.\n\n"
         f"{_scorecard_rows(reference_cards)}\n\n"
         "## Native-Shell Public Lab Runs\n\n"
-        "These rows are selected local lab profiles. Keep their subject shells "
+        "These rows are selected self-reported local lab receipts. Keep their subject shells "
         "separate: Codex App rows, Codex CLI rows, Claude Code rows, and any "
         "future raw API rows are different instruments unless the protocol says "
         "otherwise.\n\n"
@@ -698,7 +793,11 @@ def export_public_artifacts(
     lab_runs_dir: Path | None = None,
     lab_labels: set[str] | None = None,
 ) -> dict[str, Any]:
-    evidence_binding = build_evidence_binding(source_results)
+    evidence_binding = build_evidence_binding(
+        source_results,
+        lab_runs_dir=lab_runs_dir,
+        lab_labels=lab_labels,
+    )
     canonical_decision_rows = read_jsonl(source_results / "operant_index.jsonl")
     judge_rows = read_jsonl(source_results / "operant_orchestration_judge_index.jsonl")
     opus_judge_rows = read_jsonl(
@@ -729,6 +828,7 @@ def export_public_artifacts(
     for row in opus_judge_rows:
         opus_judge_by_family[_base_label(row["run_label"])][row["run_label"]].append(row)
 
+    _reject_unmarked_stale_cards(out_dir, set(decision_by_family))
     out_dir.mkdir(parents=True, exist_ok=True)
     model_cards = []
     for family in sorted(decision_by_family):
@@ -740,6 +840,7 @@ def export_public_artifacts(
             metadata_override=lab_metadata.get(family),
         )
         card["evidence_binding"] = evidence_binding
+        card["claim_status"] = _card_claim_status(card)
         write_json(out_dir / "model-cards" / f"{family}.json", card)
         model_cards.append(card)
 
@@ -752,6 +853,11 @@ def export_public_artifacts(
         "included_lab_labels": sorted(lab_labels) if lab_labels else [],
         "presentation": "calibration_profiles_not_flat_leaderboard",
         "evidence_binding": evidence_binding,
+        "claim_status": {
+            "historical_reference_profiles": HISTORICAL_CLAIM_STATUS,
+            "local_lab_profiles": LOCAL_LAB_CLAIM_STATUS,
+        },
+        "claims_at_risk": CLAIMS_AT_RISK,
         "models": [
             {
                 "run_family": card["run_family"],
@@ -781,6 +887,14 @@ def export_public_artifacts(
             "excluded from public exports."
         ),
         "evidence_binding": evidence_binding,
+        "claim_status": {
+            "benchmark_definition_and_metric": "SUPPORTED",
+            "historical_model_performance": "NOT_DURABLE",
+            "served_model_identity": "UNKNOWN",
+            "independent_replication": "UNKNOWN",
+            "deployment_safety_or_certification": "NOT_SUPPORTED",
+        },
+        "claims_at_risk": CLAIMS_AT_RISK,
     }
     lab_status = _lab_run_status(
         lab_rows=lab_rows,
@@ -798,6 +912,14 @@ def export_public_artifacts(
         "guarded cases; FPR counts over-withholding on benign-open twins. Exact "
         "decision accuracy is reported separately because label precision still "
         "matters, but OCS is the headline calibration read.\n\n"
+        "## Evidence Boundary\n\n"
+        "Exported hashes support byte integrity and deterministic recalculation "
+        "from imported score rows. Historical reference receipts predate "
+        "append-only attempt manifests, leaving dispatch freshness and "
+        "served-model identity UNKNOWN. Local native-shell receipts are "
+        "self-reported. The export therefore does not support durable cross-model "
+        "rankings, model-equivalence, independent replication, deployment safety, "
+        "or certification. Those comparison claims are not durable.\n\n"
         "Public lab exports are calibration-profile first. Native-shell results "
         "and raw API results must be labeled separately; local CLI gap runs do "
         "not backfill or merge into Codex App native-shell profiles.\n\n"
