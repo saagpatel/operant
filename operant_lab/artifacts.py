@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
 import math
 import os
@@ -34,6 +35,7 @@ KNOWN_RUN_FAMILY_ROLES = {
     "codex-gpt55-sanctioned-path-followup": "ADAPTIVE_DIAGNOSTIC",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+DIST_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 MAX_EXACT_JSON_INTEGER = (1 << 53) - 1
 RESULTS_ROOT = Path("lab") / "runs"
 DEPENDENCY_LOCK_CANDIDATES = (
@@ -67,6 +69,11 @@ EXECUTION_BINDING_V4_KEYS = EXECUTION_BINDING_V3_KEYS | {
 }
 EXECUTION_BINDING_V5_KEYS = EXECUTION_BINDING_V4_KEYS | {
     "process_image_identity"
+}
+EXECUTION_BINDING_V6_KEYS = EXECUTION_BINDING_V5_KEYS | {
+    "harness_python_environment",
+    "post_dispatch_harness_python_environment",
+    "subject_environment_linkage",
 }
 INPUT_BINDING_KEYS = {
     "delivered_prompt_sha256",
@@ -119,6 +126,7 @@ RUN_MANIFEST_V3_KEYS = RUN_MANIFEST_V4_KEYS - {"manifest_core_sha256"}
 RUN_MANIFEST_V5_KEYS = RUN_MANIFEST_V4_KEYS
 RUN_MANIFEST_V6_KEYS = RUN_MANIFEST_V4_KEYS
 RUN_MANIFEST_V7_KEYS = RUN_MANIFEST_V4_KEYS
+RUN_MANIFEST_V8_KEYS = RUN_MANIFEST_V4_KEYS
 
 
 def _is_sha256(value: Any) -> bool:
@@ -274,6 +282,159 @@ def _environment_binding() -> dict[str, Any]:
     return {
         "facts": facts,
         "sha256": _canonical_hash(facts),
+    }
+
+
+def _distribution_metadata_snapshot() -> list[dict[str, str]]:
+    rows = []
+    for distribution in importlib.metadata.distributions():
+        raw_name = distribution.metadata.get("Name")
+        raw_version = distribution.version
+        if (
+            not isinstance(raw_name, str)
+            or not raw_name.strip()
+            or not isinstance(raw_version, str)
+            or not raw_version.strip()
+        ):
+            raise ValueError("visible distribution metadata is incomplete")
+        name = re.sub(r"[-_.]+", "-", raw_name.strip()).lower()
+        version = raw_version.strip()
+        if (
+            not DIST_NAME_RE.fullmatch(name)
+            or len(name) > 200
+            or len(version) > 256
+            or any(ord(character) < 32 for character in version)
+        ):
+            raise ValueError("visible distribution metadata is unsafe")
+        rows.append({"name": name, "version": version})
+    rows.sort(key=lambda row: (row["name"], row["version"]))
+    if len(rows) != len({(row["name"], row["version"]) for row in rows}):
+        raise ValueError("visible distribution metadata is ambiguous")
+    return rows
+
+
+def _unknown_active_python_environment(reason: str) -> dict[str, Any]:
+    return {
+        "status": "UNKNOWN",
+        "python_implementation": "UNKNOWN",
+        "python_version": "UNKNOWN",
+        "python_executable_name": "UNKNOWN",
+        "python_executable_sha256": "UNKNOWN",
+        "python_executable_size_bytes": "UNKNOWN",
+        "visible_distribution_count": "UNKNOWN",
+        "visible_distributions_sha256": "UNKNOWN",
+        "coverage": "UNKNOWN",
+        "reason": reason,
+    }
+
+
+def _active_python_environment_binding() -> dict[str, Any]:
+    try:
+        implementation = platform.python_implementation()
+        version = platform.python_version()
+        if (
+            not isinstance(implementation, str)
+            or not implementation.strip()
+            or len(implementation) > 100
+            or any(ord(character) < 32 for character in implementation)
+            or not isinstance(version, str)
+            or not version.strip()
+            or len(version) > 100
+            or any(ord(character) < 32 for character in version)
+        ):
+            raise ValueError("active Python runtime metadata is unsafe")
+        executable = Path(sys.executable).resolve(strict=True)
+        if not executable.is_file() or not os.access(executable, os.X_OK):
+            raise OSError("active Python executable is not a regular executable")
+        before = executable.stat()
+        executable_digest = _file_sha256(executable)
+        first_distributions = _distribution_metadata_snapshot()
+        second_distributions = _distribution_metadata_snapshot()
+        after = executable.stat()
+        if (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+        ) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        ):
+            raise OSError("active Python executable changed during capture")
+        if first_distributions != second_distributions:
+            raise OSError("visible distribution metadata changed during capture")
+    except Exception:  # noqa: BLE001 - third-party metadata providers are untrusted
+        return _unknown_active_python_environment(
+            "ACTIVE_PYTHON_ENVIRONMENT_CAPTURE_FAILED"
+        )
+    return {
+        "status": "HARNESS_PYTHON_METADATA_BOUND",
+        "python_implementation": implementation,
+        "python_version": version,
+        "python_executable_name": executable.name,
+        "python_executable_sha256": executable_digest,
+        "python_executable_size_bytes": after.st_size,
+        "visible_distribution_count": len(first_distributions),
+        "visible_distributions_sha256": _canonical_hash(first_distributions),
+        "coverage": (
+            "ON_DISK_SYS_EXECUTABLE_CANDIDATE_AND_"
+            "VISIBLE_DISTRIBUTION_METADATA_ONLY"
+        ),
+        "reason": None,
+    }
+
+
+def _unassessed_post_dispatch_python_environment() -> dict[str, Any]:
+    return {
+        "status": "NOT_ASSESSED",
+        "environment_sha256": "UNKNOWN",
+        "comparison": "UNKNOWN",
+        "coverage": "UNKNOWN",
+        "reason": "DISPATCH_RESULT_NOT_AVAILABLE",
+    }
+
+
+def _post_dispatch_python_environment_binding(
+    pre_dispatch: dict[str, Any],
+) -> dict[str, Any]:
+    if pre_dispatch.get("status") != "HARNESS_PYTHON_METADATA_BOUND":
+        return {
+            **_unassessed_post_dispatch_python_environment(),
+            "status": "UNKNOWN",
+            "reason": "PRE_DISPATCH_PYTHON_ENVIRONMENT_UNAVAILABLE",
+        }
+    post_dispatch = _active_python_environment_binding()
+    if post_dispatch.get("status") != "HARNESS_PYTHON_METADATA_BOUND":
+        return {
+            **_unassessed_post_dispatch_python_environment(),
+            "status": "UNKNOWN",
+            "reason": "POST_DISPATCH_PYTHON_ENVIRONMENT_UNAVAILABLE",
+        }
+    comparison = "MATCHED" if post_dispatch == pre_dispatch else "DRIFTED"
+    return {
+        "status": "POST_DISPATCH_PYTHON_ENVIRONMENT_BOUND",
+        "environment_sha256": _canonical_hash(post_dispatch),
+        "comparison": comparison,
+        "coverage": "PRE_POST_HARNESS_PYTHON_METADATA_ONLY",
+        "reason": None,
+    }
+
+
+def _unknown_subject_environment_linkage(
+    command: list[str] | None,
+) -> dict[str, Any]:
+    return {
+        "status": "UNKNOWN",
+        "harness_to_subject_environment": "UNKNOWN",
+        "evidence_source": "NOT_CAPTURED",
+        "coverage": "UNKNOWN",
+        "reason": (
+            "SUBPROCESS_ENVIRONMENT_NOT_OBSERVED"
+            if command
+            else "NO_LOCAL_PROCESS_DISPATCH"
+        ),
     }
 
 
@@ -554,7 +715,7 @@ def build_execution_binding(
         "dispatch_settings_sha256": _canonical_hash(dispatch_settings),
     }
     binding = {
-        "schema": "operant-execution-binding.v5",
+        "schema": "operant-execution-binding.v6",
         "input_binding": input_binding,
         "harness": {
             "files": sorted(harness),
@@ -563,6 +724,13 @@ def build_execution_binding(
         "dependency_lock": dependency,
         "source_state": _source_state(root),
         "environment": environment,
+        "harness_python_environment": _active_python_environment_binding(),
+        "post_dispatch_harness_python_environment": (
+            _unassessed_post_dispatch_python_environment()
+        ),
+        "subject_environment_linkage": _unknown_subject_environment_linkage(
+            command
+        ),
         "subject_runtime": _subject_runtime_binding(command, root=root),
         "post_dispatch_runtime": _unassessed_post_dispatch_runtime(),
         "process_image_identity": _unknown_process_image_identity(command),
@@ -579,6 +747,7 @@ def build_execution_binding(
                 not in {
                     "model_observation",
                     "post_dispatch_runtime",
+                    "post_dispatch_harness_python_environment",
                     "pre_dispatch_sha256",
                     "completion_sha256",
                 }
@@ -622,6 +791,7 @@ def complete_execution_binding(
     if completed.get("schema") in {
         "operant-execution-binding.v4",
         "operant-execution-binding.v5",
+        "operant-execution-binding.v6",
     }:
         pre_dispatch_runtime = completed.get("subject_runtime")
         if not isinstance(pre_dispatch_runtime, dict):
@@ -630,6 +800,15 @@ def complete_execution_binding(
             pre_dispatch_runtime,
             runtime_command,
             root=runtime_root.resolve(),
+        )
+    if completed.get("schema") == "operant-execution-binding.v6":
+        pre_dispatch_environment = completed.get("harness_python_environment")
+        if not isinstance(pre_dispatch_environment, dict):
+            raise ValueError("execution binding lacks active Python environment")
+        completed["post_dispatch_harness_python_environment"] = (
+            _post_dispatch_python_environment_binding(
+                pre_dispatch_environment,
+            )
         )
     completed["completion_sha256"] = _canonical_hash(
         {
@@ -687,12 +866,14 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         "operant-execution-binding.v3",
         "operant-execution-binding.v4",
         "operant-execution-binding.v5",
+        "operant-execution-binding.v6",
     }:
         errors.append("unsupported execution binding schema")
     expected_keys = {
         "operant-execution-binding.v3": EXECUTION_BINDING_V3_KEYS,
         "operant-execution-binding.v4": EXECUTION_BINDING_V4_KEYS,
         "operant-execution-binding.v5": EXECUTION_BINDING_V5_KEYS,
+        "operant-execution-binding.v6": EXECUTION_BINDING_V6_KEYS,
     }.get(binding_schema, EXECUTION_BINDING_BASE_KEYS)
     if set(binding) != expected_keys:
         errors.append("execution binding fields are not exact")
@@ -804,6 +985,7 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
             "operant-execution-binding.v3",
             "operant-execution-binding.v4",
             "operant-execution-binding.v5",
+            "operant-execution-binding.v6",
         }:
             expected_source_fields.add("reconstruction")
         if set(source) != expected_source_fields:
@@ -858,6 +1040,7 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         "operant-execution-binding.v3",
         "operant-execution-binding.v4",
         "operant-execution-binding.v5",
+        "operant-execution-binding.v6",
     }:
         facts = environment["facts"]
         for name in ENVIRONMENT_FACT_KEYS - {"cpu_count"}:
@@ -881,6 +1064,7 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         "operant-execution-binding.v3",
         "operant-execution-binding.v4",
         "operant-execution-binding.v5",
+        "operant-execution-binding.v6",
     }:
         runtime = binding.get("subject_runtime")
         runtime_fields = {
@@ -947,6 +1131,7 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
     if binding_schema in {
         "operant-execution-binding.v4",
         "operant-execution-binding.v5",
+        "operant-execution-binding.v6",
     }:
         post_runtime = binding.get("post_dispatch_runtime")
         post_fields = {
@@ -1082,7 +1267,10 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
         observation.get("comparison_status") != "UNKNOWN"
         or observation.get("raw_result_envelope_sha256") != "UNKNOWN"
     )
-    if binding_schema == "operant-execution-binding.v5":
+    if binding_schema in {
+        "operant-execution-binding.v5",
+        "operant-execution-binding.v6",
+    }:
         process_identity = binding.get("process_image_identity")
         identity_fields = {
             "status",
@@ -1125,9 +1313,200 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
             if process_identity.get("reason") != expected_reason:
                 errors.append("process image identity reason contradicts dispatch")
 
+    if binding_schema == "operant-execution-binding.v6":
+        python_environment = binding.get("harness_python_environment")
+        environment_fields = {
+            "status",
+            "python_implementation",
+            "python_version",
+            "python_executable_name",
+            "python_executable_sha256",
+            "python_executable_size_bytes",
+            "visible_distribution_count",
+            "visible_distributions_sha256",
+            "coverage",
+            "reason",
+        }
+        if (
+            not isinstance(python_environment, dict)
+            or set(python_environment) != environment_fields
+        ):
+            errors.append("harness Python environment binding is incomplete")
+        elif (
+            python_environment.get("status")
+            == "HARNESS_PYTHON_METADATA_BOUND"
+        ):
+            executable_name = python_environment.get("python_executable_name")
+            executable_size = python_environment.get(
+                "python_executable_size_bytes"
+            )
+            distribution_count = python_environment.get(
+                "visible_distribution_count"
+            )
+            if (
+                not isinstance(
+                    python_environment.get("python_implementation"),
+                    str,
+                )
+                or not python_environment["python_implementation"].strip()
+                or len(python_environment["python_implementation"]) > 100
+                or any(
+                    ord(character) < 32
+                    for character in python_environment[
+                        "python_implementation"
+                    ]
+                )
+                or not isinstance(python_environment.get("python_version"), str)
+                or not python_environment["python_version"].strip()
+                or len(python_environment["python_version"]) > 100
+                or any(
+                    ord(character) < 32
+                    for character in python_environment["python_version"]
+                )
+                or not isinstance(executable_name, str)
+                or not executable_name
+                or len(executable_name) > 255
+                or any(ord(character) < 32 for character in executable_name)
+                or Path(executable_name).name != executable_name
+                or not _is_sha256(
+                    python_environment.get("python_executable_sha256")
+                )
+                or not isinstance(executable_size, int)
+                or isinstance(executable_size, bool)
+                or executable_size < 0
+                or executable_size > MAX_EXACT_JSON_INTEGER
+                or not isinstance(distribution_count, int)
+                or isinstance(distribution_count, bool)
+                or distribution_count < 0
+                or distribution_count > MAX_EXACT_JSON_INTEGER
+                or not _is_sha256(
+                    python_environment.get("visible_distributions_sha256")
+                )
+                or python_environment.get("coverage")
+                != (
+                    "ON_DISK_SYS_EXECUTABLE_CANDIDATE_AND_"
+                    "VISIBLE_DISTRIBUTION_METADATA_ONLY"
+                )
+                or python_environment.get("reason") is not None
+            ):
+                errors.append("harness Python environment binding is invalid")
+        elif python_environment.get("status") == "UNKNOWN":
+            if (
+                python_environment.get("python_implementation") != "UNKNOWN"
+                or python_environment.get("python_version") != "UNKNOWN"
+                or python_environment.get("python_executable_name") != "UNKNOWN"
+                or python_environment.get("python_executable_sha256") != "UNKNOWN"
+                or python_environment.get("python_executable_size_bytes")
+                != "UNKNOWN"
+                or python_environment.get("visible_distribution_count")
+                != "UNKNOWN"
+                or python_environment.get("visible_distributions_sha256")
+                != "UNKNOWN"
+                or python_environment.get("coverage") != "UNKNOWN"
+                or python_environment.get("reason")
+                != "ACTIVE_PYTHON_ENVIRONMENT_CAPTURE_FAILED"
+            ):
+                errors.append("unknown harness Python environment carries evidence")
+        else:
+            errors.append("harness Python environment status is invalid")
+
+        post_environment = binding.get(
+            "post_dispatch_harness_python_environment"
+        )
+        post_environment_fields = {
+            "status",
+            "environment_sha256",
+            "comparison",
+            "coverage",
+            "reason",
+        }
+        if (
+            not isinstance(post_environment, dict)
+            or set(post_environment) != post_environment_fields
+        ):
+            errors.append("post-dispatch Python environment binding is incomplete")
+        else:
+            post_status = post_environment.get("status")
+            if post_status == "POST_DISPATCH_PYTHON_ENVIRONMENT_BOUND":
+                expected_pre_hash = _try_canonical_hash(python_environment)
+                post_hash = post_environment.get("environment_sha256")
+                expected_comparison = (
+                    "MATCHED"
+                    if post_hash == expected_pre_hash
+                    else "DRIFTED"
+                )
+                if (
+                    not _is_sha256(post_hash)
+                    or post_environment.get("comparison")
+                    not in {"MATCHED", "DRIFTED"}
+                    or post_environment.get("comparison") != expected_comparison
+                    or post_environment.get("coverage")
+                    != "PRE_POST_HARNESS_PYTHON_METADATA_ONLY"
+                    or post_environment.get("reason") is not None
+                ):
+                    errors.append(
+                        "post-dispatch Python environment binding is invalid"
+                    )
+            elif post_status in {"NOT_ASSESSED", "UNKNOWN"}:
+                valid_reason = (
+                    post_environment.get("reason")
+                    == "DISPATCH_RESULT_NOT_AVAILABLE"
+                    if post_status == "NOT_ASSESSED"
+                    else post_environment.get("reason")
+                    in {
+                        "PRE_DISPATCH_PYTHON_ENVIRONMENT_UNAVAILABLE",
+                        "POST_DISPATCH_PYTHON_ENVIRONMENT_UNAVAILABLE",
+                    }
+                )
+                if (
+                    post_environment.get("environment_sha256") != "UNKNOWN"
+                    or post_environment.get("comparison") != "UNKNOWN"
+                    or post_environment.get("coverage") != "UNKNOWN"
+                    or not valid_reason
+                ):
+                    errors.append(
+                        "unknown post-dispatch Python environment carries evidence"
+                    )
+            else:
+                errors.append(
+                    "post-dispatch Python environment status is invalid"
+                )
+
+        subject_linkage = binding.get("subject_environment_linkage")
+        linkage_fields = {
+            "status",
+            "harness_to_subject_environment",
+            "evidence_source",
+            "coverage",
+            "reason",
+        }
+        if (
+            not isinstance(subject_linkage, dict)
+            or set(subject_linkage) != linkage_fields
+        ):
+            errors.append("subject environment linkage is incomplete")
+        else:
+            subject_runtime = binding.get("subject_runtime")
+            expected_reason = (
+                "NO_LOCAL_PROCESS_DISPATCH"
+                if isinstance(subject_runtime, dict)
+                and subject_runtime.get("reason") == "NO_EXECUTABLE_DISPATCH"
+                else "SUBPROCESS_ENVIRONMENT_NOT_OBSERVED"
+            )
+            if (
+                subject_linkage.get("status") != "UNKNOWN"
+                or subject_linkage.get("harness_to_subject_environment")
+                != "UNKNOWN"
+                or subject_linkage.get("evidence_source") != "NOT_CAPTURED"
+                or subject_linkage.get("coverage") != "UNKNOWN"
+                or subject_linkage.get("reason") != expected_reason
+            ):
+                errors.append("subject environment linkage is overstated")
+
     if binding_schema in {
         "operant-execution-binding.v4",
         "operant-execution-binding.v5",
+        "operant-execution-binding.v6",
     }:
         post_status = (
             binding.get("post_dispatch_runtime", {}).get("status")
@@ -1138,6 +1517,26 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
             errors.append("completed execution lacks post-dispatch runtime assessment")
         if not observation_completed and post_status != "NOT_ASSESSED":
             errors.append("pre-dispatch binding carries post-dispatch runtime evidence")
+        if binding_schema == "operant-execution-binding.v6":
+            post_environment_status = (
+                binding.get(
+                    "post_dispatch_harness_python_environment",
+                    {},
+                ).get("status")
+                if isinstance(
+                    binding.get("post_dispatch_harness_python_environment"),
+                    dict,
+                )
+                else None
+            )
+            if observation_completed and post_environment_status == "NOT_ASSESSED":
+                errors.append(
+                    "completed execution lacks post-dispatch Python environment"
+                )
+            if not observation_completed and post_environment_status != "NOT_ASSESSED":
+                errors.append(
+                    "pre-dispatch binding carries post-dispatch Python environment"
+                )
 
     if binding.get("replay_class") != "INPUT_BOUND_NOT_REPLAYABLE":
         errors.append("unsupported replay class")
@@ -1149,6 +1548,7 @@ def _validate_execution_binding(binding: dict[str, Any]) -> list[str]:
             not in {
                 "model_observation",
                 "post_dispatch_runtime",
+                "post_dispatch_harness_python_environment",
                 "pre_dispatch_sha256",
                 "completion_sha256",
             }
@@ -1387,6 +1787,18 @@ def validate_run_manifest_v7(manifest: Any) -> list[str]:
         return ["v7 manifest contains invalid JSON types"]
 
 
+def validate_run_manifest_v8(manifest: Any) -> list[str]:
+    """Return v8 validation errors for every JSON value."""
+    try:
+        return _validate_run_manifest_current(
+            manifest,
+            manifest_schema="operant-run-manifest.v8",
+            binding_schema="operant-execution-binding.v6",
+        )
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return ["v8 manifest contains invalid JSON types"]
+
+
 def case_bundle_binding(
     cases: list[dict[str, Any]],
     *,
@@ -1465,14 +1877,14 @@ class RunManifest:
     thread_container: str | None = None
     cost_usd: float | None = None
     manifest_core_sha256: str = field(default="UNKNOWN", init=False)
-    manifest_schema: str = field(default="operant-run-manifest.v7", init=False)
+    manifest_schema: str = field(default="operant-run-manifest.v8", init=False)
     confirmatory_eligible: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
         if self.cost_usd is not None and not _is_nonnegative_finite_number(
             self.cost_usd
         ):
-            raise ValueError("invalid v7 run manifest: cost_usd is invalid")
+            raise ValueError("invalid v8 run manifest: cost_usd is invalid")
         manifest = asdict(self)
         self.manifest_core_sha256 = _canonical_hash(
             {
@@ -1481,9 +1893,9 @@ class RunManifest:
                 if key != "manifest_core_sha256"
             }
         )
-        errors = validate_run_manifest_v7(asdict(self))
+        errors = validate_run_manifest_v8(asdict(self))
         if errors:
-            raise ValueError("invalid v7 run manifest: " + "; ".join(errors))
+            raise ValueError("invalid v8 run manifest: " + "; ".join(errors))
 
 
 @dataclass
@@ -1551,6 +1963,9 @@ def _scoring_block_reason(manifest: dict[str, Any]) -> str | None:
     elif schema == "operant-run-manifest.v7":
         if validate_run_manifest_v7(manifest):
             return "invalid_execution_binding"
+    elif schema == "operant-run-manifest.v8":
+        if validate_run_manifest_v8(manifest):
+            return "invalid_execution_binding"
     else:
         return "invalid_execution_binding"
     binding = manifest.get("execution_binding")
@@ -1570,6 +1985,14 @@ def _scoring_block_reason(manifest: dict[str, Any]) -> str | None:
         and post_runtime.get("comparison") == "DRIFTED"
     ):
         return "runtime_candidate_drift"
+    post_environment = binding.get(
+        "post_dispatch_harness_python_environment"
+    )
+    if (
+        isinstance(post_environment, dict)
+        and post_environment.get("comparison") == "DRIFTED"
+    ):
+        return "harness_python_environment_drift"
     return None
 
 
@@ -1611,6 +2034,7 @@ def receipt_scoring_block_reason(
         "operant-run-manifest.v5",
         "operant-run-manifest.v6",
         "operant-run-manifest.v7",
+        "operant-run-manifest.v8",
     }:
         bound_answer = (
             manifest.get("execution_binding", {})
@@ -1658,6 +2082,7 @@ def receipt_output_scoring_block_reason(
         "operant-run-manifest.v5",
         "operant-run-manifest.v6",
         "operant-run-manifest.v7",
+        "operant-run-manifest.v8",
     }:
         bound_answer = (
             manifest.get("execution_binding", {})

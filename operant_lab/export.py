@@ -373,6 +373,7 @@ def load_lab_decision_rows(
             "operant-run-manifest.v5",
             "operant-run-manifest.v6",
             "operant-run-manifest.v7",
+            "operant-run-manifest.v8",
         }:
             bound_answer = (
                 manifest.get("execution_binding", {})

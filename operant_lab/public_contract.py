@@ -593,6 +593,7 @@ def _validate_evaluation_binding_summary(
                     "operant-run-manifest.v5",
                     "operant-run-manifest.v6",
                     "operant-run-manifest.v7",
+                    "operant-run-manifest.v8",
                 }
             )
             or not schema_counts

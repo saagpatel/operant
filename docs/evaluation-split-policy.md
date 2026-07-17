@@ -48,13 +48,13 @@ seed, or a successful score calculation.
 
 ## Run-Level Binding
 
-New runner receipts use `operant-run-manifest.v7`. Each receipt carries:
+New runner receipts use `operant-run-manifest.v8`. Each receipt carries:
 
 - a non-confirmatory evaluation role;
 - one SHA-256 digest over the sorted exact case objects and split label used by
   that invocation;
 - the bound case count and split label;
-- an `operant-execution-binding.v5` over exact prompt/system bytes, command or
+- an `operant-execution-binding.v6` over exact prompt/system bytes, command or
   stdin shape, tool policy, timeout, output mode, dispatch settings, harness
   bytes, source state, dependency-lock state, and a sanitized environment
   snapshot;
@@ -80,19 +80,32 @@ Zero-cost fixture burn-in covers the native, Codex CLI, and Codex App producer
 paths plus suite/export consumption. It verifies local harness contracts, not
 provider availability, served-model identity, or authentic provider burn-in.
 
-Persisted v7 manifests carry a core digest over interpretation-critical
+Persisted v8 manifests carry a core digest over interpretation-critical
 metadata, so later changes to shell, role, split, queue provenance, timestamps,
-or treatment labels invalidate the receipt. Source state is classified as
+or treatment labels invalidate the receipt unless the receipt and its unkeyed
+digests are deliberately rewritten. These hashes prove internal consistency,
+not authorship or immutable history. Source state is classified as
 `CLEAN_COMMIT`, `DIRTY_DIGEST_ONLY`, or `UNKNOWN`; a dirty-state digest is not
 enough to reconstruct the working tree. Python lockfiles are classified as
 `LOCKFILE_PRESENT_UNVERIFIED` unless active-environment linkage is separately
-proved. New receipts bind the resolved pre-dispatch executable candidate's
+proved. The harness binds runtime-reported Python facts, its current on-disk
+`sys.executable` candidate bytes, and an aggregate digest/count of visible
+distribution name/version metadata, then compares that evidence after dispatch.
+`MATCHED` means only that those two harness metadata snapshots agree; `DRIFTED`
+blocks scoring. The receipt stores no package rows, distribution locations,
+environment values, or interpreter paths. The aggregate fingerprint is
+potentially dictionary-comparable, is not reconstructable, and does not prove
+which packages were imported or governed the evaluated tool.
+Harness-to-subject environment linkage remains `UNKNOWN`.
+
+New receipts separately bind the resolved pre-dispatch executable candidate's
 basename, SHA-256, and byte size without invoking it, or preserve an explicit
-UNKNOWN reason. This does not prove that the same bytes were executed. Runtime
-version remains `UNKNOWN` because version commands are not run without a proven
-no-side-effect contract; no receipt should be called replayable on the basis of
-executable, Python, or OS facts alone. After a returned subprocess attempt, the
-runner recaptures the executable candidate. `MATCHED` means only that the
+UNKNOWN reason. This does not prove that the same bytes were executed. The
+subject executable's runtime version remains `UNKNOWN` because version commands
+are not run without a proven no-side-effect contract; no receipt should be
+called replayable on the basis of executable, Python, or OS facts alone. After
+a returned subprocess attempt, the runner recaptures the executable candidate.
+`MATCHED` means only that the
 pre/post candidate snapshots agree; it does not attest the process image,
 exclude change-and-restore races, or prove the bytes executed by the kernel.
 `DRIFTED` blocks scoring. Failed launch, timeout, unavailable candidate, and
@@ -108,8 +121,8 @@ families resolve to adaptive diagnostic roles. The manifest writer rejects a
 `CONFIRMATORY` role; admitting a future confirmatory set requires a new checked
 workflow after every admission gate above is evidenced. Historical receipts
 without these execution fields remain historical and `UNKNOWN`; they are not
-backfilled. A receipt that claims v3/v4/v5/v6/v7 but omits or malforms its execution binding
-is invalid rather than historical.
+backfilled. A receipt that claims v3/v4/v5/v6/v7/v8 but omits or malforms its
+execution binding is invalid rather than historical.
 
 ## Checked Registry
 

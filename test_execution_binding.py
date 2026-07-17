@@ -29,6 +29,7 @@ from operant_lab.artifacts import (
     validate_run_manifest_v5,
     validate_run_manifest_v6,
     validate_run_manifest_v7,
+    validate_run_manifest_v8,
 )
 from operant_lab.inventory import _manifest_binding_projection
 
@@ -95,6 +96,29 @@ class ExecutionBindingTests(unittest.TestCase):
         self.assertEqual(
             binding["model_observation"]["served_model_identity"],
             "UNKNOWN",
+        )
+        python_environment = binding["harness_python_environment"]
+        self.assertIn(
+            python_environment["status"],
+            {"HARNESS_PYTHON_METADATA_BOUND", "UNKNOWN"},
+        )
+        if python_environment["status"] == "HARNESS_PYTHON_METADATA_BOUND":
+            self.assertEqual(
+                python_environment["coverage"],
+                (
+                    "ON_DISK_SYS_EXECUTABLE_CANDIDATE_AND_"
+                    "VISIBLE_DISTRIBUTION_METADATA_ONLY"
+                ),
+            )
+        else:
+            self.assertEqual(
+                python_environment["reason"],
+                "ACTIVE_PYTHON_ENVIRONMENT_CAPTURE_FAILED",
+            )
+        self.assertNotIn("visible_distributions", python_environment)
+        self.assertEqual(
+            binding["subject_environment_linkage"]["reason"],
+            "SUBPROCESS_ENVIRONMENT_NOT_OBSERVED",
         )
         self.assertEqual(
             binding["process_image_identity"],
@@ -164,6 +188,7 @@ class ExecutionBindingTests(unittest.TestCase):
                     not in {
                         "model_observation",
                         "post_dispatch_runtime",
+                        "post_dispatch_harness_python_environment",
                         "pre_dispatch_sha256",
                         "completion_sha256",
                     }
@@ -236,6 +261,7 @@ class ExecutionBindingTests(unittest.TestCase):
                     not in {
                         "model_observation",
                         "post_dispatch_runtime",
+                        "post_dispatch_harness_python_environment",
                         "pre_dispatch_sha256",
                         "completion_sha256",
                     }
@@ -433,6 +459,208 @@ class ExecutionBindingTests(unittest.TestCase):
         self.assertEqual(first["files"], ["pylock.toml"])
         self.assertEqual(first["reason"], "ACTIVE_ENVIRONMENT_NOT_PROVEN")
         self.assertNotEqual(first["sha256"], second["sha256"])
+
+    def test_harness_environment_capture_is_fail_closed_and_path_private(
+        self,
+    ) -> None:
+        import operant_lab.artifacts as artifacts
+
+        with mock.patch.object(
+            artifacts,
+            "_distribution_metadata_snapshot",
+            return_value=[{"name": "fixture", "version": "1.0"}],
+        ):
+            captured = artifacts._active_python_environment_binding()
+        self.assertEqual(captured["status"], "HARNESS_PYTHON_METADATA_BOUND")
+        self.assertRegex(captured["python_executable_sha256"], r"^[0-9a-f]{64}$")
+        self.assertRegex(
+            captured["visible_distributions_sha256"],
+            r"^[0-9a-f]{64}$",
+        )
+        self.assertGreaterEqual(captured["visible_distribution_count"], 0)
+        self.assertNotIn("/", captured["python_executable_name"])
+        self.assertNotIn(str(Path.home()), json.dumps(captured))
+
+        class MetadataFailure(Exception):
+            pass
+
+        with mock.patch.object(
+            artifacts.importlib.metadata,
+            "distributions",
+            side_effect=MetadataFailure("fixture"),
+        ):
+            unknown = artifacts._active_python_environment_binding()
+        self.assertEqual(
+            unknown,
+            artifacts._unknown_active_python_environment(
+                "ACTIVE_PYTHON_ENVIRONMENT_CAPTURE_FAILED"
+            ),
+        )
+
+    def test_harness_environment_drift_blocks_scoring(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        binding = _binding()
+        changed_environment = copy.deepcopy(
+            binding["harness_python_environment"]
+        )
+        changed_environment["visible_distributions_sha256"] = "f" * 64
+        with mock.patch.object(
+            artifacts,
+            "_active_python_environment_binding",
+            return_value=changed_environment,
+        ):
+            completed = complete_execution_binding(
+                binding,
+                provider_reported_candidates=["fixture-model"],
+                evidence_source="provider_result_modelUsage",
+                raw_result_envelope="fixture",
+                final_answer="fixture",
+                runtime_root=HERE,
+                runtime_command=["fixture"],
+            )
+        self.assertEqual(
+            completed["post_dispatch_harness_python_environment"][
+                "comparison"
+            ],
+            "DRIFTED",
+        )
+        self.assertEqual(
+            scoring_block_reason(asdict(_manifest(completed))),
+            "harness_python_environment_drift",
+        )
+
+    def test_subject_environment_linkage_cannot_be_promoted(self) -> None:
+        binding = _binding()
+        binding["subject_environment_linkage"].update(
+            {
+                "status": "MATCHED",
+                "harness_to_subject_environment": "SAME",
+                "evidence_source": "EXECUTABLE_NAME",
+                "coverage": "FULL",
+                "reason": None,
+            }
+        )
+        self.assertIn(
+            "subject environment linkage is overstated",
+            validate_execution_binding(binding),
+        )
+
+    def test_environment_evidence_cannot_be_laundered_by_outer_digests(
+        self,
+    ) -> None:
+        import operant_lab.artifacts as artifacts
+
+        def binding_with_known_environment(
+            *,
+            completed: bool = False,
+        ) -> dict:
+            with mock.patch.object(
+                artifacts,
+                "_distribution_metadata_snapshot",
+                return_value=[{"name": "fixture", "version": "1.0"}],
+            ):
+                return _binding(
+                    candidates=["fixture-model"] if completed else None
+                )
+
+        def rehash_pre(binding: dict) -> None:
+            binding["pre_dispatch_sha256"] = artifacts._canonical_hash(
+                {
+                    **{
+                        key: value
+                        for key, value in binding.items()
+                        if key
+                        not in {
+                            "model_observation",
+                            "post_dispatch_runtime",
+                            "post_dispatch_harness_python_environment",
+                            "pre_dispatch_sha256",
+                            "completion_sha256",
+                        }
+                    },
+                    "requested_model_id": binding["model_observation"][
+                        "requested_model_id"
+                    ],
+                }
+            )
+
+        for field_name, replacement in (
+            ("visible_distribution_count", True),
+            ("visible_distribution_count", 10**100),
+            ("visible_distributions_sha256", int("1" * 64)),
+            ("python_executable_name", "/private/python"),
+            ("python_executable_name", "python\nprivate"),
+        ):
+            binding = binding_with_known_environment()
+            binding["harness_python_environment"][field_name] = replacement
+            rehash_pre(binding)
+            with self.subTest(field=field_name, replacement=type(replacement)):
+                self.assertIn(
+                    "harness Python environment binding is invalid",
+                    validate_execution_binding(binding),
+                )
+
+        binding = binding_with_known_environment()
+        binding["harness_python_environment"]["status"] = "UNKNOWN"
+        rehash_pre(binding)
+        self.assertIn(
+            "unknown harness Python environment carries evidence",
+            validate_execution_binding(binding),
+        )
+
+        binding = binding_with_known_environment()
+        binding["subject_environment_linkage"].update(
+            {
+                "status": "MATCHED",
+                "harness_to_subject_environment": "SAME",
+                "evidence_source": "EXECUTABLE_NAME",
+                "coverage": "FULL",
+                "reason": None,
+            }
+        )
+        rehash_pre(binding)
+        self.assertIn(
+            "subject environment linkage is overstated",
+            validate_execution_binding(binding),
+        )
+
+        for post_hash, comparison in (
+            (None, "DRIFTED"),
+            ("f" * 64, "MATCHED"),
+        ):
+            binding = binding_with_known_environment(completed=True)
+            manifest = asdict(_manifest(binding))
+            persisted_binding = manifest["execution_binding"]
+            post = persisted_binding[
+                "post_dispatch_harness_python_environment"
+            ]
+            if post_hash is not None:
+                post["environment_sha256"] = post_hash
+            post["comparison"] = comparison
+            persisted_binding["completion_sha256"] = artifacts._canonical_hash(
+                {
+                    key: value
+                    for key, value in persisted_binding.items()
+                    if key != "completion_sha256"
+                }
+            )
+            manifest["manifest_core_sha256"] = artifacts._canonical_hash(
+                {
+                    key: value
+                    for key, value in manifest.items()
+                    if key != "manifest_core_sha256"
+                }
+            )
+            with self.subTest(post_hash=post_hash, comparison=comparison):
+                self.assertIn(
+                    "post-dispatch Python environment binding is invalid",
+                    validate_execution_binding(persisted_binding),
+                )
+                self.assertEqual(
+                    scoring_block_reason(manifest),
+                    "invalid_execution_binding",
+                )
 
     def test_subject_runtime_binds_bytes_without_invoking_executable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -727,7 +955,7 @@ class ExecutionBindingTests(unittest.TestCase):
 
     def test_manifest_core_and_schema_downgrade_are_fail_closed(self) -> None:
         manifest = asdict(_manifest(_binding(candidates=["fixture-model"])))
-        self.assertEqual(validate_run_manifest_v7(manifest), [])
+        self.assertEqual(validate_run_manifest_v8(manifest), [])
         for field_name, replacement in (
             ("subject_shell", "relabelled-shell"),
             ("evaluation_role", "SMOKE_ONLY"),
@@ -739,7 +967,7 @@ class ExecutionBindingTests(unittest.TestCase):
             with self.subTest(field=field_name):
                 self.assertIn(
                     "manifest core digest mismatch",
-                    validate_run_manifest_v7(changed),
+                    validate_run_manifest_v8(changed),
                 )
                 self.assertEqual(
                     scoring_block_reason(changed),
@@ -753,6 +981,7 @@ class ExecutionBindingTests(unittest.TestCase):
             "operant-run-manifest.v4",
             "operant-run-manifest.v5",
             "operant-run-manifest.v6",
+            "operant-run-manifest.v7",
         ):
             downgraded = copy.deepcopy(manifest)
             downgraded["manifest_schema"] = schema
@@ -770,6 +999,9 @@ class ExecutionBindingTests(unittest.TestCase):
         historical_binding.pop("subject_runtime")
         historical_binding.pop("post_dispatch_runtime")
         historical_binding.pop("process_image_identity")
+        historical_binding.pop("harness_python_environment")
+        historical_binding.pop("post_dispatch_harness_python_environment")
+        historical_binding.pop("subject_environment_linkage")
         historical_binding["source_state"].pop("reconstruction")
         pre_dispatch = {
             **{
@@ -807,6 +1039,9 @@ class ExecutionBindingTests(unittest.TestCase):
         historical_binding.pop("subject_runtime")
         historical_binding.pop("post_dispatch_runtime")
         historical_binding.pop("process_image_identity")
+        historical_binding.pop("harness_python_environment")
+        historical_binding.pop("post_dispatch_harness_python_environment")
+        historical_binding.pop("subject_environment_linkage")
         pre_dispatch = {
             **{
                 key: value
@@ -848,6 +1083,9 @@ class ExecutionBindingTests(unittest.TestCase):
         historical_binding["schema"] = "operant-execution-binding.v3"
         historical_binding.pop("post_dispatch_runtime")
         historical_binding.pop("process_image_identity")
+        historical_binding.pop("harness_python_environment")
+        historical_binding.pop("post_dispatch_harness_python_environment")
+        historical_binding.pop("subject_environment_linkage")
         pre_dispatch = {
             **{
                 key: value
@@ -890,6 +1128,9 @@ class ExecutionBindingTests(unittest.TestCase):
         )
         historical_binding["schema"] = "operant-execution-binding.v4"
         historical_binding.pop("process_image_identity")
+        historical_binding.pop("harness_python_environment")
+        historical_binding.pop("post_dispatch_harness_python_environment")
+        historical_binding.pop("subject_environment_linkage")
         pre_dispatch = {
             **{
                 key: value
@@ -927,6 +1168,55 @@ class ExecutionBindingTests(unittest.TestCase):
             }
         )
         self.assertEqual(validate_run_manifest_v6(historical_manifest), [])
+        self.assertIsNone(scoring_block_reason(historical_manifest))
+
+    def test_genuine_historical_v7_v5_receipt_remains_interpretable(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        historical_binding = copy.deepcopy(
+            _binding(candidates=["fixture-model"])
+        )
+        historical_binding["schema"] = "operant-execution-binding.v5"
+        historical_binding.pop("harness_python_environment")
+        historical_binding.pop("post_dispatch_harness_python_environment")
+        historical_binding.pop("subject_environment_linkage")
+        pre_dispatch = {
+            **{
+                key: value
+                for key, value in historical_binding.items()
+                if key
+                not in {
+                    "model_observation",
+                    "post_dispatch_runtime",
+                    "pre_dispatch_sha256",
+                    "completion_sha256",
+                }
+            },
+            "requested_model_id": historical_binding["model_observation"][
+                "requested_model_id"
+            ],
+        }
+        historical_binding["pre_dispatch_sha256"] = artifacts._canonical_hash(
+            pre_dispatch
+        )
+        historical_binding["completion_sha256"] = artifacts._canonical_hash(
+            {
+                key: value
+                for key, value in historical_binding.items()
+                if key != "completion_sha256"
+            }
+        )
+        historical_manifest = asdict(_manifest(_binding()))
+        historical_manifest["manifest_schema"] = "operant-run-manifest.v7"
+        historical_manifest["execution_binding"] = historical_binding
+        historical_manifest["manifest_core_sha256"] = artifacts._canonical_hash(
+            {
+                key: value
+                for key, value in historical_manifest.items()
+                if key != "manifest_core_sha256"
+            }
+        )
+        self.assertEqual(validate_run_manifest_v7(historical_manifest), [])
         self.assertIsNone(scoring_block_reason(historical_manifest))
 
     def test_contradictory_capture_states_and_nonfinite_cost_are_invalid(self) -> None:
@@ -1013,6 +1303,7 @@ class ExecutionBindingTests(unittest.TestCase):
                 self.assertTrue(validate_run_manifest_v5(value))
                 self.assertTrue(validate_run_manifest_v6(value))
                 self.assertTrue(validate_run_manifest_v7(value))
+                self.assertTrue(validate_run_manifest_v8(value))
                 expected = (
                     None
                     if isinstance(value, dict)
@@ -1039,6 +1330,21 @@ class ExecutionBindingTests(unittest.TestCase):
             ("execution_binding.process_image_identity", []),
             ("execution_binding.process_image_identity.status", []),
             ("execution_binding.process_image_identity.reason", {}),
+            ("execution_binding.harness_python_environment", []),
+            ("execution_binding.harness_python_environment.status", []),
+            (
+                "execution_binding.harness_python_environment."
+                "visible_distribution_count",
+                True,
+            ),
+            ("execution_binding.post_dispatch_harness_python_environment", []),
+            (
+                "execution_binding.post_dispatch_harness_python_environment."
+                "comparison",
+                {},
+            ),
+            ("execution_binding.subject_environment_linkage", []),
+            ("execution_binding.subject_environment_linkage.status", "MATCHED"),
         )
         baseline = asdict(_manifest(_binding()))
         for path, value in mutations:

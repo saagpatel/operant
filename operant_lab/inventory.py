@@ -19,6 +19,7 @@ from .artifacts import (
     validate_run_manifest_v5,
     validate_run_manifest_v6,
     validate_run_manifest_v7,
+    validate_run_manifest_v8,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -197,6 +198,7 @@ def _manifest_binding_projection(
         "operant-run-manifest.v5",
         "operant-run-manifest.v6",
         "operant-run-manifest.v7",
+        "operant-run-manifest.v8",
     }:
         return unknown
     if schema in {
@@ -205,6 +207,7 @@ def _manifest_binding_projection(
         "operant-run-manifest.v5",
         "operant-run-manifest.v6",
         "operant-run-manifest.v7",
+        "operant-run-manifest.v8",
     }:
         execution = manifest.get("execution_binding")
         validator = {
@@ -213,6 +216,7 @@ def _manifest_binding_projection(
             "operant-run-manifest.v5": validate_run_manifest_v5,
             "operant-run-manifest.v6": validate_run_manifest_v6,
             "operant-run-manifest.v7": validate_run_manifest_v7,
+            "operant-run-manifest.v8": validate_run_manifest_v8,
         }[schema]
         if (
             not isinstance(execution, dict)

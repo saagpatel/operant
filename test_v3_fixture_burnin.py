@@ -142,6 +142,18 @@ class V3FixtureBurnInTests(unittest.TestCase):
                     ]["reason"],
                     "KERNEL_EXEC_ATTESTATION_NOT_CONFIGURED",
                 )
+                self.assertIn(
+                    receipt["manifest"]["execution_binding"][
+                        "post_dispatch_harness_python_environment"
+                    ]["comparison"],
+                    {"MATCHED", "UNKNOWN"},
+                )
+                self.assertEqual(
+                    receipt["manifest"]["execution_binding"][
+                        "subject_environment_linkage"
+                    ]["reason"],
+                    "SUBPROCESS_ENVIRONMENT_NOT_OBSERVED",
+                )
                 self.assertEqual(observation["final_answer_sha256"], stable_hash(answer))
                 self.assertEqual(receipt["final_answer"], answer)
                 self.assertEqual(receipt["parse_status"], "ok")
@@ -522,6 +534,18 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 ]["reason"],
                 "KERNEL_EXEC_ATTESTATION_NOT_CONFIGURED",
             )
+            self.assertIn(
+                receipt["manifest"]["execution_binding"][
+                    "post_dispatch_harness_python_environment"
+                ]["comparison"],
+                {"MATCHED", "UNKNOWN"},
+            )
+            self.assertEqual(
+                receipt["manifest"]["execution_binding"][
+                    "subject_environment_linkage"
+                ]["reason"],
+                "SUBPROCESS_ENVIRONMENT_NOT_OBSERVED",
+            )
             self.assertNotEqual(
                 receipt["manifest"]["execution_binding"]["completion_sha256"],
                 "UNKNOWN",
@@ -729,6 +753,16 @@ class V3FixtureBurnInTests(unittest.TestCase):
             )
             self.assertEqual(
                 binding["process_image_identity"]["reason"],
+                "NO_LOCAL_PROCESS_DISPATCH",
+            )
+            self.assertIn(
+                binding["post_dispatch_harness_python_environment"][
+                    "comparison"
+                ],
+                {"MATCHED", "UNKNOWN"},
+            )
+            self.assertEqual(
+                binding["subject_environment_linkage"]["reason"],
                 "NO_LOCAL_PROCESS_DISPATCH",
             )
             self.assertEqual(
