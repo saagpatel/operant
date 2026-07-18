@@ -3,7 +3,46 @@ import type { OperantCorpus } from "./types";
 
 const corpus: OperantCorpus = {
   "calibration": {
-    "generated_at": "2026-06-27T06:24:28Z",
+    "generated_at": "2026-07-17T22:53:40Z",
+    "claim_status": {
+      "historical_reference_profiles": {
+        "cross_model_ranking": "NOT_DURABLE",
+        "dispatch_freshness": "UNKNOWN",
+        "evidence_class": "historical_unverified_receipt",
+        "historical_as_run_corpus_identity": "UNKNOWN",
+        "historical_as_run_protocol_identity": "UNKNOWN",
+        "independent_replication": "UNKNOWN",
+        "inferential_statistics_as_model_evidence": "NOT_DURABLE",
+        "score_recalculation_from_bound_bytes": "SUPPORTED",
+        "served_model_identity": "UNKNOWN"
+      },
+      "local_lab_profiles": {
+        "as_run_private_case_overlay_identity": "UNKNOWN",
+        "cross_profile_ranking": "NOT_DURABLE",
+        "current_public_corpus_identity": "SUPPORTED",
+        "current_public_protocol_identity": "SUPPORTED",
+        "evidence_class": "self_reported_local_receipt",
+        "independent_as_run_score_recalculation": "UNKNOWN",
+        "independent_replication": "UNKNOWN",
+        "private_case_overlay_identity": "CURRENT_CHECKOUT_HASH_BOUND",
+        "score_recalculation_from_bound_bytes": "CURRENT_CHECKOUT_ONLY",
+        "served_model_identity": "UNKNOWN",
+        "source_receipt_byte_binding": "SUPPORTED"
+      }
+    },
+    "claims_at_risk": [
+      "Named-model ordering or significance derived from historical reference receipts",
+      "Historical as-run corpus or protocol identity inferred from current public files",
+      "Equivalence of a self-service OCS result to any named model",
+      "Served-model identity for historical or local native-shell receipts",
+      "Deployment safety, certification, or production readiness inferred from OCS"
+    ],
+    "evidence_binding": {
+      "schema": "operant-public-evidence-binding.v6",
+      "claim_boundary": "Source-index hashes bind exported aggregate calculations to imported score rows. Current-public corpus and protocol hashes identify this checkout only; they are not the historical as-run inputs. Historical as-run corpus, protocol, dispatch freshness, and served-model identity remain UNKNOWN. Local lab receipts are self-reported. Their local lineage checkpoint proves only unsigned structural consistency against a surviving checkpoint, not authorship or immutable history. Current private follow-up case bytes are hash-bound but not published and are not proven to be the as-run oracle bytes; independent as-run recalculation remains UNKNOWN. Neither source supports durable cross-model ranking, model-equivalence, deployment-safety, or certification claims.",
+      "historical_as_run_corpus": "UNKNOWN",
+      "historical_as_run_protocol": "UNKNOWN"
+    },
     "included_lab_labels": [
       "codex-cli-gpt55-decision-gap-r1",
       "codex-gpt55-decision-r1",

@@ -11,9 +11,26 @@ export interface CalibrationProfile {
 	subject_shell: string;
 }
 
+/** Integrity status attached to one class of public calculation profiles. */
+export type ProfileClaimStatus = Record<string, string>;
+
+/** Public, bounded evidence summary. Receipt inventories stay out of the Worker. */
+export interface PublicEvidenceBinding {
+	schema: string;
+	claim_boundary: string;
+	historical_as_run_corpus: string;
+	historical_as_run_protocol: string;
+}
+
 /** The top-level calibration-profiles.json structure. */
 export interface CalibrationResults {
 	generated_at: string;
+	claim_status: {
+		historical_reference_profiles: ProfileClaimStatus;
+		local_lab_profiles: ProfileClaimStatus;
+	};
+	claims_at_risk: string[];
+	evidence_binding: PublicEvidenceBinding;
 	included_lab_labels: string[];
 	models: CalibrationProfile[];
 	presentation: string;

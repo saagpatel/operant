@@ -213,7 +213,8 @@ def main(argv: list[str] | None = None) -> int:
     err = decision.get("errored") or []
     if rl or err:
         print(
-            f"!! {len(rl)} rate-limited + {len(err)} errored decision dispatches — scores are INCOMPLETE."
+            f"!! {len(rl)} rate-limited + {len(err)} errored decision dispatches "
+            "— scores are INCOMPLETE."
         )
     print("\nWrote:")
     for name, p in paths.items():

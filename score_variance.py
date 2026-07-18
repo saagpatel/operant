@@ -565,8 +565,14 @@ def render_markdown(results: list[dict]) -> str:
     if not results:
         return "(no data)"
 
-    header = "| Model | Repeats | OCS mean±stdev | OCS [min,max] | Acc mean±stdev | Acc [min,max] | NonUnanimous |"
-    sep = "|-------|---------|----------------|---------------|----------------|---------------|--------------|"
+    header = (
+        "| Model | Repeats | OCS mean±stdev | OCS [min,max] | Acc mean±stdev | "
+        "Acc [min,max] | NonUnanimous |"
+    )
+    sep = (
+        "|-------|---------|----------------|---------------|----------------|"
+        "---------------|--------------|"
+    )
     lines = [header, sep]
 
     for r in results:

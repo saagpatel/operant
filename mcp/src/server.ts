@@ -13,7 +13,7 @@ import type { AxisName } from "./types";
 
 const tools = createOperantTools(corpus);
 
-export const SERVER_INFO = { name: "operant-mcp", version: "0.1.0" };
+export const SERVER_INFO = { name: "operant-mcp", version: "0.1.1" };
 
 const AXIS_VALUES = [
 	"refusal-calibration",
@@ -24,9 +24,11 @@ const AXIS_VALUES = [
 
 const INSTRUCTIONS =
 	"Read-only access to the OPERANT benchmark: AI operating-agent calibration " +
-	"results, methodology, and case library. OPERANT measures whether an agent " +
+	"methodology, case library, and retained calculation views. " +
+	"The named-model rows are not durable performance claims and must not be ranked. " +
+	"OPERANT measures whether an agent " +
 	"correctly discriminates guarded vs. safe actions (OCS = TPR - FPR). " +
-	"Start with get_results for model profiles or get_methodology for benchmark design; " +
+	"Start with get_results for the evidence boundary or get_methodology for benchmark design; " +
 	"use list_cases and get_case to explore the case library.";
 
 const jsonResult = (data: unknown) => ({
@@ -44,13 +46,12 @@ export function buildServer(): McpServer {
 	server.registerTool(
 		"get_results",
 		{
-			title: "Get calibration results",
+			title: "Get retained calculation profiles",
 			description:
-				"Return all model calibration profiles (OCS mean/stdev, orchestration mean, " +
-				"run_family, subject_shell), plus generated_at, included_lab_labels, and the " +
-				"not-a-flat-leaderboard caveat. Models are returned as-is — do not pre-sort " +
-				"into a naive leaderboard. Single-run models (null stdev) must not be ranked " +
-				"as-if reliable against multi-run models.",
+				"Return retained model calculation profiles plus generated_at, claim_status, " +
+				"claims_at_risk, and the bounded evidence_binding. These rows are not durable " +
+				"named-model performance claims. Do not rank them or treat stdev/significance " +
+				"as reliable model evidence.",
 			inputSchema: {},
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},
@@ -60,11 +61,12 @@ export function buildServer(): McpServer {
 	server.registerTool(
 		"compare_models",
 		{
-			title: "Compare two models",
+			title: "Inspect two retained profiles",
 			description:
-				"Side-by-side comparison of two models by display_name (case-insensitive substring). " +
+				"Place two retained calculation profiles side by side by display_name substring. " +
 				"Returns ocs_mean, ocs_stdev, orchestration_mean, run_family, and subject_shell for each, " +
-				"plus a single_run_note where stdev is null. " +
+				"plus comparison_status=NOT_DURABLE and the public claim_status. This is not evidence " +
+				"that either named model outperforms, equals, or differs significantly from the other. " +
 				"If a name is ambiguous or not found, returns an error listing all available display_names.",
 			inputSchema: {
 				model_a: z
@@ -146,9 +148,9 @@ export function buildServer(): McpServer {
 		"results",
 		"operant://results",
 		{
-			title: "Calibration Results",
+			title: "Retained Calculation Profiles",
 			description:
-				"All model calibration profiles from the OPERANT benchmark (JSON)",
+				"Historical/local calculation profiles with the public integrity boundary (JSON)",
 			mimeType: "application/json",
 		},
 		async (uri) => ({
@@ -218,7 +220,9 @@ export function buildServer(): McpServer {
 							"A high OCS requires both directions: refusing guard-warranted cases AND proceeding " +
 							"on benign-open cases. An agent that refuses everything does not score well.\n\n" +
 							"Use `get_methodology` for the full axis breakdown and scoring details, " +
-							"and `get_results` to compare your score against published model profiles.",
+							"and `get_results` to inspect the public evidence boundary. Do not compare a new " +
+							"score to the retained named-model rows as if they were equivalent treatments or " +
+							"durable performance claims.",
 					},
 				},
 			],

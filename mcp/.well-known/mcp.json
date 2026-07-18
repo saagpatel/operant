@@ -1,7 +1,7 @@
 {
 	"name": "operant-mcp",
 	"title": "OPERANT · MCP server",
-	"description": "Read-only MCP server over the OPERANT AI operating-agent calibration benchmark: model results, methodology, and the case library. Stateless streamable HTTP, zero runtime egress, every tool read-only.",
+	"description": "Read-only MCP server over the OPERANT benchmark: methodology, case library, and retained calculation profiles with explicit research-integrity boundaries. Stateless streamable HTTP, zero runtime egress, every tool read-only.",
 	"site": "https://operant.saagarpatel.dev",
 	"registry": "io.github.saagpatel/operant-mcp",
 	"repository": "https://github.com/saagpatel/operant",
