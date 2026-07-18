@@ -1225,13 +1225,13 @@ def _export_public_artifacts_locked(
             path.stem,
             "UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY",
         )
+    split_registry["private_overlay_digests"] = evidence_binding[
+        "private_case_overlays"
+    ]
     if out_dir.resolve() == (ROOT / "lab" / "public").resolve():
         split_registry["evidence_bindings"][
             "lab/public/benchmark-card.json"
         ] = _sha256(out_dir / "benchmark-card.json")
-        split_registry["private_overlay_digests"] = evidence_binding[
-            "private_case_overlays"
-        ]
     write_json_atomic(out_dir / "evaluation-split-registry.json", split_registry)
     write_text_atomic(out_dir / "README.md", public_readme)
     write_text_atomic(out_dir / "methodology.md", methodology)

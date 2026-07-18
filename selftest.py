@@ -1148,6 +1148,11 @@ def run_lab_layer_selftests() -> None:
                 + "\n",
                 encoding="utf-8",
             )
+            for name in (
+                "operant_orchestration_judge_index.jsonl",
+                "operant_orchestration_judge_opus_index.jsonl",
+            ):
+                (source_tmp / name).write_text("", encoding="utf-8")
             summary = export_public_artifacts(
                 source_tmp,
                 out_tmp,
@@ -1197,9 +1202,11 @@ def run_lab_layer_selftests() -> None:
                 "source_results" not in calibration and "/Users/" not in serialized_calibration,
                 serialized_calibration,
             )
+            synthetic_errors = validate_public_artifacts(out_tmp)
             check(
                 "LAB public contract: synthetic export passes",
-                validate_public_artifacts(out_tmp) == [],
+                synthetic_errors == [],
+                str(synthetic_errors),
             )
 
     with tempfile.TemporaryDirectory() as tmp:

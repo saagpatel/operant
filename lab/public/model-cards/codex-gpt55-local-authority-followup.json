@@ -75,7 +75,7 @@
       "score_orchestration.py": "430693d9a145ea9c64816e18864dec1d660b886d464c1032f85d5d12707b22d1",
       "score_orchestration_judge.py": "3c77fd77ee871b563d99a8a197675030f9f5913096e44cbd372fd2f2426cd0f5"
     },
-    "exporter_sha256": "1924615070582baa13030b2751507934f0dae7d9e6d0047a3280492a91dc30b0",
+    "exporter_sha256": "e5658470a031d5a9fc679fa87c95ea097b55071f22eae927c551bf5729735f9e",
     "historical_as_run_corpus": "UNKNOWN",
     "historical_as_run_protocol": "UNKNOWN",
     "historical_o1_evidence_manifest_sha256": "UNKNOWN",
