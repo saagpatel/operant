@@ -328,6 +328,7 @@ ready for public surfacing:
 ```bash
 python3 operant_lab_cli.py export-public \
   --include-lab-runs \
+  --private-case-overlays <your-private-cases-path> \
   --lab-labels \
     codex-gpt55-exact-smoke-r1 \
     codex-gpt55-decision-r1 \

@@ -1153,11 +1153,18 @@ def run_lab_layer_selftests() -> None:
                 "operant_orchestration_judge_opus_index.jsonl",
             ):
                 (source_tmp / name).write_text("", encoding="utf-8")
+            private_cases = Path(tmp) / "private"
+            private_cases.mkdir()
+            (private_cases / "synthetic-cases.json").write_text(
+                "{}\n",
+                encoding="utf-8",
+            )
             summary = export_public_artifacts(
                 source_tmp,
                 out_tmp,
                 lab_runs_dir=runs_dir,
                 lab_labels={label},
+                private_case_overlays_dir=private_cases,
             )
             check(
                 "LAB export: synthetic source imports model cards",

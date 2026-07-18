@@ -191,6 +191,7 @@ class PublicGenerationTests(unittest.TestCase):
             *,
             lab_runs_dir: Path | None,
             lab_labels: set[str] | None,
+            private_case_overlays_dir: Path | None,
         ) -> dict[str, object]:
             nonlocal active, maximum_active
             with active_lock:

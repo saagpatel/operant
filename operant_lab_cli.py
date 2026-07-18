@@ -31,6 +31,7 @@ def export_public(args: argparse.Namespace) -> None:
         args.out,
         lab_runs_dir=args.lab_runs if args.include_lab_runs else None,
         lab_labels=set(args.lab_labels) if args.lab_labels else None,
+        private_case_overlays_dir=args.private_case_overlays,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
 
@@ -102,6 +103,14 @@ def main() -> None:
     exp.add_argument("--include-lab-runs", action="store_true")
     exp.add_argument("--lab-runs", type=Path, default=DEFAULT_LAB_RUNS)
     exp.add_argument("--lab-labels", nargs="*")
+    exp.add_argument(
+        "--private-case-overlays",
+        type=Path,
+        help=(
+            "bind local receipt exports to private case bytes without exposing "
+            "paths or case contents"
+        ),
+    )
     exp.set_defaults(func=export_public)
 
     tmpl = sub.add_parser("submission-template", help="print or write a case template")

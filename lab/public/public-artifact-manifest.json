@@ -7,19 +7,19 @@
     },
     "benchmark-card.json": {
       "bytes": 15830,
-      "sha256": "2df94dfd0907465aa67b19405824f969bc59199623dce1a6dadd3474524e1785"
+      "sha256": "00a14ee38daa6c88d66284b73bb1c00cc358e713f597f3a294e74b7e4483f683"
     },
     "calibration-profiles.json": {
       "bytes": 18869,
-      "sha256": "0d666cbeac1897360efe8c336bd5e5213bb4548279563163bde81b6ced2fd694"
+      "sha256": "37502fb75fd9cc878389791854710f782f6596e5595671781e03c014ac3fde85"
     },
     "evaluation-split-registry.json": {
       "bytes": 5952,
-      "sha256": "1764d2964662a9a0f88cc11b4fc5839f28e25ab383d3aa6a54e14e45946f2943"
+      "sha256": "ba612f5bc6d4c9a3a203e6af6623143a883b4271357e23b9fac7f25b4cb83d8d"
     },
     "lab-run-status.json": {
       "bytes": 5966,
-      "sha256": "eabb9f6433055b3ae8ce045abcf145f7c395af9ce9b2469743e25018cb6dbce2"
+      "sha256": "846c991ac7fc33a9603fc35f6193ddee5b29b8c9406813f324174dcc4616f9b4"
     },
     "methodology.md": {
       "bytes": 3314,
@@ -31,44 +31,44 @@
     },
     "model-cards/codex-cli-gpt55-decision-gap.json": {
       "bytes": 18589,
-      "sha256": "c27ddc7ec878eefcac0dbbaddadf8515430ec5c6b01f2c750ab1b31281883118"
+      "sha256": "6b4869743a0aa64a53f735dc78e9f70c6f74dc920a253ccf95286642db2a6d1a"
     },
     "model-cards/codex-gpt55-decision.json": {
       "bytes": 20565,
-      "sha256": "5340a154f9c09f65f860fcc387974c90f07fcd8a31676680fccd4d1574365bea"
+      "sha256": "5a56d3b4578bae4061f7275d3a9edd3e3edee42d5f657beef94d07e45892b176"
     },
     "model-cards/codex-gpt55-exact-smoke.json": {
       "bytes": 16544,
-      "sha256": "350a71afca68852861e93eb3e44d851b69c5646844548f7d1146a3376e24f187"
+      "sha256": "fbefc4a6985bf1c6796e100de1fa0972e231d5f59634d197c7b9690354d9ce78"
     },
     "model-cards/codex-gpt55-local-authority-followup.json": {
       "bytes": 17149,
-      "sha256": "39fe2015d89e03674ed36dda7b212047275a763f2951c5e79155118a992dcc4e"
+      "sha256": "ea3759ee0865a928cd5a654eda61855f6fc70aa89cde1289539c9ec6481c232c"
     },
     "model-cards/codex-gpt55-refusal-calibration-followup.json": {
       "bytes": 16814,
-      "sha256": "2f9ca94320c26b36018ef7cc721d2f8a5a749dfde5f1f5eb1614a0b55e43c44d"
+      "sha256": "eb3048fea76303d2639931f0d755f21be5ca2de3a11dafe8f2cfd19d096837e8"
     },
     "model-cards/codex-gpt55-sanctioned-path-followup.json": {
       "bytes": 16870,
-      "sha256": "2a3e8f5c7054c6687917f122e5cf02461e1f7bcaeac063d49023b06be8bec369"
+      "sha256": "9e47d86c96d8de3901e30d51ca16fe6b0ee8d35658fe67bf21fa44e4eea818e8"
     },
     "model-cards/haiku.json": {
       "bytes": 20884,
-      "sha256": "6f9abf1ad63e7343850b88b0a62d3f7c72b60e3e617164abb06e6a5f85ce8801"
+      "sha256": "f1ab7ce6e4c8378a7be7edb439d286aa103454d32c5bc316b10c0e374dc4ac9b"
     },
     "model-cards/opus.json": {
       "bytes": 41094,
-      "sha256": "cb92609afe564d66e88653753b79f84fa25a8f357d99ef720f158a368879b986"
+      "sha256": "d1b414329f905a34207af120782b015580e7a54a3d92b4fb01a418ddca290625"
     },
     "model-cards/sonnet.json": {
       "bytes": 41281,
-      "sha256": "2eb4d4e5c2a4e243b9e59204b9ba4c93f9fda6b3dd1a83e64b7b99cb67bd02cf"
+      "sha256": "49851cb14bb05160ab759a4047e72adb1022ef7a4c39cc58b200c251e63b410b"
     }
   },
   "authorship": "UNKNOWN",
   "commit_semantics": "This atomically replaced marker binds the exact regular-file set and bytes of one public export generation, excluding this marker itself.",
   "external_immutability": "UNKNOWN",
-  "generation_sha256": "e777447f79d094c1dc39713653d9bd3cf9b46fd720d1abc813b96295c0854222",
+  "generation_sha256": "1496360e644a886467e1f7de9739fa2a86b254b26307dacfd2f327a354a1582a",
   "schema": "operant-public-generation-manifest.v1"
 }

@@ -178,6 +178,7 @@ def build_evidence_binding(
     *,
     lab_runs_dir: Path | None = None,
     lab_labels: set[str] | None = None,
+    private_case_overlays_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Bind public summaries to private bytes without exposing private paths."""
     source_indexes = _digest_inventory(
@@ -208,8 +209,13 @@ def build_evidence_binding(
             ROOT / "operant_lab" / "public_generation.py",
         ]
     )
+    private_case_overlays_root = (
+        private_case_overlays_dir
+        if private_case_overlays_dir is not None
+        else ROOT / "lab" / "followup" / "private"
+    )
     private_case_overlays = _digest_inventory(
-        sorted((ROOT / "lab" / "followup" / "private").glob("*cases*.json"))
+        sorted(private_case_overlays_root.glob("*cases*.json"))
     )
     lab_receipts = _lab_receipt_digests(lab_runs_dir, lab_labels)
     receipt_lineage = (
@@ -1012,11 +1018,13 @@ def _export_public_artifacts_locked(
     *,
     lab_runs_dir: Path | None = None,
     lab_labels: set[str] | None = None,
+    private_case_overlays_dir: Path | None = None,
 ) -> dict[str, Any]:
     evidence_binding = build_evidence_binding(
         source_results,
         lab_runs_dir=lab_runs_dir,
         lab_labels=lab_labels,
+        private_case_overlays_dir=private_case_overlays_dir,
     )
     canonical_decision_rows = read_jsonl(source_results / "operant_index.jsonl")
     judge_rows = read_jsonl(source_results / "operant_orchestration_judge_index.jsonl")
@@ -1063,6 +1071,7 @@ def _export_public_artifacts_locked(
         source_results,
         lab_runs_dir=lab_runs_dir,
         lab_labels=lab_labels,
+        private_case_overlays_dir=private_case_overlays_dir,
     )
     if final_evidence_binding != evidence_binding:
         raise RuntimeError(
@@ -1259,6 +1268,7 @@ def export_public_artifacts(
     *,
     lab_runs_dir: Path | None = None,
     lab_labels: set[str] | None = None,
+    private_case_overlays_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Serialize and commit one exact public artifact generation."""
     with public_generation_lock(out_dir, shared=False, create=True):
@@ -1267,4 +1277,5 @@ def export_public_artifacts(
             out_dir,
             lab_runs_dir=lab_runs_dir,
             lab_labels=lab_labels,
+            private_case_overlays_dir=private_case_overlays_dir,
         )
