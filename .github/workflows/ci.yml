@@ -19,14 +19,47 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+
       - name: Install tooling
         run: python -m pip install --upgrade pip ruff
 
       - name: Compile Python files
-        run: python -m py_compile operant_lab/*.py operant_lab_cli.py run_codex_app.py run_codex_cli.py run_operant.py run_orchestration.py run_suite.py score_operant.py score_orchestration.py score_orchestration_judge.py score_suite.py score_variance.py rescore_orchestration.py gen_cases.py draft_validate.py score_my_agent.py selftest_selfserve.py selftest.py
+        run: python -m compileall -q operant_lab *.py
 
       - name: Run selftest
-        run: python selftest.py
+        run: |
+          python selftest.py
+          python -m unittest discover -p 'test_*.py'
+          python verify_evaluation_split.py
 
       - name: Run Ruff
-        run: ruff check operant_lab operant_lab_cli.py run_codex_app.py run_codex_cli.py run_operant.py run_orchestration.py run_suite.py score_operant.py score_orchestration.py score_orchestration_judge.py score_suite.py score_variance.py rescore_orchestration.py gen_cases.py draft_validate.py score_my_agent.py selftest_selfserve.py selftest.py
+        # These two files are hash-bound into public evidence. Preserve their
+        # exact bytes until the next governed public-artifact regeneration.
+        run: >-
+          ruff check operant_lab *.py
+          --extend-per-file-ignores
+          'score_orchestration.py:E501,score_orchestration_judge.py:E501'
+
+      - name: Install MCP dependencies
+        run: npm ci --prefix mcp
+
+      - name: Verify generated MCP artifacts
+        run: |
+          npm --prefix mcp run build:corpus
+          npm --prefix mcp run build:wellknown
+          git diff --exit-code -- mcp/src/corpus.generated.ts mcp/src/well-known.generated.ts
+
+      - name: Verify MCP contract
+        run: |
+          npm --prefix mcp run typecheck
+          npm --prefix mcp test
+          npm --prefix mcp run build:cli
+          npm --prefix mcp run probe:mcp
+          npm --prefix mcp run verify:manifest
+          npm --prefix mcp run parity

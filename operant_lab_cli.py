@@ -10,6 +10,11 @@ from pathlib import Path
 
 from operant_lab.export import export_public_artifacts
 from operant_lab.inventory import inventory_runs
+from operant_lab.lineage import (
+    initialize_receipt_lineage,
+    lineage_checkpoint,
+    validate_receipt_lineage,
+)
 from operant_lab.public_contract import validate_public_artifacts
 from operant_lab.submissions import TEMPLATE, load_submission, validate_submission
 
@@ -26,6 +31,7 @@ def export_public(args: argparse.Namespace) -> None:
         args.out,
         lab_runs_dir=args.lab_runs if args.include_lab_runs else None,
         lab_labels=set(args.lab_labels) if args.lab_labels else None,
+        private_case_overlays_dir=args.private_case_overlays,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
 
@@ -60,12 +66,31 @@ def inventory_lab_runs(args: argparse.Namespace) -> None:
 
 
 def check_public_artifacts(args: argparse.Namespace) -> None:
-    errors = validate_public_artifacts(args.public_dir)
+    errors = validate_public_artifacts(
+        args.public_dir,
+        source_results=args.source_results,
+        lab_runs_dir=args.lab_runs,
+        private_case_overlays_dir=args.private_case_overlays,
+    )
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         raise SystemExit(1)
     print(f"OK: {args.public_dir}")
+
+
+def initialize_lineage(args: argparse.Namespace) -> None:
+    initialize_receipt_lineage(args.root)
+    print(json.dumps(lineage_checkpoint(args.root), indent=2, sort_keys=True))
+
+
+def check_lineage(args: argparse.Namespace) -> None:
+    errors = validate_receipt_lineage(args.root)
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    print(json.dumps(lineage_checkpoint(args.root), indent=2, sort_keys=True))
 
 
 def main() -> None:
@@ -78,6 +103,14 @@ def main() -> None:
     exp.add_argument("--include-lab-runs", action="store_true")
     exp.add_argument("--lab-runs", type=Path, default=DEFAULT_LAB_RUNS)
     exp.add_argument("--lab-labels", nargs="*")
+    exp.add_argument(
+        "--private-case-overlays",
+        type=Path,
+        help=(
+            "bind local receipt exports to private case bytes without exposing "
+            "paths or case contents"
+        ),
+    )
     exp.set_defaults(func=export_public)
 
     tmpl = sub.add_parser("submission-template", help="print or write a case template")
@@ -102,7 +135,45 @@ def main() -> None:
         help="validate sanitized public artifact export contract",
     )
     check_public.add_argument("--public-dir", type=Path, default=DEFAULT_PUBLIC)
+    check_public.add_argument(
+        "--source-results",
+        type=Path,
+        help=(
+            "optionally recompute private source-index digests without exposing "
+            "paths or row contents"
+        ),
+    )
+    check_public.add_argument(
+        "--lab-runs",
+        type=Path,
+        help="optionally reconnect published receipt hashes to local run bytes",
+    )
+    check_public.add_argument(
+        "--private-case-overlays",
+        type=Path,
+        help=(
+            "optionally reconnect private case/oracle hashes without exposing "
+            "paths or case contents"
+        ),
+    )
     check_public.set_defaults(func=check_public_artifacts)
+
+    initialize_receipts = sub.add_parser(
+        "initialize-receipt-lineage",
+        help=(
+            "snapshot current local receipt presence without claiming "
+            "historical chronology"
+        ),
+    )
+    initialize_receipts.add_argument("--root", type=Path, default=HERE)
+    initialize_receipts.set_defaults(func=initialize_lineage)
+
+    check_receipts = sub.add_parser(
+        "check-receipt-lineage",
+        help="validate the complete local receipt set and chained journal",
+    )
+    check_receipts.add_argument("--root", type=Path, default=HERE)
+    check_receipts.set_defaults(func=check_lineage)
 
     args = ap.parse_args()
     args.func(args)

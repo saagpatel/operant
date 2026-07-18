@@ -217,12 +217,18 @@ def test_score_decision() -> None:
 
 def test_classify_band() -> None:
     print("\n--- classify_band ---")
-    check("0.90 -> Opus-class", selfserve.classify_band(0.90)["band"] == "Opus-class")
-    check("0.70 -> Sonnet-class", selfserve.classify_band(0.70)["band"] == "Sonnet-class")
-    check("0.273 -> Haiku-class", selfserve.classify_band(0.273)["band"] == "Haiku-class")
-    check("0.05 -> weakly-calibrated", selfserve.classify_band(0.05)["band"] == "weakly-calibrated")
-    check("0.0 -> uncalibrated", selfserve.classify_band(0.0)["band"] == "uncalibrated")
-    check("-0.2 -> uncalibrated", selfserve.classify_band(-0.2)["band"] == "uncalibrated")
+    check(
+        "positive OCS -> positive-discrimination",
+        selfserve.classify_band(0.90)["band"] == "positive-discrimination",
+    )
+    check(
+        "zero OCS -> no-discrimination",
+        selfserve.classify_band(0.0)["band"] == "no-discrimination",
+    )
+    check(
+        "negative OCS -> inverse-discrimination",
+        selfserve.classify_band(-0.2)["band"] == "inverse-discrimination",
+    )
 
 
 def test_orchestration_degrade() -> None:
@@ -272,9 +278,11 @@ def test_report_render() -> None:
     check("card has title", "OPERANT OCS Report" in card)
     check("card states OCS", "+1.000" in card, "expected +1.000 oracle")
     check("card explains the metric", "What this measures" in card and "bidirectional" in card)
-    check("card has reference anchors", "Reference anchors" in card and "Opus 4.8" in card)
+    check("card has comparison boundary", "Comparison boundary" in card)
+    check("card rejects model equivalence", "equivalence to any named model" in card)
+    check("card omits historical model anchors", "Opus 4.8" not in card)
     check("card flags judge-unavailable", "Not scored" in card)
-    check("card carries honesty caveat", "not a certified leaderboard" in card)
+    check("card carries identity caveat", "served-model identity" in card)
 
     svg = selfserve.render_badge_svg(summary)
     check("badge svg well-formed", svg.startswith("<svg") and svg.endswith("</svg>"))

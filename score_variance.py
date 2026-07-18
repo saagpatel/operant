@@ -20,6 +20,8 @@ from itertools import combinations
 from math import comb
 from pathlib import Path
 
+from operant_lab.artifacts import receipt_output_scoring_block_reason
+
 HERE = Path(__file__).resolve().parent
 
 # ---------------------------------------------------------------------------
@@ -79,7 +81,12 @@ def discover_repeat_labels(reports_dir: Path) -> dict[str, dict[int, dict[str, P
 # ---------------------------------------------------------------------------
 
 
-def score_repeat(repeat_files: dict[str, Path], cases: dict) -> tuple[dict, int]:
+def score_repeat(
+    repeat_files: dict[str, Path],
+    cases: dict,
+    *,
+    run_label: str | None = None,
+) -> tuple[dict, int]:
     """Score all reports for one repeat. Returns (aggregated_summary, missing_count)."""
     rows = []
     missing = 0
@@ -89,6 +96,14 @@ def score_repeat(repeat_files: dict[str, Path], cases: dict) -> tuple[dict, int]
             continue
         try:
             text = repeat_files[case_id].read_text(encoding="utf-8")
+            if run_label and receipt_output_scoring_block_reason(
+                HERE,
+                run_label=run_label,
+                case_id=case_id,
+                final_answer=text,
+            ):
+                missing += 1
+                continue
             row = score_one(case, text)
             rows.append(row)
         except Exception as e:
@@ -370,7 +385,12 @@ def analyse(
 
         for n in repeat_nums:
             repeat_files = repeat_map[base][n]
-            summary, missing = score_repeat(repeat_files, cases)
+            run_label = f"{base}-r{n}"
+            summary, missing = score_repeat(
+                repeat_files,
+                cases,
+                run_label=run_label,
+            )
             if not summary:
                 continue
 
@@ -383,6 +403,13 @@ def analyse(
                     continue
                 try:
                     text = repeat_files[case_id].read_text(encoding="utf-8")
+                    if receipt_output_scoring_block_reason(
+                        HERE,
+                        run_label=run_label,
+                        case_id=case_id,
+                        final_answer=text,
+                    ):
+                        continue
                     row = score_one(case, text)
                     decision = row.get("decision") or "UNPARSEABLE"
                     per_case_decisions[case_id].append(decision)
@@ -538,8 +565,14 @@ def render_markdown(results: list[dict]) -> str:
     if not results:
         return "(no data)"
 
-    header = "| Model | Repeats | OCS mean±stdev | OCS [min,max] | Acc mean±stdev | Acc [min,max] | NonUnanimous |"
-    sep = "|-------|---------|----------------|---------------|----------------|---------------|--------------|"
+    header = (
+        "| Model | Repeats | OCS mean±stdev | OCS [min,max] | Acc mean±stdev | "
+        "Acc [min,max] | NonUnanimous |"
+    )
+    sep = (
+        "|-------|---------|----------------|---------------|----------------|"
+        "---------------|--------------|"
+    )
     lines = [header, sep]
 
     for r in results:

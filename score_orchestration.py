@@ -50,6 +50,12 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
+
+from operant_lab.artifacts import (
+    filter_unblocked_index_rows,
+    receipt_output_scoring_block_reason,
+)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # Axis 3 lives in its own file with its own schema ({"cases": [...]}), not the
@@ -307,6 +313,7 @@ def main():
             raise SystemExit(f"no index at {INDEX}")
         rows = [json.loads(ln) for ln in open(INDEX) if ln.strip()]
         rows = [r for r in rows if r.get("run_label") == args.aggregate]
+        rows = filter_unblocked_index_rows(Path(HERE), rows)
         if not rows:
             raise SystemExit(f"no rows for label {args.aggregate!r}")
         summary = aggregate(rows)
@@ -330,7 +337,30 @@ def main():
     if args.case_id not in cases:
         raise SystemExit(f"unknown case: {args.case_id}. Known: {sorted(cases)}")
     case = cases[args.case_id]
+    inferred_label = args.record
+    report_name = os.path.basename(args.report_file)
+    prefix = "orchestration__"
+    suffix = f"__{args.case_id}.txt"
+    filename_label = None
+    if report_name.startswith(prefix) and report_name.endswith(suffix):
+        filename_label = report_name[len(prefix) : -len(suffix)]
+    if args.record and filename_label and filename_label != args.record:
+        raise SystemExit("record label does not match report filename label")
+    if inferred_label is None and report_name.startswith(prefix) and report_name.endswith(
+        suffix
+    ):
+        inferred_label = filename_label
     report = open(args.report_file, encoding="utf-8").read()
+    if inferred_label:
+        block_reason = receipt_output_scoring_block_reason(
+            Path(HERE),
+            run_label=inferred_label,
+            case_id=args.case_id,
+            final_answer=report,
+            require_receipt=args.record is not None,
+        )
+        if block_reason:
+            raise SystemExit(f"refusing blocked receipt score: {block_reason}")
     result = score_one(case, report)
     result["model"] = args.model
 

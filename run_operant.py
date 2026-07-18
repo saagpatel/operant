@@ -34,11 +34,19 @@ import time
 from pathlib import Path
 
 from operant_lab.artifacts import (
+    VALID_EVALUATION_ROLES,
     RunManifest,
     RunReport,
+    build_execution_binding,
+    case_bundle_binding,
+    complete_execution_binding,
+    ensure_exclusive_path_slot,
+    ensure_run_receipt_slot,
     parse_decision_block,
+    resolve_evaluation_role,
     stable_hash,
     write_run_report,
+    write_text_exclusive,
 )
 from operant_lab.subjects import ClaudeCodeAdapter
 
@@ -46,6 +54,12 @@ HERE = Path(__file__).resolve().parent
 REPORTS = HERE / "results" / "reports"
 RUNS_LOG = HERE / "results" / "operant_runs.jsonl"
 ADAPTER = ClaudeCodeAdapter()
+HARNESS_FILES = [
+    HERE / "run_operant.py",
+    HERE / "score_operant.py",
+    HERE / "operant_lab" / "artifacts.py",
+    HERE / "operant_lab" / "subjects.py",
+]
 
 # The operator contract read from the global CLAUDE.md.  If absent (CI, fresh
 # checkout), fall back to this minimal inline contract so the runner is always
@@ -128,8 +142,14 @@ def run_case(
     label: str,
     system_prompt: str,
     dry_run: bool = False,
+    *,
+    evaluation_role: str | None = None,
+    case_bundle: dict | None = None,
+    case_split: str = "canonical",
 ) -> dict:
     cid = case["id"]
+    role = resolve_evaluation_role(evaluation_role, run_label=label)
+    bundle = case_bundle or case_bundle_binding([case], case_split=case_split)
     prompt = ADAPTER.build_prompt(case, system_prompt, case.get("axis", "decision"))
     cmd = ADAPTER.command(case, model, system_prompt)
 
@@ -140,9 +160,27 @@ def run_case(
             "case_id": cid,
             "label": label,
             "requested_model": model,
+            "evaluation_role": role,
+            "case_bundle_sha256": bundle["case_bundle_sha256"],
             "dry_run": True,
         }
 
+    ensure_run_receipt_slot(HERE, label, cid)
+    ensure_exclusive_path_slot(REPORTS / f"operant__{label}__{cid}.txt")
+    execution_binding = build_execution_binding(
+        root=HERE,
+        exact_prompt=prompt.full_prompt,
+        system_prompt=system_prompt,
+        stdin_text=None,
+        command=cmd,
+        cwd_class="REPOSITORY_ROOT",
+        tool_policy=prompt.tool_policy,
+        timeout_seconds=900,
+        output_mode="claude-json-result-envelope",
+        dispatch_settings={},
+        harness_files=HARNESS_FILES,
+        requested_model_id=model,
+    )
     t0 = time.time()
     try:
         proc = subprocess.run(
@@ -152,14 +190,21 @@ def run_case(
             stdin=subprocess.DEVNULL,
             timeout=900,
         )
-    except subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        failure_class = type(exc).__name__
+        parse_status = (
+            "timeout"
+            if isinstance(exc, subprocess.TimeoutExpired)
+            else "launch_failure"
+        )
         meta = {
             "case_id": cid,
             "label": label,
             "requested_model": model,
             "exit_code": -1,
-            "error": "TimeoutExpired",
-            "duration_s": 900,
+            "error": failure_class,
+            "duration_s": round(time.time() - t0, 1),
+            "execution_binding": execution_binding,
         }
         manifest = RunManifest(
             run_label=label,
@@ -167,15 +212,20 @@ def run_case(
             axis=case.get("axis", "decision"),
             subject_shell=ADAPTER.shell,
             model_id=model,
-            prompt_hash=stable_hash(prompt.full_prompt + system_prompt),
+            prompt_hash=stable_hash(prompt.full_prompt),
             prompt_contract=prompt.prompt_contract,
             tool_policy=prompt.tool_policy,
+            evaluation_role=role,
+            case_bundle_sha256=str(bundle["case_bundle_sha256"]),
+            case_bundle_case_count=int(bundle["case_bundle_case_count"]),
+            case_split=str(bundle["case_split"]),
+            execution_binding=execution_binding,
         )
         report = RunReport(
             manifest=manifest,
-            parse_status="timeout",
+            parse_status=parse_status,
             final_answer="",
-            failure_class="TimeoutExpired",
+            failure_class=failure_class,
         )
         meta["lab_report"] = str(write_run_report(HERE, report).relative_to(HERE))
         return meta
@@ -189,33 +239,88 @@ def run_case(
     }
 
     report_text = ""
+    observed_model_ids: list[str] = []
+    provider_result_is_error = False
     try:
         data = json.loads(proc.stdout)
         events = data if isinstance(data, list) else [data]
         result_event = next(e for e in events if e.get("type") == "result")
-        meta["model_usage"] = sorted((result_event.get("modelUsage") or {}).keys())
+        observed_model_ids = sorted(
+            (result_event.get("modelUsage") or {}).keys()
+        )
+        meta["model_usage"] = observed_model_ids
         meta["cost_usd"] = result_event.get("total_cost_usd")
+        provider_result_is_error = result_event.get("is_error") is True
         report_text = result_event.get("result") or ""
     except Exception as exc:  # noqa: BLE001
         meta["error"] = f"{type(exc).__name__}: {exc}"
         meta["stderr_tail"] = proc.stderr[-400:]
 
-    if report_text:
-        REPORTS.mkdir(parents=True, exist_ok=True)
-        out = REPORTS / f"operant__{label}__{cid}.txt"
-        out.write_text(report_text, encoding="utf-8")
-        meta["report"] = str(out.relative_to(HERE.parent))
+    execution_binding = complete_execution_binding(
+        execution_binding,
+        provider_reported_candidates=observed_model_ids,
+        evidence_source="provider_result_modelUsage",
+        raw_result_envelope=proc.stdout,
+        final_answer=report_text,
+        runtime_root=HERE,
+        runtime_command=cmd,
+    )
+    identity_status = execution_binding["model_observation"]["comparison_status"]
+    meta["provider_reported_model_candidates"] = observed_model_ids
+    meta["model_comparison_status"] = identity_status
+    meta["execution_binding"] = execution_binding
+    identity_failure = (
+        f"identity_blocked:{identity_status.lower()}"
+        if identity_status in {"AMBIGUOUS", "MISMATCH"}
+        else None
+    )
+    if identity_failure:
+        meta["error"] = identity_failure
+    runtime_failure = (
+        "runtime_candidate_drift"
+        if execution_binding["post_dispatch_runtime"]["comparison"] == "DRIFTED"
+        else None
+    )
+    if runtime_failure:
+        meta["error"] = runtime_failure
 
     parsed = parse_decision_block(report_text)
+    execution_failure = (
+        "process_exit_nonzero"
+        if proc.returncode != 0
+        else "provider_result_error"
+        if provider_result_is_error
+        else None
+    )
+    terminal_failure = identity_failure or runtime_failure or execution_failure
+    if terminal_failure:
+        parsed = {
+            "parse_status": terminal_failure,
+            "decision": None,
+            "justification": None,
+            "failure_class": terminal_failure,
+        }
+        meta["error"] = terminal_failure
+    report_path = REPORTS / f"operant__{label}__{cid}.txt"
+    report_locator = (
+        str(report_path.relative_to(HERE.parent))
+        if parsed["parse_status"] == "ok"
+        else None
+    )
     manifest = RunManifest(
         run_label=label,
         case_id=cid,
         axis=case.get("axis", "decision"),
         subject_shell=ADAPTER.shell,
         model_id=model,
-        prompt_hash=stable_hash(prompt.full_prompt + system_prompt),
+        prompt_hash=stable_hash(prompt.full_prompt),
         prompt_contract=prompt.prompt_contract,
         tool_policy=prompt.tool_policy,
+        evaluation_role=role,
+        case_bundle_sha256=str(bundle["case_bundle_sha256"]),
+        case_bundle_case_count=int(bundle["case_bundle_case_count"]),
+        case_split=str(bundle["case_split"]),
+        execution_binding=execution_binding,
         cost_usd=meta.get("cost_usd"),
     )
     run_report = RunReport(
@@ -225,9 +330,13 @@ def run_case(
         extracted_decision=parsed["decision"],
         extracted_justification=parsed["justification"],
         failure_class=parsed["failure_class"],
-        source_report=meta.get("report"),
+        source_report=report_locator,
+        process_exit_code=proc.returncode,
     )
     meta["lab_report"] = str(write_run_report(HERE, run_report).relative_to(HERE))
+    if report_locator:
+        write_text_exclusive(report_path, report_text)
+        meta["report"] = report_locator
 
     return meta
 
@@ -263,6 +372,16 @@ def main() -> None:
         action="store_true",
         help="Print the exact claude -p command per case instead of executing",
     )
+    ap.add_argument(
+        "--evaluation-role",
+        choices=sorted(VALID_EVALUATION_ROLES),
+        help="Non-confirmatory role recorded in every run receipt.",
+    )
+    ap.add_argument(
+        "--case-split",
+        default="canonical",
+        help="Stable split label included in the case-bundle digest.",
+    )
     args = ap.parse_args()
 
     label = args.label or args.model
@@ -280,14 +399,25 @@ def main() -> None:
 
     operator_contract = load_operator_contract()
     system_prompt = build_system_prompt(operator_contract)
+    role = resolve_evaluation_role(args.evaluation_role, run_label=label)
+    bundle = case_bundle_binding(selected, case_split=args.case_split)
 
     if args.dry_run:
         print(
             f"DRY RUN — model={args.model}  label={label}  "
+            f"role={role}  bundle={bundle['case_bundle_sha256']}  "
             f"cases={[c['id'] for c in selected]}\n"
         )
         for case in selected:
-            run_case(case, args.model, label, system_prompt, dry_run=True)
+            run_case(
+                case,
+                args.model,
+                label,
+                system_prompt,
+                dry_run=True,
+                evaluation_role=role,
+                case_bundle=bundle,
+            )
         return
 
     REPORTS.mkdir(parents=True, exist_ok=True)
@@ -300,7 +430,16 @@ def main() -> None:
 
     with cf.ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         futures = [
-            pool.submit(run_case, c, args.model, label, system_prompt, False)
+            pool.submit(
+                run_case,
+                c,
+                args.model,
+                label,
+                system_prompt,
+                False,
+                evaluation_role=role,
+                case_bundle=bundle,
+            )
             for c in selected
         ]
         with RUNS_LOG.open("a", encoding="utf-8") as fh:
@@ -317,7 +456,8 @@ def main() -> None:
 
     print(
         f"\nDone. Runs logged to {RUNS_LOG.relative_to(HERE.parent)}\n"
-        f"Score a single case:  python3 operant/score_operant.py <case_id> <report> --record {label}\n"
+        "Score a single case:  python3 operant/score_operant.py "
+        f"<case_id> <report> --record {label}\n"
         f"Aggregate OCS:        python3 operant/score_operant.py --aggregate {label}"
     )
 

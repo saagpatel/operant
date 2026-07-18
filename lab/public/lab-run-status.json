@@ -1,7 +1,6 @@
 {
-  "generated_at": "2026-07-03T06:35:00Z",
+  "generated_at": "2026-07-18T06:24:03Z",
   "included_lab_labels": [
-    "cc-fable-interactive-batch-r1",
     "codex-cli-gpt55-decision-gap-r1",
     "codex-gpt55-decision-r1",
     "codex-gpt55-exact-smoke-r1",
@@ -12,27 +11,19 @@
   "public_status_policy": "This artifact summarizes lab run coverage and scoring status only; it excludes raw prompts and final answers.",
   "runs": [
     {
-      "display_name": "Claude Fable 5 via Claude Code interactive batch",
-      "model_id": "claude-fable-5",
-      "parse_status_counts": {
-        "ok": 40
-      },
-      "queued_only_cases": 0,
-      "recorded_cases": 40,
-      "relation": "single-session batch delivery; keep separate from self-serve flagship and per-case native-shell profiles",
-      "run_family": "cc-fable-interactive-batch",
-      "run_label": "cc-fable-interactive-batch-r1",
-      "score_outcome_counts": {
-        "correct": 39,
-        "incorrect": 1
-      },
-      "scoring_policy": "scored separately from self-serve flagship and other native-shell profiles",
-      "status": "experimental_batch_profile",
-      "subject_shell": "cc-fable-interactive-batch",
-      "total_queued_cases": 40
-    },
-    {
       "display_name": "GPT-5.5 via Codex CLI (local)",
+      "evaluation_binding": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 18
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 18
+        },
+        "status": "UNKNOWN"
+      },
       "model_id": "gpt-5.5",
       "parse_status_counts": {
         "ok": 18
@@ -53,6 +44,18 @@
     },
     {
       "display_name": "GPT-5.5 via Codex App",
+      "evaluation_binding": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 40
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 40
+        },
+        "status": "UNKNOWN"
+      },
       "model_id": "gpt-5.5",
       "parse_status_counts": {
         "ok": 40
@@ -72,6 +75,18 @@
     },
     {
       "display_name": "GPT-5.5 via Codex App exact smoke",
+      "evaluation_binding": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 2
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 2
+        },
+        "status": "UNKNOWN"
+      },
       "model_id": "gpt-5.5",
       "parse_status_counts": {
         "ok": 2
@@ -90,6 +105,18 @@
     },
     {
       "display_name": "GPT-5.5 via Codex CLI (local)",
+      "evaluation_binding": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 4
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 4
+        },
+        "status": "UNKNOWN"
+      },
       "model_id": "gpt-5.5",
       "parse_status_counts": {
         "ok": 4
@@ -109,6 +136,18 @@
     },
     {
       "display_name": "GPT-5.5 via Codex CLI (local)",
+      "evaluation_binding": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 6
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 6
+        },
+        "status": "UNKNOWN"
+      },
       "model_id": "gpt-5.5",
       "parse_status_counts": {
         "ok": 6
@@ -128,6 +167,18 @@
     },
     {
       "display_name": "GPT-5.5 via Codex App",
+      "evaluation_binding": {
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+        "evaluation_role_counts": {
+          "UNKNOWN": 8
+        },
+        "manifest_schema_counts": {
+          "UNKNOWN": 8
+        },
+        "status": "UNKNOWN"
+      },
       "model_id": "gpt-5.5",
       "parse_status_counts": {
         "ok": 8

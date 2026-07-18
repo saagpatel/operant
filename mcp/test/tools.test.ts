@@ -5,6 +5,23 @@ import type { OperantCorpus } from "../src/types";
 const fixture: OperantCorpus = {
 	calibration: {
 		generated_at: "2026-01-01T00:00:00Z",
+		claim_status: {
+			historical_reference_profiles: {
+				cross_model_ranking: "NOT_DURABLE",
+				served_model_identity: "UNKNOWN",
+			},
+			local_lab_profiles: {
+				cross_profile_ranking: "NOT_DURABLE",
+				served_model_identity: "UNKNOWN",
+			},
+		},
+		claims_at_risk: ["Named-model ranking"],
+		evidence_binding: {
+			schema: "operant-public-evidence-binding.test",
+			claim_boundary: "Test calculations are not durable model claims.",
+			historical_as_run_corpus: "UNKNOWN",
+			historical_as_run_protocol: "UNKNOWN",
+		},
 		included_lab_labels: ["run-opus-r1", "run-haiku-r1"],
 		models: [
 			{
@@ -153,14 +170,23 @@ describe("getResults", () => {
 	it("returns all models and the caveat text", () => {
 		const r = tools.getResults();
 		expect(r.models).toHaveLength(2);
-		expect(r.caveat).toContain("not_flat_leaderboard");
+		expect(r.caveat).toContain("not durable named-model performance claims");
+		expect(r.caveat).not.toContain("reliable ranking");
 		expect(r.presentation).toBe("calibration_profiles_not_flat_leaderboard");
 	});
 
-	it("passes through generated_at and included_lab_labels", () => {
+	it("passes through freshness and public integrity metadata", () => {
 		const r = tools.getResults();
 		expect(r.generated_at).toBe("2026-01-01T00:00:00Z");
 		expect(r.included_lab_labels).toContain("run-opus-r1");
+		expect(r.results_status).toBe(
+			"CALCULATION_PROFILES_NOT_DURABLE_MODEL_CLAIMS",
+		);
+		expect(
+			r.claim_status.historical_reference_profiles.cross_model_ranking,
+		).toBe("NOT_DURABLE");
+		expect(r.claims_at_risk).toContain("Named-model ranking");
+		expect(r.evidence_binding.historical_as_run_corpus).toBe("UNKNOWN");
 	});
 });
 
@@ -171,6 +197,8 @@ describe("compareModels", () => {
 		if (!("error" in r)) {
 			expect(r.model_a.display_name).toBe("Claude Opus 4.8");
 			expect(r.model_b.display_name).toBe("Claude Haiku 4.5");
+			expect(r.comparison_status).toBe("NOT_DURABLE");
+			expect(r.caveat).toContain("Do not rank models");
 		}
 	});
 
@@ -178,7 +206,9 @@ describe("compareModels", () => {
 		const r = tools.compareModels("Opus", "Haiku");
 		if (!("error" in r)) {
 			expect(r.model_a.single_run_note).toBeUndefined();
-			expect(r.model_b.single_run_note).toContain("Single-run");
+			expect(r.model_b.single_run_note).toContain(
+				"not durable model evidence",
+			);
 		}
 	});
 

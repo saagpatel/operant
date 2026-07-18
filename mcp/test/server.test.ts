@@ -54,10 +54,18 @@ describe("MCP server over the Worker fetch handler", () => {
 	it("initializes and reports server info", async () => {
 		const { status, json } = await init();
 		expect(status).toBe(200);
-		expect(
-			(json as { result: { serverInfo: { name: string } } }).result.serverInfo
-				.name,
-		).toBe("operant-mcp");
+		const result = (
+			json as {
+				result: {
+					instructions: string;
+					serverInfo: { name: string; version: string };
+				};
+			}
+		).result;
+		expect(result.serverInfo.name).toBe("operant-mcp");
+		expect(result.serverInfo.version).toBe("0.1.1");
+		expect(result.instructions).toContain("not durable performance claims");
+		expect(result.instructions).not.toContain("reliable ranking");
 	});
 
 	it("lists the 5 read-only tools", async () => {
@@ -70,6 +78,7 @@ describe("MCP server over the Worker fetch handler", () => {
 			result: {
 				tools: Array<{
 					name: string;
+					description?: string;
 					annotations?: { readOnlyHint?: boolean };
 				}>;
 			};
@@ -87,9 +96,26 @@ describe("MCP server over the Worker fetch handler", () => {
 				(t) => t.annotations?.readOnlyHint === true,
 			),
 		).toBe(true);
+		const getResults = toolsResult.result.tools.find(
+			(tool) => tool.name === "get_results",
+		);
+		const compareModels = toolsResult.result.tools.find(
+			(tool) => tool.name === "compare_models",
+		);
+		expect(getResults?.description).toContain(
+			"not durable named-model performance claims",
+		);
+		expect(compareModels?.description).toContain(
+			"comparison_status=NOT_DURABLE",
+		);
+		expect(
+			toolsResult.result.tools
+				.map((tool) => tool.description ?? "")
+				.join("\n"),
+		).not.toContain("reliable ranking");
 	});
 
-	it("calls get_results and returns model profiles with caveat", async () => {
+	it("calls get_results and returns profiles with the integrity boundary", async () => {
 		const { json } = await rpc({
 			jsonrpc: "2.0",
 			id: 3,
@@ -101,7 +127,17 @@ describe("MCP server over the Worker fetch handler", () => {
 				.content[0].text,
 		);
 		expect(payload.models.length).toBeGreaterThan(0);
-		expect(payload.caveat).toContain("not_flat_leaderboard");
+		expect(payload.caveat).toContain(
+			"not durable named-model performance claims",
+		);
+		expect(payload.caveat).not.toContain("reliable ranking");
+		expect(payload.results_status).toBe(
+			"CALCULATION_PROFILES_NOT_DURABLE_MODEL_CLAIMS",
+		);
+		expect(
+			payload.claim_status.historical_reference_profiles.cross_model_ranking,
+		).toBe("NOT_DURABLE");
+		expect(payload.evidence_binding.historical_as_run_corpus).toBe("UNKNOWN");
 		expect(payload.presentation).toBe(
 			"calibration_profiles_not_flat_leaderboard",
 		);
@@ -124,6 +160,8 @@ describe("MCP server over the Worker fetch handler", () => {
 		// With the baked corpus both models exist; with the placeholder, we get an error — both are valid.
 		expect(payload).toHaveProperty("model_a");
 		expect(payload).toHaveProperty("model_b");
+		expect(payload.comparison_status).toBe("NOT_DURABLE");
+		expect(payload.caveat).toContain("Do not rank models");
 	});
 
 	it("calls get_methodology and returns axes and OCS formula", async () => {
@@ -219,5 +257,7 @@ describe("MCP server over the Worker fetch handler", () => {
 		).result.messages[0].content.text;
 		expect(text).toContain("OCS");
 		expect(text.toLowerCase()).toContain("score_my_agent.py");
+		expect(text).toContain("Do not compare a new score");
+		expect(text).not.toContain("compare your score against published");
 	});
 });

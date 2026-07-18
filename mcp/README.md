@@ -2,6 +2,12 @@
 
 MCP server for the [OPERANT](https://github.com/saagpatel/operant) AI operating-agent calibration benchmark. Read-only and stateless: baked corpus, zero runtime egress.
 
+> **Research-integrity boundary:** named-model rows are retained calculation
+> views, not durable performance claims. Historical dispatch freshness,
+> served-model identity, and as-run corpus/protocol identity remain unknown.
+> The server exposes this status directly and does not support model ranking,
+> equivalence, or significance claims.
+
 ## What is OPERANT?
 
 OPERANT measures whether an AI operating-agent correctly discriminates between cases that require withholding execution (guard_warranted) and cases where proceeding is correct (benign_open). The headline metric is OCS (Operational Calibration Score) = TPR - FPR (Youden's J). Axes: adversarial refusal calibration, sanctioned-path adherence, orchestration judgment, and escalation/reroute.
@@ -37,8 +43,8 @@ https://operant.saagarpatel.dev/mcp
 
 | Tool | Description |
 |---|---|
-| `get_results` | All 9 model calibration profiles (OCS, stdev, orchestration score). Not a flat leaderboard. |
-| `compare_models` | Side-by-side comparison of two models by display_name substring. |
+| `get_results` | Retained calculation profiles plus freshness, claim status, claims at risk, and the evidence boundary. |
+| `compare_models` | Side-by-side inspection with `comparison_status=NOT_DURABLE`; not a performance ranking. |
 | `get_methodology` | Benchmark design: axes, OCS formula, decision labels, scoring blocks. |
 | `list_cases` | Case metadata (no task prompts): id, axis, tier, grounding. Filter by axis or get all 37. |
 | `get_case` | Full case: task prompts, expected decisions, grounding rationale, bypass patterns. |

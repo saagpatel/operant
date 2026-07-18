@@ -1,0 +1,101 @@
+{
+  "allowed_public_wording": "No existing OPERANT score is confirmatory under the checked registry.",
+  "as_of": "2026-07-17",
+  "claim_boundary": "This registry classifies evaluation role and contamination risk. It does not prove score correctness, receipt authenticity, served-model identity, or independent replication.",
+  "confirmatory_admission_requirements": [
+    "timestamped_preregistration_before_subject_outputs",
+    "immutable_case_contract_scorer_judge_and_environment_hashes",
+    "structural_independence_from_development_and_error_analysis",
+    "case_author_exposure_and_prior_use_record",
+    "sealed_set_and_auditable_unblinding_event",
+    "independently_verifiable_subject_identity_and_treatment_receipt",
+    "predefined_exclusions_stopping_rule_and_analysis_plan",
+    "failed_null_excluded_and_interrupted_attempts_preserved",
+    "deviations_recorded_before_result_interpretation"
+  ],
+  "confirmatory_claim_allowed": false,
+  "current_confirmatory_status": "NOT_ESTABLISHED",
+  "evidence_bindings": {
+    "docs/evaluation-split-policy.md": "dc5cba7341b094ed1ea07509e31aabdaae4179216111be8a93b5a1f1fc90df1d",
+    "docs/gpt55-codex-error-analysis.md": "8d99f1435eb27dfdebb2e379c22dc9e718963ab0dcd070b678e7e7043c32df2f",
+    "docs/gpt55-refusal-calibration-followup-plan.md": "21c1985582f304d7692b9982f0c863bff0f48d3893b039e73cf5a195efc253cd",
+    "docs/gpt55-sanctioned-path-followup-plan.md": "25b88eef91f02bd4d94980c66b59fbcf870177db02f51a49872de0df1e3d7806",
+    "gen_cases.py": "b8cc7400ef1ab9dd300a1e23c7e72d0280b97358f55b60b13b000ddcdbcbc12b",
+    "generated/operant_public_cases.json": "d0fd645ae1c36228b46a008eb337b6ce0b65944335f549797fab09bc6003a606",
+    "lab/followup/gpt55-refusal-calibration-slice-v1.json": "b3d598ec149fcc4e68f0c0fce1aaeecf2e1866480ce5db010527b138f3037c07",
+    "lab/followup/gpt55-sanctioned-path-slice-v1.json": "0c610b7166cee92c59418ae9e34caa7cfc9b5d108e57cb3c8596bf71bca67a4e",
+    "lab/public/benchmark-card.json": "00a14ee38daa6c88d66284b73bb1c00cc358e713f597f3a294e74b7e4483f683",
+    "operant_axis2_cases.json": "b93be447858eee666e2a05d7ac88a42b48f74d74337325b8271a26f6652de1bb",
+    "operant_axis3_cases.json": "dc103fa394c0d7343e93d60800ba3ffea3aded1ddfbbc716aa6f70428895014b",
+    "operant_axis4_cases.json": "df76a684f5781ae7b1cae90e4379f2bdc3b0f4773ba50cb65378e3c9182566fb",
+    "operant_cases.json": "5a58b3764e6dc06f2d4dcf27a8bdd7e181d32c90249ceb79e5285cbc1f0a61e7",
+    "operant_templates.json": "6eb70b387f6c9ed01cac191e9bee037e75804396effb203cce1ed652fa8ae301"
+  },
+  "private_overlay_digests": {
+    "gpt55-local-authority-cases-v1.json": "27ab04c53eb91e7b5eedcf153ce3bdf37f2582ca7cf9662db60b77851d86d883",
+    "gpt55-refusal-calibration-cases-v1.json": "f7fbe51b03ff2869bb0f84bde50b85cb61873e797d1a5f7b374d06308aae0306",
+    "gpt55-sanctioned-path-cases-v1.json": "5280b1ef3514599d69fb4501801f775cd72a71b1b1196b0771e5604631aa751a",
+    "operant2_decision_cases.json": "f6fe10da13647e4d042cddffc66ac87c6c937f08c177dd55614cc4c888467e00"
+  },
+  "run_family_dispositions": {
+    "cc-fable-interactive-batch": "ORPHANED_NONCONFIRMATORY",
+    "codex-cli-gpt55-decision-gap": "ADAPTIVE_COVERAGE_DIAGNOSTIC",
+    "codex-gpt55-decision": "HISTORICAL_ROLE_UNKNOWN",
+    "codex-gpt55-exact-smoke": "SMOKE_ONLY",
+    "codex-gpt55-local-authority-followup": "ADAPTIVE_DIAGNOSTIC",
+    "codex-gpt55-pilot": "UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY",
+    "codex-gpt55-refusal-calibration-followup": "ADAPTIVE_DIAGNOSTIC",
+    "codex-gpt55-sanctioned-path-followup": "ADAPTIVE_DIAGNOSTIC",
+    "haiku": "HISTORICAL_ROLE_UNKNOWN",
+    "opus": "HISTORICAL_ROLE_UNKNOWN",
+    "sonnet": "HISTORICAL_ROLE_UNKNOWN"
+  },
+  "schema": "operant-evaluation-split-registry.v1",
+  "split_dispositions": [
+    {
+      "adaptation_history": "INCOMPLETE",
+      "confirmatory_eligible": false,
+      "evaluation_role": "OPEN_DEVELOPMENT_BENCHMARK",
+      "exposure_state": "PUBLIC",
+      "reason": "The suite is open and has been used for analysis and iteration; its historical selection, exposure, and adaptation history is incomplete.",
+      "split_id": "canonical-current-suite",
+      "structural_independence": "UNKNOWN"
+    },
+    {
+      "adaptation_history": "OPEN_FOR_ITERATION",
+      "confirmatory_eligible": false,
+      "evaluation_role": "OPEN_DEVELOPMENT_SURFACE_SET",
+      "exposure_state": "PUBLIC",
+      "reason": "This split is generated from the shared templates and is suitable for development and harness checks.",
+      "split_id": "generated-public",
+      "structural_independence": "NOT_INDEPENDENT_SHARED_TEMPLATES"
+    },
+    {
+      "adaptation_history": "NOT_PROSPECTIVELY_SEALED",
+      "confirmatory_eligible": false,
+      "evaluation_role": "SURFACE_HOLDOUT_ONLY",
+      "exposure_state": "PUBLICLY_DERIVABLE_SURFACE_HOLDOUT",
+      "reason": "Seed identifiers are disjoint, but finite pools can repeat fillers; templates, slot pools, decision structure, and scorer remain shared.",
+      "split_id": "generated-private",
+      "structural_independence": "NOT_INDEPENDENT_SHARED_TEMPLATES"
+    },
+    {
+      "adaptation_history": "DOCUMENTED_ADAPTIVE",
+      "confirmatory_eligible": false,
+      "evaluation_role": "ADAPTIVE_DIAGNOSTIC",
+      "exposure_state": "PRIVATE_PROMPTS_PUBLIC_SUMMARIES",
+      "reason": "Sanctioned-path, refusal-calibration, and local-authority slices were selected after inspecting prior model misses.",
+      "split_id": "gpt55-model-specific-followups",
+      "structural_independence": "NOT_INDEPENDENT_SELECTED_FROM_OBSERVED_ERRORS"
+    },
+    {
+      "adaptation_history": "NOT_APPLICABLE",
+      "confirmatory_eligible": false,
+      "evaluation_role": "RESERVED_NOT_ESTABLISHED",
+      "exposure_state": "NO_REGISTERED_SET",
+      "reason": "No prospectively registered, structurally independent, sealed case set is present.",
+      "split_id": "prospective-confirmatory",
+      "structural_independence": "UNKNOWN"
+    }
+  ]
+}

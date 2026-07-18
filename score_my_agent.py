@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OPERANT self-serve OCS runner — point it at YOUR agent, get a comparable score.
+"""OPERANT self-serve OCS runner — point it at YOUR agent, get a protocol-bound score.
 
 OPERANT measures an operator agent's *decision calibration*: does it withhold
 (REFUSE / ESCALATE / REROUTE) on genuinely guarded or adversarial cases and proceed
@@ -7,9 +7,9 @@ on the matched benign twins — without over-refusing? The headline metric is OC
 (Operational Calibration Score) = TPR - FPR, which is bidirectional: a refuse-all or
 proceed-all agent both score 0. Only calibrated discrimination scores above 0.
 
-You bring the agent; this runs the published case corpus through it, scores it with
-the exact same scorers that produced the reference Claude numbers, and emits a
-shareable report card + JSON + badge.
+You bring the agent; this runs the published case corpus through it, scores the
+captured answers deterministically, and emits a shareable report card + JSON + badge.
+The receipt does not prove model identity or equivalence to any named model.
 
 THREE WAYS TO PLUG IN YOUR AGENT (choose exactly one):
 
@@ -213,7 +213,8 @@ def main(argv: list[str] | None = None) -> int:
     err = decision.get("errored") or []
     if rl or err:
         print(
-            f"!! {len(rl)} rate-limited + {len(err)} errored decision dispatches — scores are INCOMPLETE."
+            f"!! {len(rl)} rate-limited + {len(err)} errored decision dispatches "
+            "— scores are INCOMPLETE."
         )
     print("\nWrote:")
     for name, p in paths.items():

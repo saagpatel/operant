@@ -1,0 +1,74 @@
+{
+  "artifact_count": 16,
+  "artifacts": {
+    "README.md": {
+      "bytes": 8063,
+      "sha256": "d83601c2d84f05673c9fa0304dc4e4fd8bc08a48bba2ac17e003ff12406c7833"
+    },
+    "benchmark-card.json": {
+      "bytes": 15830,
+      "sha256": "00a14ee38daa6c88d66284b73bb1c00cc358e713f597f3a294e74b7e4483f683"
+    },
+    "calibration-profiles.json": {
+      "bytes": 18869,
+      "sha256": "37502fb75fd9cc878389791854710f782f6596e5595671781e03c014ac3fde85"
+    },
+    "evaluation-split-registry.json": {
+      "bytes": 5952,
+      "sha256": "ba612f5bc6d4c9a3a203e6af6623143a883b4271357e23b9fac7f25b4cb83d8d"
+    },
+    "lab-run-status.json": {
+      "bytes": 5966,
+      "sha256": "846c991ac7fc33a9603fc35f6193ddee5b29b8c9406813f324174dcc4616f9b4"
+    },
+    "methodology.md": {
+      "bytes": 3314,
+      "sha256": "9982a6fa06a788d1bb3d1e1fda65e9bacc38ea6e1cd58c74919e82ed6ab132cf"
+    },
+    "model-cards/cc-fable-interactive-batch.json": {
+      "bytes": 4405,
+      "sha256": "3cbafc151f6549b8c4e6c155f3252b9f4e0d6bd7a1d6dd51d98dd732ee214ebe"
+    },
+    "model-cards/codex-cli-gpt55-decision-gap.json": {
+      "bytes": 18589,
+      "sha256": "6b4869743a0aa64a53f735dc78e9f70c6f74dc920a253ccf95286642db2a6d1a"
+    },
+    "model-cards/codex-gpt55-decision.json": {
+      "bytes": 20565,
+      "sha256": "5a56d3b4578bae4061f7275d3a9edd3e3edee42d5f657beef94d07e45892b176"
+    },
+    "model-cards/codex-gpt55-exact-smoke.json": {
+      "bytes": 16544,
+      "sha256": "fbefc4a6985bf1c6796e100de1fa0972e231d5f59634d197c7b9690354d9ce78"
+    },
+    "model-cards/codex-gpt55-local-authority-followup.json": {
+      "bytes": 17149,
+      "sha256": "ea3759ee0865a928cd5a654eda61855f6fc70aa89cde1289539c9ec6481c232c"
+    },
+    "model-cards/codex-gpt55-refusal-calibration-followup.json": {
+      "bytes": 16814,
+      "sha256": "eb3048fea76303d2639931f0d755f21be5ca2de3a11dafe8f2cfd19d096837e8"
+    },
+    "model-cards/codex-gpt55-sanctioned-path-followup.json": {
+      "bytes": 16870,
+      "sha256": "9e47d86c96d8de3901e30d51ca16fe6b0ee8d35658fe67bf21fa44e4eea818e8"
+    },
+    "model-cards/haiku.json": {
+      "bytes": 20884,
+      "sha256": "f1ab7ce6e4c8378a7be7edb439d286aa103454d32c5bc316b10c0e374dc4ac9b"
+    },
+    "model-cards/opus.json": {
+      "bytes": 41094,
+      "sha256": "d1b414329f905a34207af120782b015580e7a54a3d92b4fb01a418ddca290625"
+    },
+    "model-cards/sonnet.json": {
+      "bytes": 41281,
+      "sha256": "49851cb14bb05160ab759a4047e72adb1022ef7a4c39cc58b200c251e63b410b"
+    }
+  },
+  "authorship": "UNKNOWN",
+  "commit_semantics": "This atomically replaced marker binds the exact regular-file set and bytes of one public export generation, excluding this marker itself.",
+  "external_immutability": "UNKNOWN",
+  "generation_sha256": "1496360e644a886467e1f7de9739fa2a86b254b26307dacfd2f327a354a1582a",
+  "schema": "operant-public-generation-manifest.v1"
+}

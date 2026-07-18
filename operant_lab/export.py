@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import statistics
@@ -9,8 +10,31 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from .artifacts import utc_now, write_json
-from .inventory import inventory_runs, load_decision_cases
+from .artifacts import (
+    filter_unblocked_index_rows,
+    receipt_scoring_block_reason,
+    stable_hash,
+    utc_now,
+)
+from .inventory import (
+    BOUND_NONCONFIRMATORY,
+    INVALID_BINDING,
+    UNKNOWN_BINDING,
+    inventory_runs,
+    load_decision_cases,
+)
+from .lineage import (
+    lineage_checkpoint,
+    validate_receipt_lineage,
+)
+from .public_generation import (
+    public_generation_lock,
+    require_supported_public_layout,
+    validate_generation_manifest,
+    write_generation_manifest,
+    write_json_atomic,
+    write_text_atomic,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,6 +80,53 @@ MODEL_CARD_CAVEATS = {
     ],
 }
 
+PUBLIC_CLAIM_BOUNDARY = (
+    "Source-index hashes bind exported aggregate calculations to imported score rows. "
+    "Current-public corpus and protocol hashes identify this checkout only; they are "
+    "not the historical as-run inputs. Historical as-run corpus, protocol, dispatch "
+    "freshness, and served-model identity remain UNKNOWN. Local lab receipts are "
+    "self-reported. Their local lineage checkpoint proves only unsigned structural "
+    "consistency against a surviving checkpoint, not authorship or immutable history. "
+    "Current private follow-up case bytes are hash-bound but not "
+    "published and are not proven to be the as-run oracle bytes; independent as-run "
+    "recalculation remains UNKNOWN. Neither source supports durable cross-model ranking, "
+    "model-equivalence, deployment-safety, or certification claims."
+)
+
+HISTORICAL_CLAIM_STATUS = {
+    "evidence_class": "historical_unverified_receipt",
+    "score_recalculation_from_bound_bytes": "SUPPORTED",
+    "historical_as_run_corpus_identity": "UNKNOWN",
+    "historical_as_run_protocol_identity": "UNKNOWN",
+    "dispatch_freshness": "UNKNOWN",
+    "served_model_identity": "UNKNOWN",
+    "independent_replication": "UNKNOWN",
+    "cross_model_ranking": "NOT_DURABLE",
+    "inferential_statistics_as_model_evidence": "NOT_DURABLE",
+}
+
+LOCAL_LAB_CLAIM_STATUS = {
+    "evidence_class": "self_reported_local_receipt",
+    "score_recalculation_from_bound_bytes": "CURRENT_CHECKOUT_ONLY",
+    "source_receipt_byte_binding": "SUPPORTED",
+    "current_public_corpus_identity": "SUPPORTED",
+    "current_public_protocol_identity": "SUPPORTED",
+    "private_case_overlay_identity": "CURRENT_CHECKOUT_HASH_BOUND",
+    "as_run_private_case_overlay_identity": "UNKNOWN",
+    "independent_as_run_score_recalculation": "UNKNOWN",
+    "served_model_identity": "UNKNOWN",
+    "independent_replication": "UNKNOWN",
+    "cross_profile_ranking": "NOT_DURABLE",
+}
+
+CLAIMS_AT_RISK = [
+    "Named-model ordering or significance derived from historical reference receipts",
+    "Historical as-run corpus or protocol identity inferred from current public files",
+    "Equivalence of a self-service OCS result to any named model",
+    "Served-model identity for historical or local native-shell receipts",
+    "Deployment safety, certification, or production readiness inferred from OCS",
+]
+
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
@@ -65,6 +136,144 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
         if line.strip():
             rows.append(json.loads(line))
     return rows
+
+
+def _sha256(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _digest_inventory(paths: list[Path]) -> dict[str, str]:
+    return {
+        path.name: _sha256(path) if path.is_file() else "UNKNOWN"
+        for path in paths
+    }
+
+
+def _lab_receipt_digests(
+    lab_runs_dir: Path | None,
+    lab_labels: set[str] | None,
+) -> dict[str, str]:
+    if lab_runs_dir is None or not lab_runs_dir.exists():
+        return {}
+    digests: dict[str, str] = {}
+    for path in sorted(lab_runs_dir.glob("*/*.json")):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise RuntimeError(f"receipt root is not an object: {path.name}")
+        manifest = data.get("manifest", {})
+        label = str(manifest.get("run_label") or "")
+        case_id = str(manifest.get("case_id") or path.stem)
+        if not label or (lab_labels and label not in lab_labels):
+            continue
+        digests[f"{label}/{case_id}.json"] = _sha256(path)
+    return digests
+
+
+def build_evidence_binding(
+    source_results: Path,
+    *,
+    lab_runs_dir: Path | None = None,
+    lab_labels: set[str] | None = None,
+    private_case_overlays_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Bind public summaries to private bytes without exposing private paths."""
+    source_indexes = _digest_inventory(
+        [
+            source_results / "operant_index.jsonl",
+            source_results / "operant_orchestration_judge_index.jsonl",
+            source_results / "operant_orchestration_judge_opus_index.jsonl",
+        ]
+    )
+    current_public_corpus = _digest_inventory(
+        [
+            ROOT / "operant_cases.json",
+            ROOT / "operant_axis2_cases.json",
+            ROOT / "operant_axis3_cases.json",
+            ROOT / "operant_axis4_cases.json",
+            ROOT / "operant_templates.json",
+        ]
+    )
+    current_public_protocol = _digest_inventory(
+        [
+            ROOT / "score_operant.py",
+            ROOT / "score_orchestration.py",
+            ROOT / "score_orchestration_judge.py",
+            ROOT / "operant_lab" / "artifacts.py",
+            ROOT / "operant_lab" / "inventory.py",
+            ROOT / "operant_lab" / "lineage.py",
+            ROOT / "operant_lab" / "public_contract.py",
+            ROOT / "operant_lab" / "public_generation.py",
+        ]
+    )
+    private_case_overlays_root = (
+        private_case_overlays_dir
+        if private_case_overlays_dir is not None
+        else ROOT / "lab" / "followup" / "private"
+    )
+    private_case_overlays = _digest_inventory(
+        sorted(private_case_overlays_root.glob("*cases*.json"))
+    )
+    lab_receipts = _lab_receipt_digests(lab_runs_dir, lab_labels)
+    receipt_lineage = (
+        lineage_checkpoint(lab_runs_dir.resolve().parents[1])
+        if lab_runs_dir is not None
+        else lineage_checkpoint(ROOT / ".absent-lineage-root")
+    )
+    combined = json.dumps(
+        {
+            "source_indexes": source_indexes,
+            "lab_receipts": lab_receipts,
+            "current_public_corpus": current_public_corpus,
+            "current_public_protocol": current_public_protocol,
+            "private_case_overlays": private_case_overlays,
+            "receipt_lineage": receipt_lineage,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return {
+        "schema": "operant-public-evidence-binding.v6",
+        "source_indexes": source_indexes,
+        "lab_receipts": lab_receipts,
+        "private_case_overlays": private_case_overlays,
+        "receipt_lineage": receipt_lineage,
+        "source_bundle_sha256": hashlib.sha256(combined).hexdigest(),
+        "current_public_corpus": current_public_corpus,
+        "current_public_protocol": current_public_protocol,
+        "historical_as_run_corpus": "UNKNOWN",
+        "historical_as_run_protocol": "UNKNOWN",
+        "exporter_sha256": _sha256(Path(__file__)),
+        "historical_o1_evidence_manifest_sha256": "UNKNOWN",
+        "private_paths_exposed": False,
+        "claim_boundary": PUBLIC_CLAIM_BOUNDARY,
+    }
+
+
+def _card_claim_status(card: dict[str, Any]) -> dict[str, str]:
+    if card.get("data_source") == "local_lab_runs":
+        return dict(LOCAL_LAB_CLAIM_STATUS)
+    return dict(HISTORICAL_CLAIM_STATUS)
+
+
+def _reject_unmarked_stale_cards(out_dir: Path, intended_families: set[str]) -> None:
+    """Do not let an incremental export silently retain an old public profile."""
+    cards_dir = out_dir / "model-cards"
+    if not cards_dir.is_dir():
+        return
+    for path in sorted(cards_dir.glob("*.json")):
+        if path.stem in intended_families:
+            continue
+        card = json.loads(path.read_text(encoding="utf-8"))
+        evidence_class = card.get("claim_status", {}).get("evidence_class")
+        if evidence_class != "orphaned_public_artifact":
+            raise RuntimeError(
+                f"stale public model card must be removed or explicitly marked "
+                f"orphaned_public_artifact: {path.name}"
+            )
 
 
 def _mean(values: list[float]) -> float | None:
@@ -98,6 +307,7 @@ def aggregate_decision(rows: list[dict[str, Any]]) -> dict[str, Any]:
         by_axis[row.get("axis", "refusal-calibration")].append(row)
     return {
         "n": n,
+        "case_ids": sorted(str(row["case_id"]) for row in rows),
         "decision_accuracy": round(
             sum(1 for r in rows if r.get("decision_accuracy")) / n,
             3,
@@ -152,6 +362,17 @@ def load_lab_decision_rows(
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     if not lab_runs_dir.exists():
         return [], {}
+    for path in sorted(lab_runs_dir.glob("*/*.json")):
+        preflight = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(preflight, dict):
+            raise RuntimeError(f"receipt root is not an object: {path.name}")
+    receipt_root = lab_runs_dir.resolve().parents[1]
+    lineage_errors = validate_receipt_lineage(receipt_root)
+    if lineage_errors:
+        raise RuntimeError(
+            "local receipt lineage is invalid: "
+            + "; ".join(sorted(set(lineage_errors)))
+        )
 
     score_operant = _load_score_operant()
     cases = load_decision_cases(score_operant)
@@ -160,6 +381,8 @@ def load_lab_decision_rows(
 
     for path in sorted(lab_runs_dir.glob("*/*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise RuntimeError(f"receipt root is not an object: {path.name}")
         manifest = data.get("manifest", {})
         if manifest.get("axis") != "decision":
             continue
@@ -169,6 +392,43 @@ def load_lab_decision_rows(
             continue
         if not label or case_id not in cases:
             continue
+        if path.parent.name != label or path.stem != str(case_id).replace("/", "_"):
+            raise RuntimeError(f"receipt path identity mismatch: {path.name}")
+        block_reason = receipt_scoring_block_reason(
+            receipt_root,
+            run_label=str(label or ""),
+            case_id=str(case_id or ""),
+            require_receipt=True,
+        )
+        if block_reason:
+            if data.get("score_row") is not None or data.get("judge_row") is not None:
+                raise RuntimeError(
+                    f"blocked receipt carries score evidence: {label}/{case_id}"
+                )
+            continue
+        if data.get("parse_status") != "ok":
+            if data.get("score_row") is not None or data.get("judge_row") is not None:
+                raise RuntimeError(
+                    f"unscoreable receipt carries score evidence: {label}/{case_id}"
+                )
+            continue
+        if manifest.get("manifest_schema") in {
+            "operant-run-manifest.v3",
+            "operant-run-manifest.v4",
+            "operant-run-manifest.v5",
+            "operant-run-manifest.v6",
+            "operant-run-manifest.v7",
+            "operant-run-manifest.v8",
+        }:
+            bound_answer = (
+                manifest.get("execution_binding", {})
+                .get("model_observation", {})
+                .get("final_answer_sha256")
+            )
+            if bound_answer != stable_hash(str(data.get("final_answer") or "")):
+                raise RuntimeError(
+                    f"receipt output binding mismatch: {label}/{case_id}"
+                )
 
         row = score_operant.score_one(cases[case_id], data.get("final_answer", ""))
         row.update(
@@ -184,6 +444,7 @@ def load_lab_decision_rows(
                 "parse_status": data.get("parse_status"),
                 "source_thread_id": manifest.get("source_thread_id"),
                 "source_queue_file": manifest.get("source_queue_file"),
+                "source_queue_sha256": manifest.get("source_queue_sha256"),
                 "thread_container": manifest.get("thread_container"),
             }
         )
@@ -237,6 +498,101 @@ def _lab_relation(family: str, subject_shell: str) -> str | None:
 
 def _model_card_caveats(base_label: str) -> list[dict[str, str]]:
     return list(MODEL_CARD_CAVEATS.get(base_label, []))
+
+
+def _combined_binding_status(statuses: list[str]) -> str:
+    if not statuses or set(statuses) == {UNKNOWN_BINDING}:
+        return UNKNOWN_BINDING
+    if INVALID_BINDING in statuses:
+        return INVALID_BINDING
+    if set(statuses) == {BOUND_NONCONFIRMATORY}:
+        return BOUND_NONCONFIRMATORY
+    return "MIXED_UNKNOWN"
+
+
+def _binding_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    bindings = [
+        row.get("evaluation_binding", {})
+        for row in rows
+        if isinstance(row.get("evaluation_binding"), dict)
+    ]
+    statuses = [str(binding.get("status") or UNKNOWN_BINDING) for binding in bindings]
+    status = _combined_binding_status(statuses)
+    role_counts = Counter(
+        str(binding.get("evaluation_role") or "UNKNOWN") for binding in bindings
+    )
+    schema_counts = Counter(
+        str(binding.get("manifest_schema") or "UNKNOWN") for binding in bindings
+    )
+    digests = {
+        str(binding["case_bundle_sha256"])
+        for binding in bindings
+        if binding.get("status") == BOUND_NONCONFIRMATORY
+        and binding.get("case_bundle_sha256") != "UNKNOWN"
+    }
+    return {
+        "status": status,
+        "manifest_schema_counts": dict(sorted(schema_counts.items())),
+        "evaluation_role_counts": dict(sorted(role_counts.items())),
+        "case_bundle_count": len(digests),
+        "case_bundle_sha256": (
+            next(iter(digests))
+            if len(digests) == 1
+            else "MULTIPLE"
+            if digests
+            else "UNKNOWN"
+        ),
+        "confirmatory_eligible": (
+            False if status == BOUND_NONCONFIRMATORY else "UNKNOWN"
+        ),
+    }
+
+
+def _unknown_binding_summary() -> dict[str, Any]:
+    return {
+        "status": UNKNOWN_BINDING,
+        "manifest_schema_counts": {"UNKNOWN": 1},
+        "evaluation_role_counts": {"UNKNOWN": 1},
+        "case_bundle_count": 0,
+        "case_bundle_sha256": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+    }
+
+
+def _model_card_evaluation_binding(
+    decision_repeats: dict[str, list[dict[str, Any]]],
+    bindings_by_label: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    repeats = {
+        label: bindings_by_label.get(label, _unknown_binding_summary())
+        for label in sorted(decision_repeats)
+    }
+    statuses = [str(binding["status"]) for binding in repeats.values()]
+    status = _combined_binding_status(statuses)
+    return {
+        "status": status,
+        "confirmatory_eligible": (
+            False if status == BOUND_NONCONFIRMATORY else "UNKNOWN"
+        ),
+        "repeats": repeats,
+    }
+
+
+def _require_publishable_evaluation_bindings(
+    lab_status: dict[str, Any],
+) -> None:
+    invalid_labels = []
+    for run in lab_status.get("runs", []):
+        if not isinstance(run, dict):
+            continue
+        binding = run.get("evaluation_binding")
+        if isinstance(binding, dict) and binding.get("status") == INVALID_BINDING:
+            invalid_labels.append(str(run.get("run_label") or "<unknown>"))
+    if invalid_labels:
+        raise RuntimeError(
+            "refusing public export with invalid evaluation bindings: "
+            + ", ".join(sorted(invalid_labels))
+        )
 
 
 def _lab_run_status(
@@ -315,6 +671,7 @@ def _lab_run_status(
             "parse_status_counts": dict(sorted(parse_status_counts.items())),
             "score_outcome_counts": dict(sorted(score_outcome_counts.items())),
             "scoring_policy": _lab_scoring_policy(subject_shell),
+            "evaluation_binding": _binding_summary(label_inventory),
         }
         relation = _lab_relation(family, subject_shell)
         if relation:
@@ -339,6 +696,7 @@ def model_card(
     judge_repeats: dict[str, list[dict[str, Any]]],
     opus_judge_repeats: dict[str, list[dict[str, Any]]],
     metadata_override: dict[str, Any] | None = None,
+    evaluation_bindings_by_label: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     decision_summaries = {
         label: aggregate_decision(rows) for label, rows in sorted(decision_repeats.items())
@@ -371,7 +729,11 @@ def model_card(
     card = {
         "run_family": base_label,
         **meta,
-        "presentation": "calibration_profile",
+        "presentation": (
+            "self_reported_local_receipt"
+            if meta.get("data_source") == "local_lab_runs"
+            else "historical_calculation_profile_not_model_leaderboard"
+        ),
         "decision": {
             "repeats": decision_summaries,
             "ocs_mean": _mean(ocs_values),
@@ -383,6 +745,10 @@ def model_card(
             "opus_judge": opus_judge_summaries,
             "mean_score": _mean([v for v in judge_values if v is not None]),
         },
+        "evaluation_binding": _model_card_evaluation_binding(
+            decision_repeats,
+            evaluation_bindings_by_label or {},
+        ),
     }
     caveats = _model_card_caveats(base_label)
     if caveats:
@@ -548,17 +914,29 @@ def _public_readme(
         "of record, and public split policy.\n"
         "- `calibration-profiles.json`: compact index of exported calibration "
         "profiles. It intentionally omits machine-local source paths.\n"
+        "- `evaluation-split-registry.json`: checked adaptive-development, "
+        "surface-holdout, and confirmatory dispositions.\n"
         "- `model-cards/*.json`: per-profile scored decision and orchestration "
         "summaries.\n"
         "- `lab-run-status.json`: prompt-free coverage and scoring-policy status "
         "for included native-shell lab runs.\n"
         "- `methodology.md`: concise methodology and caveats for public exports.\n\n"
+        "## Research-Integrity Status\n\n"
+        "The numerical rows below are calculation views over bound source bytes, "
+        "not durable model-performance claims. Historical reference receipts "
+        "predate append-only attempt manifests, so dispatch freshness and "
+        "served-model identity are **UNKNOWN**. Corpus and protocol hashes identify "
+        "the current public checkout, not the historical as-run inputs; those "
+        "historical identities are also **UNKNOWN**. Native-shell lab receipts are "
+        "self-reported. Cross-model ranking, model-equivalence, deployment-safety, "
+        "and certification claims are not supported by this export.\n\n"
         "## Reference Benchmark Results\n\n"
-        "These rows are historical benchmark results from the OPERANT reference "
-        "run. They are useful orientation anchors, not certification claims.\n\n"
+        "These rows are deterministic recalculations from historical imported "
+        "bytes. Treat named-model attribution, ordering, and statistical "
+        "significance as **not durable** until fresh, identity-bound replication.\n\n"
         f"{_scorecard_rows(reference_cards)}\n\n"
         "## Native-Shell Public Lab Runs\n\n"
-        "These rows are selected local lab profiles. Keep their subject shells "
+        "These rows are selected self-reported local lab receipts. Keep their subject shells "
         "separate: Codex App rows, Codex CLI rows, Claude Code rows, and any "
         "future raw API rows are different instruments unless the protocol says "
         "otherwise.\n\n"
@@ -577,6 +955,10 @@ def _public_readme(
         "read; use exact accuracy for rubric-level label drift.\n\n"
         "## Comparability Rules\n\n"
         f"- Public split: {benchmark_card['public_split_policy']}\n"
+        "- Split status: confidentiality is not confirmatory independence. "
+        "Generated private cases reuse public templates and are publicly "
+        "derivable surface holdouts; model-specific follow-ups are adaptive "
+        "diagnostics. No current profile is registered as confirmatory.\n"
         "- Public artifacts include sanitized summaries only. Raw prompts, final "
         "answers, transcripts, queue payloads, held-out reports, machine-local "
         "paths, and secrets are excluded from this directory.\n"
@@ -619,24 +1001,47 @@ def _public_readme(
         "python3 operant_lab_cli.py check-public-artifacts\n"
         "```\n\n"
         "That contract verifies required files, JSON parseability, model-card "
-        "presence, forbidden prompt/answer/transcript fields, separation between "
-        "Codex App and local CLI profiles, and absence of private path or "
-        "secret-shaped strings in public text artifacts.\n"
+        "presence, current exporter/corpus/protocol digests, forbidden "
+        "prompt/answer/transcript fields, separation between Codex App and local "
+        "CLI profiles, and absence of private path or secret-shaped strings in "
+        "public text artifacts. If the private source indexes are available, add "
+        "`--source-results <your-local-results-path>`. Add `--lab-runs "
+        "<your-local-runs-path>` and `--private-case-overlays "
+        "<your-private-cases-path>` to reconnect local receipt and oracle hashes "
+        "without emitting paths or contents.\n"
     )
 
 
-def export_public_artifacts(
+def _export_public_artifacts_locked(
     source_results: Path,
     out_dir: Path,
     *,
     lab_runs_dir: Path | None = None,
     lab_labels: set[str] | None = None,
+    private_case_overlays_dir: Path | None = None,
 ) -> dict[str, Any]:
+    evidence_binding = build_evidence_binding(
+        source_results,
+        lab_runs_dir=lab_runs_dir,
+        lab_labels=lab_labels,
+        private_case_overlays_dir=private_case_overlays_dir,
+    )
     canonical_decision_rows = read_jsonl(source_results / "operant_index.jsonl")
     judge_rows = read_jsonl(source_results / "operant_orchestration_judge_index.jsonl")
     opus_judge_rows = read_jsonl(
         source_results / "operant_orchestration_judge_opus_index.jsonl"
     )
+    if lab_runs_dir is not None:
+        receipt_root = lab_runs_dir.resolve().parents[1]
+        canonical_decision_rows = filter_unblocked_index_rows(
+            receipt_root,
+            canonical_decision_rows,
+        )
+        judge_rows = filter_unblocked_index_rows(receipt_root, judge_rows)
+        opus_judge_rows = filter_unblocked_index_rows(
+            receipt_root,
+            opus_judge_rows,
+        )
     lab_rows, lab_metadata = (
         load_lab_decision_rows(lab_runs_dir, lab_labels)
         if lab_runs_dir is not None
@@ -662,6 +1067,31 @@ def export_public_artifacts(
     for row in opus_judge_rows:
         opus_judge_by_family[_base_label(row["run_label"])][row["run_label"]].append(row)
 
+    final_evidence_binding = build_evidence_binding(
+        source_results,
+        lab_runs_dir=lab_runs_dir,
+        lab_labels=lab_labels,
+        private_case_overlays_dir=private_case_overlays_dir,
+    )
+    if final_evidence_binding != evidence_binding:
+        raise RuntimeError(
+            "research evidence changed while exporting; refusing to write a "
+            "mixed-state public artifact set"
+        )
+
+    lab_status = _lab_run_status(
+        lab_rows=lab_rows,
+        lab_metadata=lab_metadata,
+        lab_runs_dir=lab_runs_dir,
+        lab_labels=lab_labels,
+    )
+    _require_publishable_evaluation_bindings(lab_status)
+    bindings_by_label = {
+        str(run["run_label"]): run["evaluation_binding"]
+        for run in lab_status["runs"]
+    }
+    _reject_unmarked_stale_cards(out_dir, set(decision_by_family))
+    require_supported_public_layout(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     model_cards = []
     for family in sorted(decision_by_family):
@@ -671,8 +1101,11 @@ def export_public_artifacts(
             judge_repeats=judge_by_family.get(family, {}),
             opus_judge_repeats=opus_judge_by_family.get(family, {}),
             metadata_override=lab_metadata.get(family),
+            evaluation_bindings_by_label=bindings_by_label,
         )
-        write_json(out_dir / "model-cards" / f"{family}.json", card)
+        card["evidence_binding"] = evidence_binding
+        card["claim_status"] = _card_claim_status(card)
+        write_json_atomic(out_dir / "model-cards" / f"{family}.json", card)
         model_cards.append(card)
 
     calibration = {
@@ -683,6 +1116,12 @@ def export_public_artifacts(
         ),
         "included_lab_labels": sorted(lab_labels) if lab_labels else [],
         "presentation": "calibration_profiles_not_flat_leaderboard",
+        "evidence_binding": evidence_binding,
+        "claim_status": {
+            "historical_reference_profiles": HISTORICAL_CLAIM_STATUS,
+            "local_lab_profiles": LOCAL_LAB_CLAIM_STATUS,
+        },
+        "claims_at_risk": CLAIMS_AT_RISK,
         "models": [
             {
                 "run_family": card["run_family"],
@@ -711,13 +1150,16 @@ def export_public_artifacts(
             "Public exemplars may be shown; held-out prompts and raw reports stay "
             "excluded from public exports."
         ),
+        "evidence_binding": evidence_binding,
+        "claim_status": {
+            "benchmark_definition_and_metric": "SUPPORTED",
+            "historical_model_performance": "NOT_DURABLE",
+            "served_model_identity": "UNKNOWN",
+            "independent_replication": "UNKNOWN",
+            "deployment_safety_or_certification": "NOT_SUPPORTED",
+        },
+        "claims_at_risk": CLAIMS_AT_RISK,
     }
-    lab_status = _lab_run_status(
-        lab_rows=lab_rows,
-        lab_metadata=lab_metadata,
-        lab_runs_dir=lab_runs_dir,
-        lab_labels=lab_labels,
-    )
     methodology = (
         "# OPERANT Methodology\n\n"
         "OPERANT measures operating-decision calibration rather than patch success. "
@@ -728,9 +1170,23 @@ def export_public_artifacts(
         "guarded cases; FPR counts over-withholding on benign-open twins. Exact "
         "decision accuracy is reported separately because label precision still "
         "matters, but OCS is the headline calibration read.\n\n"
+        "## Evidence Boundary\n\n"
+        "Exported hashes support byte integrity and deterministic recalculation "
+        "from imported score rows. Current-public corpus and protocol hashes do "
+        "not identify the historical as-run inputs. Historical reference receipts predate "
+        "append-only attempt manifests, leaving dispatch freshness and "
+        "served-model identity UNKNOWN. Local native-shell receipts are "
+        "self-reported. The export therefore does not support durable cross-model "
+        "rankings, model-equivalence, independent replication, deployment safety, "
+        "or certification. Those comparison claims are not durable.\n\n"
         "Public lab exports are calibration-profile first. Native-shell results "
         "and raw API results must be labeled separately; local CLI gap runs do "
         "not backfill or merge into Codex App native-shell profiles.\n\n"
+        "The public artifact manifest binds one exact export generation by file "
+        "membership, byte length, and SHA-256. A missing marker, partial write, "
+        "extra file, or cross-generation mixture invalidates the whole public "
+        "directory. This unsigned marker does not prove authorship, publication "
+        "time, external immutability, or resistance to coordinated rewrite.\n\n"
         "`lab-run-status.json` reports public coverage status without prompts "
         "or final answers. It identifies completed and partial experimental "
         "profiles, queued-only cases excluded from scoring, exact smoke runs, "
@@ -740,6 +1196,17 @@ def export_public_artifacts(
         "paths, and secrets are excluded from public exports. Public model cards "
         "and coverage inventories are enough to interpret scores, not to replay "
         "private runs.\n\n"
+        "## Adaptive and Confirmatory Separation\n\n"
+        "Withholding prompt text protects confidentiality but does not by itself "
+        "create a confirmatory set. The generated public and private splits share "
+        "templates, slot pools, decision structure, and scoring boundaries; the "
+        "nominal private side is a publicly derivable surface holdout only. The "
+        "GPT-5.5 sanctioned-path, refusal-calibration, and local-authority "
+        "follow-ups were selected from observed errors and are adaptive "
+        "diagnostics. Historical selection and exposure history for the reference "
+        "suite is incomplete. The current confirmatory status is therefore **NOT "
+        "ESTABLISHED**; no exported score is confirmatory under the checked split "
+        "registry.\n\n"
         "Self-service receipts produced by `score_my_agent.py` are self-reported "
         "open benchmark results. They are comparable only under the same operator "
         "contract, corpus, axes, repeats, subject shell, and judge policy. They "
@@ -753,11 +1220,37 @@ def export_public_artifacts(
         lab_status=lab_status,
     )
 
-    write_json(out_dir / "benchmark-card.json", benchmark_card)
-    write_json(out_dir / "calibration-profiles.json", calibration)
-    write_json(out_dir / "lab-run-status.json", lab_status)
-    (out_dir / "README.md").write_text(public_readme, encoding="utf-8")
-    (out_dir / "methodology.md").write_text(methodology, encoding="utf-8")
+    write_json_atomic(out_dir / "benchmark-card.json", benchmark_card)
+    write_json_atomic(out_dir / "calibration-profiles.json", calibration)
+    write_json_atomic(out_dir / "lab-run-status.json", lab_status)
+    split_registry = json.loads(
+        (ROOT / "lab" / "public" / "evaluation-split-registry.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    registered_roles = split_registry["run_family_dispositions"]
+    for path in (out_dir / "model-cards").glob("*.json"):
+        registered_roles.setdefault(
+            path.stem,
+            "UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY",
+        )
+    split_registry["private_overlay_digests"] = evidence_binding[
+        "private_case_overlays"
+    ]
+    if out_dir.resolve() == (ROOT / "lab" / "public").resolve():
+        split_registry["evidence_bindings"][
+            "lab/public/benchmark-card.json"
+        ] = _sha256(out_dir / "benchmark-card.json")
+    write_json_atomic(out_dir / "evaluation-split-registry.json", split_registry)
+    write_text_atomic(out_dir / "README.md", public_readme)
+    write_text_atomic(out_dir / "methodology.md", methodology)
+    generation = write_generation_manifest(out_dir)
+    generation_errors = validate_generation_manifest(out_dir)
+    if generation_errors:
+        raise RuntimeError(
+            "public generation did not stabilize: "
+            + "; ".join(generation_errors)
+        )
     return {
         "model_cards": len(model_cards),
         "decision_rows": len(decision_rows),
@@ -765,4 +1258,24 @@ def export_public_artifacts(
         "lab_status_runs": len(lab_status["runs"]),
         "judge_rows": len(judge_rows),
         "out_dir": str(out_dir),
+        "generation_sha256": generation["generation_sha256"],
     }
+
+
+def export_public_artifacts(
+    source_results: Path,
+    out_dir: Path,
+    *,
+    lab_runs_dir: Path | None = None,
+    lab_labels: set[str] | None = None,
+    private_case_overlays_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Serialize and commit one exact public artifact generation."""
+    with public_generation_lock(out_dir, shared=False, create=True):
+        return _export_public_artifacts_locked(
+            source_results,
+            out_dir,
+            lab_runs_dir=lab_runs_dir,
+            lab_labels=lab_labels,
+            private_case_overlays_dir=private_case_overlays_dir,
+        )

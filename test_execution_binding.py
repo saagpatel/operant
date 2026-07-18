@@ -1,0 +1,1569 @@
+#!/usr/bin/env python3
+"""Adversarial tests for OPERANT execution and identity bindings."""
+
+from __future__ import annotations
+
+import ast
+import copy
+import json
+import subprocess
+import tempfile
+import unittest
+from dataclasses import asdict
+from pathlib import Path
+from unittest import mock
+
+from operant_lab.artifacts import (
+    RunManifest,
+    RunReport,
+    build_execution_binding,
+    complete_execution_binding,
+    execution_input_mismatches,
+    filter_unblocked_index_rows,
+    receipt_output_scoring_block_reason,
+    receipt_scoring_block_reason,
+    scoring_block_reason,
+    validate_execution_binding,
+    validate_run_manifest_v3,
+    validate_run_manifest_v4,
+    validate_run_manifest_v5,
+    validate_run_manifest_v6,
+    validate_run_manifest_v7,
+    validate_run_manifest_v8,
+)
+from operant_lab.inventory import _manifest_binding_projection
+
+HERE = Path(__file__).resolve().parent
+
+
+def _binding(
+    *,
+    requested: str = "fixture-model",
+    candidates: list[str] | None = None,
+) -> dict:
+    binding = build_execution_binding(
+        root=HERE,
+        exact_prompt="private fixture prompt",
+        system_prompt="private fixture system",
+        stdin_text=None,
+        command=["fixture", "--model", requested],
+        cwd_class="REPOSITORY_ROOT",
+        tool_policy="none",
+        timeout_seconds=1,
+        output_mode="fixture-json",
+        dispatch_settings={},
+        harness_files=[Path(__file__)],
+        requested_model_id=requested,
+    )
+    if candidates is not None:
+        binding = complete_execution_binding(
+            binding,
+            provider_reported_candidates=candidates,
+            evidence_source="provider_result_modelUsage",
+            raw_result_envelope='{"fixture":true}',
+            final_answer="fixture answer",
+            runtime_root=HERE,
+            runtime_command=["fixture", "--model", requested],
+        )
+    return binding
+
+
+def _manifest(binding: dict) -> RunManifest:
+    return RunManifest(
+        run_label="fixture-r1",
+        case_id="fixture.case",
+        axis="decision",
+        subject_shell="fixture",
+        model_id="fixture-model",
+        prompt_hash=binding["input_binding"]["delivered_prompt_sha256"],
+        prompt_contract="fixture",
+        tool_policy="none",
+        evaluation_role="OPEN_DEVELOPMENT",
+        case_bundle_sha256="b" * 64,
+        case_bundle_case_count=1,
+        case_split="fixture",
+        execution_binding=binding,
+    )
+
+
+class ExecutionBindingTests(unittest.TestCase):
+    def test_binding_is_sanitized_and_conservatively_not_replayable(self) -> None:
+        binding = _binding()
+        serialized = json.dumps(binding, sort_keys=True)
+        self.assertEqual(validate_execution_binding(binding), [])
+        self.assertEqual(binding["replay_class"], "INPUT_BOUND_NOT_REPLAYABLE")
+        self.assertEqual(binding["dependency_lock"]["status"], "UNKNOWN")
+        self.assertEqual(
+            binding["model_observation"]["served_model_identity"],
+            "UNKNOWN",
+        )
+        python_environment = binding["harness_python_environment"]
+        self.assertIn(
+            python_environment["status"],
+            {"HARNESS_PYTHON_METADATA_BOUND", "UNKNOWN"},
+        )
+        if python_environment["status"] == "HARNESS_PYTHON_METADATA_BOUND":
+            self.assertEqual(
+                python_environment["coverage"],
+                (
+                    "ON_DISK_SYS_EXECUTABLE_CANDIDATE_AND_"
+                    "VISIBLE_DISTRIBUTION_METADATA_ONLY"
+                ),
+            )
+        else:
+            self.assertEqual(
+                python_environment["reason"],
+                "ACTIVE_PYTHON_ENVIRONMENT_CAPTURE_FAILED",
+            )
+        self.assertNotIn("visible_distributions", python_environment)
+        self.assertEqual(
+            binding["subject_environment_linkage"]["reason"],
+            "SUBPROCESS_ENVIRONMENT_NOT_OBSERVED",
+        )
+        self.assertEqual(
+            binding["process_image_identity"],
+            {
+                "status": "UNKNOWN",
+                "kernel_observed_cdhash": "UNKNOWN",
+                "kernel_observed_signing_id": "UNKNOWN",
+                "kernel_observed_team_id": "UNKNOWN",
+                "kernel_observed_pidversion": "UNKNOWN",
+                "evidence_source": "NOT_CAPTURED",
+                "coverage": "UNKNOWN",
+                "reason": "KERNEL_EXEC_ATTESTATION_NOT_CONFIGURED",
+            },
+        )
+        self.assertNotIn("private fixture prompt", serialized)
+        self.assertNotIn("private fixture system", serialized)
+        self.assertNotIn(str(HERE), serialized)
+
+    def test_reported_candidate_cardinality_is_exact_and_unaliased(self) -> None:
+        cases = (
+            ([], "UNKNOWN"),
+            (["fixture-model"], "MATCHED"),
+            (["fixture-model-2026"], "MISMATCH"),
+            (["fixture-model", "other"], "AMBIGUOUS"),
+        )
+        for candidates, expected in cases:
+            with self.subTest(candidates=candidates):
+                binding = _binding(candidates=candidates)
+                observation = binding["model_observation"]
+                self.assertEqual(observation["comparison_status"], expected)
+                self.assertEqual(observation["served_model_identity"], "UNKNOWN")
+
+    def test_raw_result_envelope_is_bound_without_content(self) -> None:
+        binding = _binding(candidates=["fixture-model"])
+        observation = binding["model_observation"]
+        self.assertRegex(
+            observation["raw_result_envelope_sha256"],
+            r"^[0-9a-f]{64}$",
+        )
+        self.assertNotIn("fixture", observation["raw_result_envelope_sha256"])
+
+    def test_input_drift_is_detected_field_by_field(self) -> None:
+        binding = _binding()
+        mismatches = execution_input_mismatches(
+            binding,
+            exact_prompt="changed",
+            system_prompt="private fixture system",
+            stdin_text=None,
+            command=["fixture", "--model", "fixture-model"],
+            cwd_class="REPOSITORY_ROOT",
+            tool_policy="none",
+            timeout_seconds=1,
+            output_mode="fixture-json",
+            dispatch_settings={},
+        )
+        self.assertEqual(mismatches, ["delivered_prompt_sha256"])
+
+    def test_digest_consistent_malformed_input_types_fail_closed(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        def rehash(binding: dict) -> None:
+            pre_dispatch = {
+                **{
+                    key: value
+                    for key, value in binding.items()
+                    if key
+                    not in {
+                        "model_observation",
+                        "post_dispatch_runtime",
+                        "post_dispatch_harness_python_environment",
+                        "pre_dispatch_sha256",
+                        "completion_sha256",
+                    }
+                },
+                "requested_model_id": binding["model_observation"][
+                    "requested_model_id"
+                ],
+            }
+            binding["pre_dispatch_sha256"] = artifacts._canonical_hash(
+                pre_dispatch
+            )
+
+        cases = (
+            ("timeout_seconds", []),
+            ("timeout_seconds", {}),
+            ("timeout_seconds", True),
+            ("timeout_seconds", -1),
+            ("timeout_seconds", 0.5),
+            ("timeout_seconds", "1"),
+            ("cwd_class", {"coerces": "truthy"}),
+            ("output_mode", {"coerces": "truthy"}),
+        )
+        for field_name, replacement in cases:
+            binding = _binding()
+            binding["input_binding"][field_name] = replacement
+            rehash(binding)
+            with self.subTest(field=field_name, replacement=replacement):
+                self.assertTrue(validate_execution_binding(binding))
+
+        for files in (
+            [{}],
+            ["/private/harness.py"],
+            ["../escape.py"],
+            ["b.py", "a.py"],
+            ["a.py", "a.py"],
+        ):
+            binding = _binding()
+            binding["harness"]["files"] = files
+            rehash(binding)
+            with self.subTest(harness_files=files):
+                self.assertIn(
+                    "harness binding is incomplete",
+                    validate_execution_binding(binding),
+                )
+
+        binding = _binding()
+        binding["environment"]["facts"][
+            "python_executable_name"
+        ] = "/private/python"
+        binding["environment"]["sha256"] = artifacts._canonical_hash(
+            binding["environment"]["facts"]
+        )
+        rehash(binding)
+        self.assertIn(
+            "environment python executable must be a basename",
+            validate_execution_binding(binding),
+        )
+
+    def test_sha256_fields_require_strings_even_when_digests_match(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        integer_digest = int("1" * 64)
+
+        def rehash_binding(binding: dict) -> None:
+            pre_dispatch = {
+                **{
+                    key: value
+                    for key, value in binding.items()
+                    if key
+                    not in {
+                        "model_observation",
+                        "post_dispatch_runtime",
+                        "post_dispatch_harness_python_environment",
+                        "pre_dispatch_sha256",
+                        "completion_sha256",
+                    }
+                },
+                "requested_model_id": binding["model_observation"][
+                    "requested_model_id"
+                ],
+            }
+            binding["pre_dispatch_sha256"] = artifacts._canonical_hash(
+                pre_dispatch
+            )
+            if binding["completion_sha256"] != "UNKNOWN":
+                binding["completion_sha256"] = artifacts._canonical_hash(
+                    {
+                        key: value
+                        for key, value in binding.items()
+                        if key != "completion_sha256"
+                    }
+                )
+
+        def rehash_manifest(manifest: dict) -> None:
+            manifest["manifest_core_sha256"] = artifacts._canonical_hash(
+                {
+                    key: value
+                    for key, value in manifest.items()
+                    if key != "manifest_core_sha256"
+                }
+            )
+
+        for field_path in (
+            ("input_binding", "delivered_prompt_sha256"),
+            ("harness", "sha256"),
+            ("source_state", "dirty_state_sha256"),
+        ):
+            binding = _binding()
+            target = binding[field_path[0]]
+            if field_path == ("source_state", "dirty_state_sha256"):
+                target["commit"] = "a" * 40
+                target["dirty"] = True
+                target["reconstruction"] = "DIRTY_DIGEST_ONLY"
+            target[field_path[1]] = integer_digest
+            rehash_binding(binding)
+            with self.subTest(field_path=field_path):
+                self.assertTrue(validate_execution_binding(binding))
+
+        binding = _binding()
+        binding["source_state"].update(
+            {
+                "commit": int("1" * 40),
+                "dirty": False,
+                "dirty_state_sha256": "a" * 64,
+                "reconstruction": "CLEAN_COMMIT",
+            }
+        )
+        rehash_binding(binding)
+        self.assertIn(
+            "source commit is invalid",
+            validate_execution_binding(binding),
+        )
+
+        for observation_field in (
+            "raw_result_envelope_sha256",
+            "final_answer_sha256",
+        ):
+            binding = _binding(candidates=["fixture-model"])
+            binding["model_observation"][observation_field] = integer_digest
+            rehash_binding(binding)
+            with self.subTest(observation_field=observation_field):
+                self.assertTrue(validate_execution_binding(binding))
+
+        manifest = asdict(_manifest(_binding()))
+        manifest["execution_binding"]["input_binding"][
+            "delivered_prompt_sha256"
+        ] = integer_digest
+        rehash_binding(manifest["execution_binding"])
+        manifest["prompt_hash"] = integer_digest
+        rehash_manifest(manifest)
+        self.assertTrue(validate_run_manifest_v7(manifest))
+
+        manifest = asdict(_manifest(_binding()))
+        manifest["case_bundle_sha256"] = integer_digest
+        rehash_manifest(manifest)
+        self.assertTrue(validate_run_manifest_v7(manifest))
+
+        manifest = asdict(_manifest(_binding()))
+        manifest["source_queue_file"] = "queue.json"
+        manifest["source_queue_sha256"] = integer_digest
+        rehash_manifest(manifest)
+        self.assertTrue(validate_run_manifest_v7(manifest))
+
+    def test_dirty_and_untracked_content_change_source_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "fixture@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Fixture"],
+                cwd=root,
+                check=True,
+            )
+            harness = root / "harness.py"
+            harness.write_text("print('one')\n", encoding="utf-8")
+            subprocess.run(["git", "add", "harness.py"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "fixture"],
+                cwd=root,
+                check=True,
+            )
+
+            def capture() -> dict:
+                return build_execution_binding(
+                    root=root,
+                    exact_prompt="p",
+                    system_prompt="s",
+                    stdin_text=None,
+                    command=["fixture"],
+                    cwd_class="REPOSITORY_ROOT",
+                    tool_policy="none",
+                    timeout_seconds=1,
+                    output_mode="fixture",
+                    dispatch_settings={},
+                    harness_files=[harness],
+                    requested_model_id="fixture-model",
+                )
+
+            clean = capture()["source_state"]
+            expected_commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            harness.write_text("print('two')\n", encoding="utf-8")
+            subprocess.run(["git", "add", "harness.py"], cwd=root, check=True)
+            staged = capture()["source_state"]
+            harness.write_text("print('three')\n", encoding="utf-8")
+            dirty = capture()["source_state"]
+            (root / "untracked.txt").write_text("evidence\n", encoding="utf-8")
+            untracked = capture()["source_state"]
+        self.assertEqual(clean["commit"], expected_commit)
+        self.assertIs(clean["dirty"], False)
+        self.assertEqual(clean["reconstruction"], "CLEAN_COMMIT")
+        self.assertEqual(staged["reconstruction"], "DIRTY_DIGEST_ONLY")
+        self.assertIs(dirty["dirty"], True)
+        self.assertNotEqual(
+            clean["dirty_state_sha256"],
+            staged["dirty_state_sha256"],
+        )
+        self.assertNotEqual(
+            staged["dirty_state_sha256"],
+            dirty["dirty_state_sha256"],
+        )
+        self.assertNotEqual(
+            clean["dirty_state_sha256"],
+            dirty["dirty_state_sha256"],
+        )
+        self.assertNotEqual(
+            dirty["dirty_state_sha256"],
+            untracked["dirty_state_sha256"],
+        )
+
+    def test_dependency_lockfiles_are_present_but_not_claimed_active(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            harness = root / "harness.py"
+            harness.write_text("# fixture\n", encoding="utf-8")
+            lock = root / "pylock.toml"
+            lock.write_text("[packages]\na = '1'\n", encoding="utf-8")
+
+            def capture() -> dict:
+                return build_execution_binding(
+                    root=root,
+                    exact_prompt="p",
+                    system_prompt="s",
+                    stdin_text=None,
+                    command=["fixture"],
+                    cwd_class="REPOSITORY_ROOT",
+                    tool_policy="none",
+                    timeout_seconds=1,
+                    output_mode="fixture",
+                    dispatch_settings={},
+                    harness_files=[harness],
+                    requested_model_id="fixture-model",
+                )["dependency_lock"]
+
+            first = capture()
+            lock.write_text("[packages]\na = '2'\n", encoding="utf-8")
+            second = capture()
+        self.assertEqual(first["status"], "LOCKFILE_PRESENT_UNVERIFIED")
+        self.assertEqual(first["files"], ["pylock.toml"])
+        self.assertEqual(first["reason"], "ACTIVE_ENVIRONMENT_NOT_PROVEN")
+        self.assertNotEqual(first["sha256"], second["sha256"])
+
+    def test_harness_environment_capture_is_fail_closed_and_path_private(
+        self,
+    ) -> None:
+        import operant_lab.artifacts as artifacts
+
+        with mock.patch.object(
+            artifacts,
+            "_distribution_metadata_snapshot",
+            return_value=[{"name": "fixture", "version": "1.0"}],
+        ):
+            captured = artifacts._active_python_environment_binding()
+        self.assertEqual(captured["status"], "HARNESS_PYTHON_METADATA_BOUND")
+        self.assertRegex(captured["python_executable_sha256"], r"^[0-9a-f]{64}$")
+        self.assertRegex(
+            captured["visible_distributions_sha256"],
+            r"^[0-9a-f]{64}$",
+        )
+        self.assertGreaterEqual(captured["visible_distribution_count"], 0)
+        self.assertNotIn("/", captured["python_executable_name"])
+        self.assertNotIn(str(Path.home()), json.dumps(captured))
+
+        class MetadataFailure(Exception):
+            pass
+
+        with mock.patch.object(
+            artifacts.importlib.metadata,
+            "distributions",
+            side_effect=MetadataFailure("fixture"),
+        ):
+            unknown = artifacts._active_python_environment_binding()
+        self.assertEqual(
+            unknown,
+            artifacts._unknown_active_python_environment(
+                "ACTIVE_PYTHON_ENVIRONMENT_CAPTURE_FAILED"
+            ),
+        )
+
+    def test_harness_environment_drift_blocks_scoring(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        binding = _binding()
+        changed_environment = copy.deepcopy(
+            binding["harness_python_environment"]
+        )
+        changed_environment["visible_distributions_sha256"] = "f" * 64
+        with mock.patch.object(
+            artifacts,
+            "_active_python_environment_binding",
+            return_value=changed_environment,
+        ):
+            completed = complete_execution_binding(
+                binding,
+                provider_reported_candidates=["fixture-model"],
+                evidence_source="provider_result_modelUsage",
+                raw_result_envelope="fixture",
+                final_answer="fixture",
+                runtime_root=HERE,
+                runtime_command=["fixture"],
+            )
+        self.assertEqual(
+            completed["post_dispatch_harness_python_environment"][
+                "comparison"
+            ],
+            "DRIFTED",
+        )
+        self.assertEqual(
+            scoring_block_reason(asdict(_manifest(completed))),
+            "harness_python_environment_drift",
+        )
+
+    def test_subject_environment_linkage_cannot_be_promoted(self) -> None:
+        binding = _binding()
+        binding["subject_environment_linkage"].update(
+            {
+                "status": "MATCHED",
+                "harness_to_subject_environment": "SAME",
+                "evidence_source": "EXECUTABLE_NAME",
+                "coverage": "FULL",
+                "reason": None,
+            }
+        )
+        self.assertIn(
+            "subject environment linkage is overstated",
+            validate_execution_binding(binding),
+        )
+
+    def test_environment_evidence_cannot_be_laundered_by_outer_digests(
+        self,
+    ) -> None:
+        import operant_lab.artifacts as artifacts
+
+        def binding_with_known_environment(
+            *,
+            completed: bool = False,
+        ) -> dict:
+            with mock.patch.object(
+                artifacts,
+                "_distribution_metadata_snapshot",
+                return_value=[{"name": "fixture", "version": "1.0"}],
+            ):
+                return _binding(
+                    candidates=["fixture-model"] if completed else None
+                )
+
+        def rehash_pre(binding: dict) -> None:
+            binding["pre_dispatch_sha256"] = artifacts._canonical_hash(
+                {
+                    **{
+                        key: value
+                        for key, value in binding.items()
+                        if key
+                        not in {
+                            "model_observation",
+                            "post_dispatch_runtime",
+                            "post_dispatch_harness_python_environment",
+                            "pre_dispatch_sha256",
+                            "completion_sha256",
+                        }
+                    },
+                    "requested_model_id": binding["model_observation"][
+                        "requested_model_id"
+                    ],
+                }
+            )
+
+        for field_name, replacement in (
+            ("visible_distribution_count", True),
+            ("visible_distribution_count", 10**100),
+            ("visible_distributions_sha256", int("1" * 64)),
+            ("python_executable_name", "/private/python"),
+            ("python_executable_name", "python\nprivate"),
+        ):
+            binding = binding_with_known_environment()
+            binding["harness_python_environment"][field_name] = replacement
+            rehash_pre(binding)
+            with self.subTest(field=field_name, replacement=type(replacement)):
+                self.assertIn(
+                    "harness Python environment binding is invalid",
+                    validate_execution_binding(binding),
+                )
+
+        binding = binding_with_known_environment()
+        binding["harness_python_environment"]["status"] = "UNKNOWN"
+        rehash_pre(binding)
+        self.assertIn(
+            "unknown harness Python environment carries evidence",
+            validate_execution_binding(binding),
+        )
+
+        binding = binding_with_known_environment()
+        binding["subject_environment_linkage"].update(
+            {
+                "status": "MATCHED",
+                "harness_to_subject_environment": "SAME",
+                "evidence_source": "EXECUTABLE_NAME",
+                "coverage": "FULL",
+                "reason": None,
+            }
+        )
+        rehash_pre(binding)
+        self.assertIn(
+            "subject environment linkage is overstated",
+            validate_execution_binding(binding),
+        )
+
+        for post_hash, comparison in (
+            (None, "DRIFTED"),
+            ("f" * 64, "MATCHED"),
+        ):
+            binding = binding_with_known_environment(completed=True)
+            manifest = asdict(_manifest(binding))
+            persisted_binding = manifest["execution_binding"]
+            post = persisted_binding[
+                "post_dispatch_harness_python_environment"
+            ]
+            if post_hash is not None:
+                post["environment_sha256"] = post_hash
+            post["comparison"] = comparison
+            persisted_binding["completion_sha256"] = artifacts._canonical_hash(
+                {
+                    key: value
+                    for key, value in persisted_binding.items()
+                    if key != "completion_sha256"
+                }
+            )
+            manifest["manifest_core_sha256"] = artifacts._canonical_hash(
+                {
+                    key: value
+                    for key, value in manifest.items()
+                    if key != "manifest_core_sha256"
+                }
+            )
+            with self.subTest(post_hash=post_hash, comparison=comparison):
+                self.assertIn(
+                    "post-dispatch Python environment binding is invalid",
+                    validate_execution_binding(persisted_binding),
+                )
+                self.assertEqual(
+                    scoring_block_reason(manifest),
+                    "invalid_execution_binding",
+                )
+
+    def test_subject_runtime_binds_bytes_without_invoking_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            harness = root / "harness.py"
+            harness.write_text("# fixture\n", encoding="utf-8")
+            executable = root / "fixture-runtime"
+            executable.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+            executable.chmod(0o755)
+
+            def capture(command: list[str] | None) -> dict:
+                return build_execution_binding(
+                    root=root,
+                    exact_prompt="p",
+                    system_prompt="s",
+                    stdin_text=None,
+                    command=command,
+                    cwd_class="REPOSITORY_ROOT",
+                    tool_policy="none",
+                    timeout_seconds=1,
+                    output_mode="fixture",
+                    dispatch_settings={},
+                    harness_files=[harness],
+                    requested_model_id="fixture-model",
+                )["subject_runtime"]
+
+            first = capture([str(executable)])
+            executable.write_text("#!/bin/sh\nexit 98\n", encoding="utf-8")
+            second = capture([str(executable)])
+            relative = capture(["./fixture-runtime"])
+            executable.chmod(0o644)
+            non_executable = capture([str(executable)])
+            missing = capture(["definitely-not-an-operant-runtime"])
+            manual = capture(None)
+            null_absolute = capture(["/tmp/\x00"])
+            null_relative = capture(["./\x00"])
+        self.assertEqual(
+            first["status"],
+            "PRE_DISPATCH_EXECUTABLE_BYTES_BOUND",
+        )
+        self.assertEqual(first["resolved_executable_name"], "fixture-runtime")
+        self.assertRegex(first["executable_sha256"], r"^[0-9a-f]{64}$")
+        self.assertNotEqual(first["executable_sha256"], second["executable_sha256"])
+        self.assertEqual(relative["executable_sha256"], second["executable_sha256"])
+        self.assertEqual(first["version"], "UNKNOWN")
+        self.assertEqual(
+            first["version_reason"],
+            "NOT_QUERIED_TO_PRESERVE_NO_SIDE_EFFECT_BOUNDARY",
+        )
+        self.assertEqual(missing["reason"], "EXECUTABLE_NOT_FOUND")
+        self.assertEqual(non_executable["reason"], "EXECUTABLE_CAPTURE_FAILED")
+        self.assertEqual(manual["reason"], "NO_EXECUTABLE_DISPATCH")
+        self.assertEqual(null_absolute["reason"], "EXECUTABLE_CAPTURE_FAILED")
+        self.assertEqual(null_relative["reason"], "EXECUTABLE_CAPTURE_FAILED")
+        self.assertNotIn(str(root), json.dumps(first, sort_keys=True))
+
+    def test_post_dispatch_candidate_match_drift_and_unknown_are_explicit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            harness = root / "harness.py"
+            harness.write_text("# fixture\n", encoding="utf-8")
+            marker = root / "must-not-run"
+            executable = root / "fixture-runtime"
+            executable.write_text(
+                f"#!/bin/sh\ntouch {marker.name}\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            command = [str(executable)]
+
+            def prepared() -> dict:
+                return build_execution_binding(
+                    root=root,
+                    exact_prompt="p",
+                    system_prompt="s",
+                    stdin_text=None,
+                    command=command,
+                    cwd_class="REPOSITORY_ROOT",
+                    tool_policy="none",
+                    timeout_seconds=1,
+                    output_mode="fixture",
+                    dispatch_settings={},
+                    harness_files=[harness],
+                    requested_model_id="fixture-model",
+                )
+
+            stable = complete_execution_binding(
+                prepared(),
+                provider_reported_candidates=["fixture-model"],
+                evidence_source="provider_result_modelUsage",
+                raw_result_envelope="{}",
+                final_answer="fixture answer",
+                runtime_root=root,
+                runtime_command=command,
+            )
+            drift_prepared = prepared()
+            executable.write_text("#!/bin/sh\nexit 7\n", encoding="utf-8")
+            drifted = complete_execution_binding(
+                drift_prepared,
+                provider_reported_candidates=["fixture-model"],
+                evidence_source="provider_result_modelUsage",
+                raw_result_envelope="{}",
+                final_answer="fixture answer",
+                runtime_root=root,
+                runtime_command=command,
+            )
+            unavailable_prepared = prepared()
+            executable.unlink()
+            unavailable = complete_execution_binding(
+                unavailable_prepared,
+                provider_reported_candidates=["fixture-model"],
+                evidence_source="provider_result_modelUsage",
+                raw_result_envelope="{}",
+                final_answer="fixture answer",
+                runtime_root=root,
+                runtime_command=command,
+            )
+
+        self.assertFalse(marker.exists())
+        self.assertEqual(
+            stable["post_dispatch_runtime"]["comparison"],
+            "MATCHED",
+        )
+        self.assertEqual(validate_execution_binding(stable), [])
+        self.assertEqual(
+            drifted["post_dispatch_runtime"]["comparison"],
+            "DRIFTED",
+        )
+        self.assertEqual(
+            scoring_block_reason(asdict(_manifest(drifted))),
+            "runtime_candidate_drift",
+        )
+        self.assertEqual(
+            unavailable["post_dispatch_runtime"],
+            {
+                "status": "UNKNOWN",
+                "resolved_executable_name": "UNKNOWN",
+                "executable_sha256": "UNKNOWN",
+                "executable_size_bytes": "UNKNOWN",
+                "comparison": "UNKNOWN",
+                "coverage": "UNKNOWN",
+                "reason": "POST_DISPATCH_CANDIDATE_UNAVAILABLE",
+            },
+        )
+        self.assertNotIn(str(root), json.dumps(stable, sort_keys=True))
+
+    def test_manual_app_completion_preserves_unknown_runtime_assessment(self) -> None:
+        binding = build_execution_binding(
+            root=HERE,
+            exact_prompt="p",
+            system_prompt="s",
+            stdin_text=None,
+            command=None,
+            cwd_class="CODEX_APP_PROJECT_FOLDER",
+            tool_policy="none",
+            timeout_seconds=None,
+            output_mode="manual",
+            dispatch_settings={},
+            harness_files=[Path(__file__)],
+            requested_model_id="fixture-model",
+        )
+        completed = complete_execution_binding(
+            binding,
+            provider_reported_candidates=[],
+            evidence_source="NOT_EXPOSED",
+            raw_result_envelope="fixture",
+            final_answer="fixture",
+            runtime_root=HERE,
+            runtime_command=None,
+        )
+        self.assertEqual(
+            completed["post_dispatch_runtime"]["status"],
+            "UNKNOWN",
+        )
+        self.assertEqual(
+            completed["post_dispatch_runtime"]["reason"],
+            "NO_EXECUTABLE_DISPATCH",
+        )
+        self.assertEqual(validate_execution_binding(completed), [])
+        self.assertEqual(
+            completed["process_image_identity"]["reason"],
+            "NO_LOCAL_PROCESS_DISPATCH",
+        )
+
+    def test_process_image_identity_cannot_be_promoted_without_evidence(self) -> None:
+        binding = _binding(candidates=["fixture-model"])
+        manifest = asdict(_manifest(binding))
+        binding["process_image_identity"].update(
+            {
+                "status": "KERNEL_EXEC_IDENTITY_BOUND",
+                "kernel_observed_cdhash": "a" * 40,
+                "evidence_source": "PID_PATH",
+                "coverage": "RUNNING_PROCESS",
+                "reason": None,
+            }
+        )
+        self.assertIn(
+            "process image identity evidence is overstated",
+            validate_execution_binding(binding),
+        )
+        self.assertEqual(
+            scoring_block_reason(
+                {
+                    **manifest,
+                    "execution_binding": binding,
+                }
+            ),
+            "invalid_execution_binding",
+        )
+
+    def test_untracked_symlink_binds_link_identity_not_external_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            external = Path(tmp) / "private.txt"
+            external.write_text("first secret\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "fixture@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Fixture"],
+                cwd=root,
+                check=True,
+            )
+            harness = root / "harness.py"
+            harness.write_text("# fixture\n", encoding="utf-8")
+            subprocess.run(["git", "add", "harness.py"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+            (root / "external-link").symlink_to(external)
+
+            def source() -> dict:
+                return build_execution_binding(
+                    root=root,
+                    exact_prompt="p",
+                    system_prompt="s",
+                    stdin_text=None,
+                    command=["fixture"],
+                    cwd_class="REPOSITORY_ROOT",
+                    tool_policy="none",
+                    timeout_seconds=1,
+                    output_mode="fixture",
+                    dispatch_settings={},
+                    harness_files=[harness],
+                    requested_model_id="fixture-model",
+                )["source_state"]
+
+            before = source()
+            external.write_text("changed secret\n", encoding="utf-8")
+            after = source()
+        self.assertEqual(before, after)
+        self.assertEqual(before["reconstruction"], "DIRTY_DIGEST_ONLY")
+
+    def test_unstable_source_capture_falls_back_to_unknown(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        first = {
+            "commit": "a" * 40,
+            "dirty": False,
+            "dirty_state_sha256": "b" * 64,
+            "reconstruction": "CLEAN_COMMIT",
+        }
+        second = {
+            **first,
+            "dirty": True,
+            "reconstruction": "DIRTY_DIGEST_ONLY",
+        }
+        with mock.patch.object(
+            artifacts,
+            "_source_snapshot",
+            side_effect=[first, second],
+        ):
+            captured = artifacts._source_state(Path("."))
+        self.assertEqual(
+            captured,
+            {
+                "commit": "UNKNOWN",
+                "dirty": "UNKNOWN",
+                "dirty_state_sha256": "UNKNOWN",
+                "reconstruction": "UNKNOWN",
+            },
+        )
+        with mock.patch.object(
+            artifacts,
+            "_source_snapshot",
+            side_effect=FileNotFoundError("disappeared"),
+        ):
+            disappeared = artifacts._source_state(Path("."))
+        self.assertEqual(disappeared["reconstruction"], "UNKNOWN")
+
+    def test_manifest_core_and_schema_downgrade_are_fail_closed(self) -> None:
+        manifest = asdict(_manifest(_binding(candidates=["fixture-model"])))
+        self.assertEqual(validate_run_manifest_v8(manifest), [])
+        for field_name, replacement in (
+            ("subject_shell", "relabelled-shell"),
+            ("evaluation_role", "SMOKE_ONLY"),
+            ("case_split", "relabelled-split"),
+            ("created_at", "2020-01-01T00:00:00Z"),
+        ):
+            changed = copy.deepcopy(manifest)
+            changed[field_name] = replacement
+            with self.subTest(field=field_name):
+                self.assertIn(
+                    "manifest core digest mismatch",
+                    validate_run_manifest_v8(changed),
+                )
+                self.assertEqual(
+                    scoring_block_reason(changed),
+                    "invalid_execution_binding",
+                )
+        for schema in (
+            None,
+            "operant-run-manifest.v1",
+            "operant-run-manifest.v2",
+            "operant-run-manifest.v3",
+            "operant-run-manifest.v4",
+            "operant-run-manifest.v5",
+            "operant-run-manifest.v6",
+            "operant-run-manifest.v7",
+        ):
+            downgraded = copy.deepcopy(manifest)
+            downgraded["manifest_schema"] = schema
+            with self.subTest(schema=schema):
+                self.assertEqual(
+                    scoring_block_reason(downgraded),
+                    "invalid_execution_binding",
+                )
+
+    def test_genuine_historical_v3_v1_receipt_remains_interpretable(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        historical_binding = copy.deepcopy(_binding())
+        historical_binding["schema"] = "operant-execution-binding.v1"
+        historical_binding.pop("subject_runtime")
+        historical_binding.pop("post_dispatch_runtime")
+        historical_binding.pop("process_image_identity")
+        historical_binding.pop("harness_python_environment")
+        historical_binding.pop("post_dispatch_harness_python_environment")
+        historical_binding.pop("subject_environment_linkage")
+        historical_binding["source_state"].pop("reconstruction")
+        pre_dispatch = {
+            **{
+                key: value
+                for key, value in historical_binding.items()
+                if key
+                not in {
+                    "model_observation",
+                    "pre_dispatch_sha256",
+                    "completion_sha256",
+                }
+            },
+            "requested_model_id": historical_binding["model_observation"][
+                "requested_model_id"
+            ],
+        }
+        historical_binding["pre_dispatch_sha256"] = artifacts._canonical_hash(
+            pre_dispatch
+        )
+        historical_manifest = asdict(_manifest(_binding()))
+        historical_manifest.pop("manifest_core_sha256")
+        historical_manifest["manifest_schema"] = "operant-run-manifest.v3"
+        historical_manifest["execution_binding"] = historical_binding
+        self.assertEqual(validate_run_manifest_v3(historical_manifest), [])
+        self.assertEqual(
+            scoring_block_reason(historical_manifest),
+            "incomplete_execution_receipt",
+        )
+
+    def test_genuine_historical_v4_v2_receipt_remains_interpretable(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        historical_binding = copy.deepcopy(_binding())
+        historical_binding["schema"] = "operant-execution-binding.v2"
+        historical_binding.pop("subject_runtime")
+        historical_binding.pop("post_dispatch_runtime")
+        historical_binding.pop("process_image_identity")
+        historical_binding.pop("harness_python_environment")
+        historical_binding.pop("post_dispatch_harness_python_environment")
+        historical_binding.pop("subject_environment_linkage")
+        pre_dispatch = {
+            **{
+                key: value
+                for key, value in historical_binding.items()
+                if key
+                not in {
+                    "model_observation",
+                    "pre_dispatch_sha256",
+                    "completion_sha256",
+                }
+            },
+            "requested_model_id": historical_binding["model_observation"][
+                "requested_model_id"
+            ],
+        }
+        historical_binding["pre_dispatch_sha256"] = artifacts._canonical_hash(
+            pre_dispatch
+        )
+        historical_manifest = asdict(_manifest(_binding()))
+        historical_manifest["manifest_schema"] = "operant-run-manifest.v4"
+        historical_manifest["execution_binding"] = historical_binding
+        historical_manifest["manifest_core_sha256"] = artifacts._canonical_hash(
+            {
+                key: value
+                for key, value in historical_manifest.items()
+                if key != "manifest_core_sha256"
+            }
+        )
+        self.assertEqual(validate_run_manifest_v4(historical_manifest), [])
+        self.assertEqual(
+            scoring_block_reason(historical_manifest),
+            "incomplete_execution_receipt",
+        )
+
+    def test_genuine_historical_v5_v3_receipt_remains_interpretable(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        historical_binding = copy.deepcopy(_binding())
+        historical_binding["schema"] = "operant-execution-binding.v3"
+        historical_binding.pop("post_dispatch_runtime")
+        historical_binding.pop("process_image_identity")
+        historical_binding.pop("harness_python_environment")
+        historical_binding.pop("post_dispatch_harness_python_environment")
+        historical_binding.pop("subject_environment_linkage")
+        pre_dispatch = {
+            **{
+                key: value
+                for key, value in historical_binding.items()
+                if key
+                not in {
+                    "model_observation",
+                    "pre_dispatch_sha256",
+                    "completion_sha256",
+                }
+            },
+            "requested_model_id": historical_binding["model_observation"][
+                "requested_model_id"
+            ],
+        }
+        historical_binding["pre_dispatch_sha256"] = artifacts._canonical_hash(
+            pre_dispatch
+        )
+        historical_manifest = asdict(_manifest(_binding()))
+        historical_manifest["manifest_schema"] = "operant-run-manifest.v5"
+        historical_manifest["execution_binding"] = historical_binding
+        historical_manifest["manifest_core_sha256"] = artifacts._canonical_hash(
+            {
+                key: value
+                for key, value in historical_manifest.items()
+                if key != "manifest_core_sha256"
+            }
+        )
+        self.assertEqual(validate_run_manifest_v5(historical_manifest), [])
+        self.assertEqual(
+            scoring_block_reason(historical_manifest),
+            "incomplete_execution_receipt",
+        )
+
+    def test_genuine_historical_v6_v4_receipt_remains_interpretable(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        historical_binding = copy.deepcopy(
+            _binding(candidates=["fixture-model"])
+        )
+        historical_binding["schema"] = "operant-execution-binding.v4"
+        historical_binding.pop("process_image_identity")
+        historical_binding.pop("harness_python_environment")
+        historical_binding.pop("post_dispatch_harness_python_environment")
+        historical_binding.pop("subject_environment_linkage")
+        pre_dispatch = {
+            **{
+                key: value
+                for key, value in historical_binding.items()
+                if key
+                not in {
+                    "model_observation",
+                    "post_dispatch_runtime",
+                    "pre_dispatch_sha256",
+                    "completion_sha256",
+                }
+            },
+            "requested_model_id": historical_binding["model_observation"][
+                "requested_model_id"
+            ],
+        }
+        historical_binding["pre_dispatch_sha256"] = artifacts._canonical_hash(
+            pre_dispatch
+        )
+        historical_binding["completion_sha256"] = artifacts._canonical_hash(
+            {
+                key: value
+                for key, value in historical_binding.items()
+                if key != "completion_sha256"
+            }
+        )
+        historical_manifest = asdict(_manifest(_binding()))
+        historical_manifest["manifest_schema"] = "operant-run-manifest.v6"
+        historical_manifest["execution_binding"] = historical_binding
+        historical_manifest["manifest_core_sha256"] = artifacts._canonical_hash(
+            {
+                key: value
+                for key, value in historical_manifest.items()
+                if key != "manifest_core_sha256"
+            }
+        )
+        self.assertEqual(validate_run_manifest_v6(historical_manifest), [])
+        self.assertIsNone(scoring_block_reason(historical_manifest))
+
+    def test_genuine_historical_v7_v5_receipt_remains_interpretable(self) -> None:
+        import operant_lab.artifacts as artifacts
+
+        historical_binding = copy.deepcopy(
+            _binding(candidates=["fixture-model"])
+        )
+        historical_binding["schema"] = "operant-execution-binding.v5"
+        historical_binding.pop("harness_python_environment")
+        historical_binding.pop("post_dispatch_harness_python_environment")
+        historical_binding.pop("subject_environment_linkage")
+        pre_dispatch = {
+            **{
+                key: value
+                for key, value in historical_binding.items()
+                if key
+                not in {
+                    "model_observation",
+                    "post_dispatch_runtime",
+                    "pre_dispatch_sha256",
+                    "completion_sha256",
+                }
+            },
+            "requested_model_id": historical_binding["model_observation"][
+                "requested_model_id"
+            ],
+        }
+        historical_binding["pre_dispatch_sha256"] = artifacts._canonical_hash(
+            pre_dispatch
+        )
+        historical_binding["completion_sha256"] = artifacts._canonical_hash(
+            {
+                key: value
+                for key, value in historical_binding.items()
+                if key != "completion_sha256"
+            }
+        )
+        historical_manifest = asdict(_manifest(_binding()))
+        historical_manifest["manifest_schema"] = "operant-run-manifest.v7"
+        historical_manifest["execution_binding"] = historical_binding
+        historical_manifest["manifest_core_sha256"] = artifacts._canonical_hash(
+            {
+                key: value
+                for key, value in historical_manifest.items()
+                if key != "manifest_core_sha256"
+            }
+        )
+        self.assertEqual(validate_run_manifest_v7(historical_manifest), [])
+        self.assertIsNone(scoring_block_reason(historical_manifest))
+
+    def test_contradictory_capture_states_and_nonfinite_cost_are_invalid(self) -> None:
+        manifest = asdict(_manifest(_binding()))
+        source = manifest["execution_binding"]["source_state"]
+        source.update(
+            {
+                "commit": "UNKNOWN",
+                "dirty": False,
+                "dirty_state_sha256": "a" * 64,
+                "reconstruction": "CLEAN_COMMIT",
+            }
+        )
+        source_errors = validate_execution_binding(manifest["execution_binding"])
+        self.assertIn(
+            "unknown source state carries contradictory evidence",
+            source_errors,
+        )
+
+        dependency_binding = _binding()
+        dependency_binding["dependency_lock"].update(
+            {
+                "status": "LOCKFILE_PRESENT_UNVERIFIED",
+                "files": [],
+                "sha256": "a" * 64,
+                "reason": "ACTIVE_ENVIRONMENT_NOT_PROVEN",
+            }
+        )
+        self.assertIn(
+            "lockfile evidence is incomplete",
+            validate_execution_binding(dependency_binding),
+        )
+        malformed_dependency = asdict(_manifest(_binding()))
+        malformed_dependency["execution_binding"]["dependency_lock"]["files"] = [{}]
+        self.assertEqual(
+            scoring_block_reason(malformed_dependency),
+            "invalid_execution_binding",
+        )
+
+        for persisted_cost in (
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            10**10000,
+        ):
+            persisted = asdict(_manifest(_binding()))
+            persisted["cost_usd"] = persisted_cost
+            with self.subTest(persisted_cost=persisted_cost):
+                self.assertEqual(
+                    scoring_block_reason(persisted),
+                    "invalid_execution_binding",
+                )
+
+        for cost in (
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            10**10000,
+        ):
+            with self.subTest(cost=cost):
+                with self.assertRaisesRegex(ValueError, "cost_usd"):
+                    RunManifest(
+                        **{
+                            key: value
+                            for key, value in asdict(_manifest(_binding())).items()
+                            if key
+                            not in {
+                                "manifest_schema",
+                                "confirmatory_eligible",
+                                "manifest_core_sha256",
+                                "cost_usd",
+                            }
+                        },
+                        cost_usd=cost,
+                    )
+
+    def test_validators_are_total_over_malformed_json_shapes(self) -> None:
+        malformed_values = (None, True, 1, 1.5, "text", [], [1], {}, {"x": 1})
+        for value in malformed_values:
+            with self.subTest(root_value=value):
+                self.assertTrue(validate_execution_binding(value))
+                self.assertTrue(validate_run_manifest_v3(value))
+                self.assertTrue(validate_run_manifest_v4(value))
+                self.assertTrue(validate_run_manifest_v5(value))
+                self.assertTrue(validate_run_manifest_v6(value))
+                self.assertTrue(validate_run_manifest_v7(value))
+                self.assertTrue(validate_run_manifest_v8(value))
+                expected = (
+                    None
+                    if isinstance(value, dict)
+                    and "execution_binding" not in value
+                    else "invalid_execution_binding"
+                )
+                self.assertEqual(scoring_block_reason(value), expected)
+
+        mutations = (
+            ("manifest_schema", []),
+            ("evaluation_role", {}),
+            ("execution_binding.schema", []),
+            ("execution_binding.dependency_lock.status", []),
+            ("execution_binding.dependency_lock.reason", []),
+            ("execution_binding.model_observation", 1),
+            ("execution_binding.model_observation.comparison_status", []),
+            ("execution_binding.source_state.dirty", []),
+            ("execution_binding.subject_runtime", []),
+            ("execution_binding.subject_runtime.status", []),
+            ("execution_binding.subject_runtime.reason", {}),
+            ("execution_binding.post_dispatch_runtime", []),
+            ("execution_binding.post_dispatch_runtime.status", []),
+            ("execution_binding.post_dispatch_runtime.comparison", {}),
+            ("execution_binding.process_image_identity", []),
+            ("execution_binding.process_image_identity.status", []),
+            ("execution_binding.process_image_identity.reason", {}),
+            ("execution_binding.harness_python_environment", []),
+            ("execution_binding.harness_python_environment.status", []),
+            (
+                "execution_binding.harness_python_environment."
+                "visible_distribution_count",
+                True,
+            ),
+            ("execution_binding.post_dispatch_harness_python_environment", []),
+            (
+                "execution_binding.post_dispatch_harness_python_environment."
+                "comparison",
+                {},
+            ),
+            ("execution_binding.subject_environment_linkage", []),
+            ("execution_binding.subject_environment_linkage.status", "MATCHED"),
+        )
+        baseline = asdict(_manifest(_binding()))
+        for path, value in mutations:
+            changed = copy.deepcopy(baseline)
+            cursor = changed
+            parts = path.split(".")
+            for part in parts[:-1]:
+                cursor = cursor[part]
+            cursor[parts[-1]] = value
+            with self.subTest(path=path):
+                self.assertEqual(
+                    scoring_block_reason(changed),
+                    "invalid_execution_binding",
+                )
+
+    def test_identity_mismatch_blocks_scores_but_preserves_failure_receipt(self) -> None:
+        binding = _binding(candidates=["different-model"])
+        manifest = _manifest(binding)
+        reason = scoring_block_reason(asdict(manifest))
+        self.assertEqual(reason, "identity_blocked:mismatch")
+        preserved = RunReport(
+            manifest=manifest,
+            parse_status=reason,
+            final_answer="fixture answer",
+            failure_class=reason,
+        )
+        self.assertEqual(preserved.final_answer, "fixture answer")
+        with self.assertRaisesRegex(ValueError, "blocked receipt cannot carry scores"):
+            RunReport(
+                manifest=manifest,
+                parse_status=reason,
+                final_answer="fixture answer",
+                failure_class=reason,
+                score_row={"decision_accuracy": True},
+            )
+
+    def test_manifest_model_cannot_swap_a_matched_execution_binding(self) -> None:
+        binding = _binding(candidates=["fixture-model"])
+        manifest = asdict(_manifest(binding))
+        manifest["model_id"] = "different-model"
+        self.assertEqual(
+            scoring_block_reason(manifest),
+            "invalid_execution_binding",
+        )
+
+    def test_binding_rejects_injected_private_fields(self) -> None:
+        binding = _binding()
+        binding["input_binding"]["private_prompt"] = "must not survive"
+        self.assertIn(
+            "input binding fields are not exact",
+            validate_execution_binding(binding),
+        )
+
+    def test_completed_observation_is_integrity_bound(self) -> None:
+        binding = _binding(candidates=["fixture-model"])
+        binding["model_observation"]["comparison_status"] = "MISMATCH"
+        self.assertIn(
+            "completed execution binding digest mismatch",
+            validate_execution_binding(binding),
+        )
+
+    def test_model_candidates_reject_whitespace_normalization(self) -> None:
+        with self.assertRaisesRegex(ValueError, "exact nonempty strings"):
+            complete_execution_binding(
+                _binding(),
+                provider_reported_candidates=[" fixture-model "],
+                evidence_source="provider_result_modelUsage",
+                raw_result_envelope=b"{}",
+                final_answer="fixture answer",
+                runtime_root=HERE,
+                runtime_command=["fixture"],
+            )
+
+    def test_persisted_index_rows_exclude_later_blocked_receipts(self) -> None:
+        binding = _binding(candidates=["different-model"])
+        receipt = {
+            "manifest": asdict(_manifest(binding)),
+            "parse_status": "identity_blocked:mismatch",
+            "final_answer": "preserved",
+        }
+        row = {"run_label": "fixture-r1", "case_id": "fixture.case", "score": 1}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "lab" / "runs" / "fixture-r1" / "fixture.case.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(receipt), encoding="utf-8")
+            self.assertEqual(filter_unblocked_index_rows(root, [row]), [])
+
+    def test_receipt_cannot_authorize_substituted_output(self) -> None:
+        receipt = {
+            "manifest": asdict(_manifest(_binding(candidates=["fixture-model"]))),
+            "parse_status": "ok",
+            "final_answer": "fixture answer",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "lab" / "runs" / "fixture-r1" / "fixture.case.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(receipt), encoding="utf-8")
+            self.assertEqual(
+                receipt_output_scoring_block_reason(
+                    root,
+                    run_label="fixture-r1",
+                    case_id="fixture.case",
+                    final_answer="substituted answer",
+                    require_receipt=True,
+                ),
+                "receipt_output_mismatch",
+            )
+
+    def test_persisted_nonobject_receipt_fails_closed(self) -> None:
+        import operant_lab.export as public_export
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "lab" / "runs" / "fixture-r1" / "fixture.case.json"
+            path.parent.mkdir(parents=True)
+            path.write_text("[]\n", encoding="utf-8")
+            self.assertEqual(
+                receipt_scoring_block_reason(
+                    root,
+                    run_label="fixture-r1",
+                    case_id="fixture.case",
+                    require_receipt=True,
+                ),
+                "invalid_execution_binding",
+            )
+            with (
+                mock.patch.object(
+                    public_export,
+                    "_load_score_operant",
+                    return_value=object(),
+                ),
+                mock.patch.object(
+                    public_export,
+                    "load_decision_cases",
+                    return_value={},
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "receipt root is not an object",
+                ):
+                    public_export.load_lab_decision_rows(
+                        root / "lab" / "runs",
+                        {"fixture-r1"},
+                    )
+
+    def test_score_recording_requires_receipt_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(
+                receipt_scoring_block_reason(
+                    Path(tmp),
+                    run_label="new-label",
+                    case_id="fixture.case",
+                    require_receipt=True,
+                ),
+                "missing_execution_receipt",
+            )
+
+    def test_successful_output_rejects_pre_dispatch_only_binding(self) -> None:
+        manifest = _manifest(_binding())
+        self.assertEqual(
+            scoring_block_reason(asdict(manifest)),
+            "incomplete_execution_receipt",
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "successful output requires completed execution binding",
+        ):
+            RunReport(
+                manifest=manifest,
+                parse_status="ok",
+                final_answer="answer",
+            )
+
+    def test_every_persisted_index_consumer_filters_blocked_receipts(self) -> None:
+        expected_calls = {
+            "score_operant.py": 1,
+            "score_orchestration.py": 1,
+            "score_orchestration_judge.py": 2,
+            "score_suite.py": 1,
+            "rescore_orchestration.py": 1,
+            "run_suite.py": 1,
+            "operant_lab/export.py": 3,
+        }
+        for filename, minimum in expected_calls.items():
+            tree = ast.parse((HERE / filename).read_text(encoding="utf-8"))
+            calls = [
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "filter_unblocked_index_rows"
+            ]
+            self.assertGreaterEqual(len(calls), minimum, filename)
+
+    def test_v2_absence_is_unknown_but_malformed_v3_is_invalid(self) -> None:
+        v2 = {
+            "manifest_schema": "operant-run-manifest.v2",
+            "evaluation_role": "OPEN_DEVELOPMENT",
+            "case_bundle_sha256": "b" * 64,
+            "case_bundle_case_count": 1,
+            "case_split": "fixture",
+            "confirmatory_eligible": False,
+        }
+        self.assertEqual(
+            _manifest_binding_projection(v2, source="run_receipt")["status"],
+            "V2_BOUND_NONCONFIRMATORY",
+        )
+        malformed_v3 = {**v2, "manifest_schema": "operant-run-manifest.v3"}
+        self.assertEqual(
+            _manifest_binding_projection(
+                malformed_v3,
+                source="run_receipt",
+            )["status"],
+            "INVALID",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -11,12 +11,15 @@ import type {
 	OperantCorpus,
 } from "./types";
 
+const RESULTS_STATUS = "CALCULATION_PROFILES_NOT_DURABLE_MODEL_CLAIMS";
+
 const NOT_A_LEADERBOARD_CAVEAT =
 	'IMPORTANT: presentation = "calibration_profiles_not_flat_leaderboard". ' +
-	"This is a calibration profile view, not a flat ranking. " +
-	"A model with a single run and null stdev must not be presented as #1 over multi-run models. " +
-	"Compare only models with non-null stdev (multiple runs) for reliable ranking; " +
-	"single-run models are directional point estimates only.";
+	`results_status = "${RESULTS_STATUS}". ` +
+	"These rows are retained calculation views, not durable named-model performance claims. " +
+	"Historical dispatch freshness, served-model identity, and as-run corpus/protocol identity remain unknown. " +
+	"Do not rank models, claim one model outperforms another, infer model equivalence, " +
+	"or treat non-null stdev or significance calculations as reliable model evidence.";
 
 const ALL_AXES: readonly AxisName[] = [
 	"refusal-calibration",
@@ -66,9 +69,13 @@ export function createOperantTools(corpus: OperantCorpus) {
 
 	// ---- tool implementations ----
 
-	/** get_results: all model profiles as-is, plus the caveat text. */
+	/** get_results: retained calculations plus their fail-closed evidence boundary. */
 	function getResults(): {
 		generated_at: string;
+		results_status: typeof RESULTS_STATUS;
+		claim_status: OperantCorpus["calibration"]["claim_status"];
+		claims_at_risk: string[];
+		evidence_binding: OperantCorpus["calibration"]["evidence_binding"];
 		included_lab_labels: string[];
 		models: CalibrationProfile[];
 		presentation: string;
@@ -77,6 +84,9 @@ export function createOperantTools(corpus: OperantCorpus) {
 	} {
 		const {
 			generated_at,
+			claim_status,
+			claims_at_risk,
+			evidence_binding,
 			included_lab_labels,
 			models,
 			presentation,
@@ -84,6 +94,10 @@ export function createOperantTools(corpus: OperantCorpus) {
 		} = corpus.calibration;
 		return {
 			generated_at,
+			results_status: RESULTS_STATUS,
+			claim_status,
+			claims_at_risk,
+			evidence_binding,
 			included_lab_labels,
 			models,
 			presentation,
@@ -100,6 +114,8 @@ export function createOperantTools(corpus: OperantCorpus) {
 		| {
 				model_a: CalibrationProfile & { single_run_note?: string };
 				model_b: CalibrationProfile & { single_run_note?: string };
+				comparison_status: "NOT_DURABLE";
+				claim_status: OperantCorpus["calibration"]["claim_status"];
 				caveat: string;
 		  }
 		| { error: string; available_models: string[] } {
@@ -141,12 +157,14 @@ export function createOperantTools(corpus: OperantCorpus) {
 
 		const singleRunNote = (m: CalibrationProfile): string | undefined =>
 			m.ocs_stdev === null
-				? "Single-run point estimate — stdev unavailable; treat as directional."
+				? "Stdev unavailable. This retained calculation is not durable model evidence."
 				: undefined;
 
 		return {
 			model_a: { ...a, single_run_note: singleRunNote(a) },
 			model_b: { ...b, single_run_note: singleRunNote(b) },
+			comparison_status: "NOT_DURABLE",
+			claim_status: corpus.calibration.claim_status,
 			caveat: NOT_A_LEADERBOARD_CAVEAT,
 		};
 	}

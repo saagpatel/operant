@@ -37,6 +37,21 @@ async function probe() {
 	if (typeof resultsPayload.caveat !== "string" || resultsPayload.caveat.length === 0) {
 		throw new Error("get_results is missing the methodology caveat");
 	}
+	if (
+		resultsPayload.results_status !==
+		"CALCULATION_PROFILES_NOT_DURABLE_MODEL_CLAIMS"
+	) {
+		throw new Error("get_results is missing the fail-closed results status");
+	}
+	if (
+		resultsPayload.claim_status?.historical_reference_profiles
+			?.cross_model_ranking !== "NOT_DURABLE"
+	) {
+		throw new Error("get_results does not preserve the ranking claim boundary");
+	}
+	if (resultsPayload.caveat.includes("reliable ranking")) {
+		throw new Error("get_results still advertises reliable model ranking");
+	}
 
 	console.log("Probe PASSED.");
 }

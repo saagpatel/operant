@@ -8,9 +8,24 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .artifacts import stable_hash
+from .artifacts import (
+    SHA256_RE,
+    VALID_EVALUATION_ROLES,
+    receipt_scoring_block_reason,
+    stable_hash,
+    validate_execution_binding,
+    validate_run_manifest_v3,
+    validate_run_manifest_v4,
+    validate_run_manifest_v5,
+    validate_run_manifest_v6,
+    validate_run_manifest_v7,
+    validate_run_manifest_v8,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
+BOUND_NONCONFIRMATORY = "V2_BOUND_NONCONFIRMATORY"
+UNKNOWN_BINDING = "UNKNOWN"
+INVALID_BINDING = "INVALID"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -106,10 +121,20 @@ def _decision_score_outcome(
     *,
     case: dict[str, Any] | None,
     run_data: dict[str, Any] | None,
+    manifest: dict[str, Any],
     score_operant: Any,
+    root: Path,
 ) -> str:
     if run_data is None:
         return "queued"
+    block_reason = receipt_scoring_block_reason(
+        root,
+        run_label=str(manifest.get("run_label") or ""),
+        case_id=str(manifest.get("case_id") or ""),
+        require_receipt=True,
+    )
+    if block_reason:
+        return block_reason
     parse_status = str(run_data.get("parse_status") or "unknown")
     if parse_status != "ok":
         return f"parse:{parse_status}"
@@ -135,20 +160,171 @@ def _score_outcome(
     run_data: dict[str, Any] | None,
     manifest: dict[str, Any],
     score_operant: Any,
+    root: Path,
 ) -> str:
     run_axis = str(manifest.get("axis") or "decision")
     if run_axis != "orchestration":
         return _decision_score_outcome(
             case=case,
             run_data=run_data,
+            manifest=manifest,
             score_operant=score_operant,
+            root=root,
         )
     if run_data is None:
         return "queued"
+    block_reason = receipt_scoring_block_reason(
+        root,
+        run_label=str(manifest.get("run_label") or ""),
+        case_id=str(manifest.get("case_id") or ""),
+        require_receipt=True,
+    )
+    if block_reason:
+        return block_reason
     judge_row = run_data.get("judge_row")
     if isinstance(judge_row, dict) and judge_row.get("verdict"):
         return f"judge:{judge_row['verdict']}"
     return "unscored"
+
+
+def _manifest_binding_projection(
+    manifest: dict[str, Any],
+    *,
+    source: str,
+) -> dict[str, Any]:
+    """Expose only non-sensitive v2 binding metadata; legacy absence stays UNKNOWN."""
+    schema = manifest.get("manifest_schema")
+    unknown = {
+        "status": UNKNOWN_BINDING,
+        "source": source,
+        "manifest_schema": str(schema) if schema else "UNKNOWN",
+        "evaluation_role": "UNKNOWN",
+        "case_bundle_sha256": "UNKNOWN",
+        "case_bundle_case_count": "UNKNOWN",
+        "case_split": "UNKNOWN",
+        "confirmatory_eligible": "UNKNOWN",
+    }
+    if schema not in {
+        "operant-run-manifest.v2",
+        "operant-run-manifest.v3",
+        "operant-run-manifest.v4",
+        "operant-run-manifest.v5",
+        "operant-run-manifest.v6",
+        "operant-run-manifest.v7",
+        "operant-run-manifest.v8",
+    }:
+        return unknown
+    if schema in {
+        "operant-run-manifest.v3",
+        "operant-run-manifest.v4",
+        "operant-run-manifest.v5",
+        "operant-run-manifest.v6",
+        "operant-run-manifest.v7",
+        "operant-run-manifest.v8",
+    }:
+        execution = manifest.get("execution_binding")
+        validator = {
+            "operant-run-manifest.v3": validate_run_manifest_v3,
+            "operant-run-manifest.v4": validate_run_manifest_v4,
+            "operant-run-manifest.v5": validate_run_manifest_v5,
+            "operant-run-manifest.v6": validate_run_manifest_v6,
+            "operant-run-manifest.v7": validate_run_manifest_v7,
+            "operant-run-manifest.v8": validate_run_manifest_v8,
+        }[schema]
+        if (
+            not isinstance(execution, dict)
+            or validate_execution_binding(execution)
+            or validator(manifest)
+        ):
+            return {
+                **unknown,
+                "status": INVALID_BINDING,
+                "manifest_schema": schema,
+            }
+
+    role = manifest.get("evaluation_role")
+    digest = manifest.get("case_bundle_sha256")
+    count = manifest.get("case_bundle_case_count")
+    split = manifest.get("case_split")
+    confirmatory = manifest.get("confirmatory_eligible")
+    valid = (
+        isinstance(role, str)
+        and role in VALID_EVALUATION_ROLES
+        and isinstance(digest, str)
+        and SHA256_RE.fullmatch(digest) is not None
+        and isinstance(count, int)
+        and not isinstance(count, bool)
+        and count > 0
+        and isinstance(split, str)
+        and bool(split.strip())
+        and confirmatory is False
+    )
+    if not valid:
+        return {
+            **unknown,
+            "status": INVALID_BINDING,
+            "manifest_schema": str(schema),
+        }
+    return {
+        "status": BOUND_NONCONFIRMATORY,
+        "source": source,
+        "manifest_schema": str(schema),
+        "evaluation_role": role,
+        "case_bundle_sha256": digest,
+        "case_bundle_case_count": count,
+        "case_split": split,
+        "confirmatory_eligible": False,
+    }
+
+
+def _evaluation_binding(
+    *,
+    queue_manifest: dict[str, Any],
+    run_manifest: dict[str, Any],
+    has_run: bool,
+) -> dict[str, Any]:
+    source = "run_receipt" if has_run else "queue_manifest"
+    selected = run_manifest if has_run else queue_manifest
+    projection = _manifest_binding_projection(selected, source=source)
+    if not has_run or not queue_manifest:
+        return projection
+
+    queue_projection = _manifest_binding_projection(
+        queue_manifest,
+        source="queue_manifest",
+    )
+    if queue_projection["status"] == INVALID_BINDING:
+        return {
+            **projection,
+            "status": INVALID_BINDING,
+            "evaluation_role": "UNKNOWN",
+            "case_bundle_sha256": "UNKNOWN",
+            "case_bundle_case_count": "UNKNOWN",
+            "case_split": "UNKNOWN",
+            "confirmatory_eligible": "UNKNOWN",
+        }
+    if (
+        projection["status"] == BOUND_NONCONFIRMATORY
+        and queue_projection["status"] == BOUND_NONCONFIRMATORY
+    ):
+        comparable = (
+            "evaluation_role",
+            "case_bundle_sha256",
+            "case_bundle_case_count",
+            "case_split",
+            "confirmatory_eligible",
+        )
+        if any(projection[key] != queue_projection[key] for key in comparable):
+            return {
+                **projection,
+                "status": INVALID_BINDING,
+                "evaluation_role": "UNKNOWN",
+                "case_bundle_sha256": "UNKNOWN",
+                "case_bundle_case_count": "UNKNOWN",
+                "case_split": "UNKNOWN",
+                "confirmatory_eligible": "UNKNOWN",
+            }
+    return projection
 
 
 def inventory_runs(
@@ -208,6 +384,7 @@ def inventory_runs(
             {
                 "case_id": case_id,
                 "queue_file_path": queue_file_path,
+                "source_queue_sha256": manifest.get("source_queue_sha256"),
                 "prompt_hash": prompt_hash,
                 "run_label": run_label,
                 "thread_id": manifest.get("source_thread_id"),
@@ -217,8 +394,14 @@ def inventory_runs(
                     run_data=run_data,
                     manifest=manifest,
                     score_operant=score_operant,
+                    root=root,
                 ),
                 "risk_tags": _risk_tags(case, manifest),
+                "evaluation_binding": _evaluation_binding(
+                    queue_manifest=queue_manifest,
+                    run_manifest=run_manifest,
+                    has_run=run_data is not None,
+                ),
             }
         )
     return rows

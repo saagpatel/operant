@@ -8,6 +8,7 @@ Exit 0 = ALL SELFTESTS PASSED
 Exit 1 = at least one assertion failed (details printed)
 """
 
+import hashlib
 import importlib.util
 import json
 import sys
@@ -17,13 +18,20 @@ from types import SimpleNamespace
 
 from operant_lab.artifacts import (
     RunManifest,
+    build_execution_binding,
     parse_decision_block,
     parse_orchestration_plan,
     stable_hash,
 )
 from operant_lab.export import export_public_artifacts, model_card
 from operant_lab.inventory import inventory_runs
-from operant_lab.public_contract import validate_public_artifacts
+from operant_lab.lineage import initialize_receipt_lineage
+from operant_lab.public_contract import (
+    RECEIPT_KEY_RE,
+    REQUIRED_ORPHANED_CLAIM_STATUS,
+    _contained_regular_file,
+    validate_public_artifacts,
+)
 from operant_lab.subjects import ClaudeCodeAdapter, CodexAppAdapter
 from operant_lab.submissions import TEMPLATE, validate_submission
 
@@ -87,6 +95,14 @@ def _write_synthetic_export_lab(lab_root: Path, label: str) -> Path:
     completed_case = "force-push-main.benign"
     completed_prompt = "SYNTHETIC EXPORT COMPLETED PROMPT"
     completed_prompt_hash = stable_hash(completed_prompt)
+    evaluation_binding = {
+        "manifest_schema": "operant-run-manifest.v2",
+        "evaluation_role": "OPEN_DEVELOPMENT",
+        "case_bundle_sha256": "a" * 64,
+        "case_bundle_case_count": 2,
+        "case_split": "synthetic-development",
+        "confirmatory_eligible": False,
+    }
 
     queued_path = queue_dir / label / f"{queued_case}.json"
     queued_path.parent.mkdir(parents=True)
@@ -103,6 +119,7 @@ def _write_synthetic_export_lab(lab_root: Path, label: str) -> Path:
                     "axis": "decision",
                     "subject_shell": "codex-app",
                     "model_id": "gpt-5.5",
+                    **evaluation_binding,
                 },
             }
         ),
@@ -123,6 +140,7 @@ def _write_synthetic_export_lab(lab_root: Path, label: str) -> Path:
                     "prompt_hash": completed_prompt_hash,
                     "subject_shell": "codex-app",
                     "model_id": "gpt-5.5",
+                    **evaluation_binding,
                 },
             }
         ),
@@ -142,6 +160,7 @@ def _write_synthetic_export_lab(lab_root: Path, label: str) -> Path:
                     "source_thread_id": "thread_synthetic_export",
                     "subject_shell": "codex-app",
                     "model_id": "gpt-5.5",
+                    **evaluation_binding,
                 },
                 "parse_status": "ok",
                 "final_answer": (
@@ -153,6 +172,7 @@ def _write_synthetic_export_lab(lab_root: Path, label: str) -> Path:
         ),
         encoding="utf-8",
     )
+    initialize_receipt_lineage(lab_root.parent)
     return runs_dir
 
 
@@ -227,15 +247,39 @@ def run_lab_layer_selftests() -> None:
         subject_shell="codex-app",
         model_id="gpt-5.5",
         thinking="medium",
-        prompt_hash="abc",
+        prompt_hash=stable_hash(prompt.full_prompt),
         prompt_contract=prompt.prompt_contract,
         tool_policy=prompt.tool_policy,
+        evaluation_role="UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY",
+        case_bundle_sha256="0" * 64,
+        case_bundle_case_count=1,
+        execution_binding=build_execution_binding(
+            root=HERE,
+            exact_prompt=prompt.full_prompt,
+            system_prompt=system_prompt,
+            stdin_text=None,
+            command=None,
+            cwd_class="CODEX_APP_PROJECT_FOLDER",
+            tool_policy=prompt.tool_policy,
+            timeout_seconds=None,
+            output_mode="manual-codex-app-final-answer",
+            dispatch_settings={"thinking": "medium", "thread_container": "UNKNOWN"},
+            harness_files=[HERE / "selftest.py"],
+            requested_model_id="gpt-5.5",
+        ),
         source_queue_file="lab/codex-app-queue/demo/demo.json",
+        source_queue_sha256="1" * 64,
         thread_container="projectless:operant-public-lab-runs",
     )
     check(
         "LAB manifest: tracks queue and thread container",
         manifest.source_queue_file is not None and manifest.thread_container is not None,
+    )
+    check(
+        "LAB manifest: carries non-confirmatory case-bundle binding",
+        manifest.manifest_schema == "operant-run-manifest.v8"
+        and manifest.confirmatory_eligible is False
+        and manifest.case_bundle_sha256 == "0" * 64,
     )
 
     followup_manifest_path = (
@@ -419,6 +463,7 @@ def run_lab_layer_selftests() -> None:
         run_path = runs_dir / label / f"{completed_case}.json"
         run_path.parent.mkdir(parents=True)
         run_path.write_text(json.dumps(run_payload), encoding="utf-8")
+        initialize_receipt_lineage(tmp_root)
 
         inventory = inventory_runs(
             queue_dir=queue_dir,
@@ -457,6 +502,10 @@ def run_lab_layer_selftests() -> None:
             "LAB inventory: emits coarse risk tags",
             "bypass-patterned" in by_case[queued_case]["risk_tags"],
         )
+        check(
+            "LAB inventory: legacy receipt binding stays UNKNOWN",
+            by_case[completed_case]["evaluation_binding"]["status"] == "UNKNOWN",
+        )
 
     codex_cli = _load_sibling("run_codex_cli")
     args = SimpleNamespace(
@@ -491,7 +540,7 @@ def run_lab_layer_selftests() -> None:
     source = Path("/Users/d/Projects/evals/agent_eval/operant/results")
     if source.exists():
         with tempfile.TemporaryDirectory() as tmp:
-            out_dir = Path(tmp)
+            out_dir = Path(tmp) / "public"
             summary = export_public_artifacts(source, out_dir)
             check("LAB export: imports model cards", summary["model_cards"] >= 3)
             check("LAB export: imports decision rows", summary["decision_rows"] == 440)
@@ -516,10 +565,369 @@ def run_lab_layer_selftests() -> None:
                 "source_results" not in calibration and "/Users/" not in serialized_calibration,
                 serialized_calibration,
             )
+            binding = calibration.get("evidence_binding", {})
+            check(
+                "LAB export: binds source indexes without private paths",
+                binding.get("schema") == "operant-public-evidence-binding.v6"
+                and binding.get("private_paths_exposed") is False
+                and all(
+                    value != "UNKNOWN"
+                    for value in binding.get("source_indexes", {}).values()
+                ),
+                str(binding),
+            )
+            check(
+                "LAB export: binds private case overlays without contents",
+                bool(binding.get("private_case_overlays"))
+                and all(
+                    len(value) == 64
+                    for value in binding.get("private_case_overlays", {}).values()
+                )
+                and "lab/followup/private" not in serialized_calibration,
+                str(binding.get("private_case_overlays")),
+            )
+            check(
+                "LAB export: binds private-case loader protocol",
+                len(
+                    binding.get("current_public_protocol", {}).get(
+                        "inventory.py",
+                        "",
+                    )
+                )
+                == 64,
+                str(binding.get("current_public_protocol")),
+            )
+            check(
+                "LAB export: binds receipt-lineage protocol",
+                len(
+                    binding.get("current_public_protocol", {}).get(
+                        "lineage.py",
+                        "",
+                    )
+                )
+                == 64,
+                str(binding.get("current_public_protocol")),
+            )
+            check(
+                "LAB export: marks historical model claims not durable",
+                calibration.get("claim_status", {})
+                .get("historical_reference_profiles", {})
+                .get("cross_model_ranking")
+                == "NOT_DURABLE",
+                str(calibration.get("claim_status")),
+            )
             check(
                 "LAB public contract: historical export passes",
                 validate_public_artifacts(out_dir) == [],
             )
+            check(
+                "LAB public contract: private source bytes reconnect",
+                validate_public_artifacts(
+                    out_dir,
+                    source_results=source,
+                    private_case_overlays_dir=(
+                        HERE / "lab" / "followup" / "private"
+                    ),
+                )
+                == [],
+            )
+            source_drift = Path(tmp) / "source-drift"
+            source_drift.mkdir()
+            for name in (
+                "operant_index.jsonl",
+                "operant_orchestration_judge_index.jsonl",
+                "operant_orchestration_judge_opus_index.jsonl",
+            ):
+                (source_drift / name).write_bytes((source / name).read_bytes())
+            drifted_index = source_drift / "operant_index.jsonl"
+            drifted_index.write_bytes(drifted_index.read_bytes() + b"\n")
+            check(
+                "LAB public contract: rejects private source byte drift",
+                any(
+                    "source indexes do not match the supplied private source bytes"
+                    in error
+                    for error in validate_public_artifacts(
+                        out_dir,
+                        source_results=source_drift,
+                    )
+                ),
+            )
+            missing_source = Path(tmp) / "private-secret-root"
+            missing_errors = validate_public_artifacts(
+                out_dir,
+                source_results=missing_source,
+            )
+            check(
+                "LAB public contract: source read failures stay path-private",
+                any(
+                    "missing required index operant_index.jsonl" in error
+                    for error in missing_errors
+                )
+                and str(missing_source) not in "\n".join(missing_errors),
+                str(missing_errors),
+            )
+            check(
+                "LAB public contract: rejects receipt traversal key",
+                RECEIPT_KEY_RE.fullmatch("../secret.json") is None,
+            )
+            symlink_root = Path(tmp) / "symlink-root"
+            symlink_label = symlink_root / "run-label"
+            symlink_label.mkdir(parents=True)
+            outside_receipt = Path(tmp) / "outside-receipt.json"
+            outside_receipt.write_text("{}\n", encoding="utf-8")
+            (symlink_label / "case.json").symlink_to(outside_receipt)
+            symlink_errors: list[str] = []
+            check(
+                "LAB public contract: rejects receipt symlink escape",
+                _contained_regular_file(
+                    symlink_root,
+                    "run-label/case.json",
+                    label="lab receipt",
+                    nested=True,
+                    errors=symlink_errors,
+                )
+                is None
+                and any("must not use symlinks" in error for error in symlink_errors),
+                str(symlink_errors),
+            )
+            benchmark_path = out_dir / "benchmark-card.json"
+            calibration_path = out_dir / "calibration-profiles.json"
+            benchmark_data = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            benchmark_data["evidence_binding"]["exporter_sha256"] = "0" * 64
+            benchmark_path.write_text(
+                json.dumps(benchmark_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            calibration_data = json.loads(
+                calibration_path.read_text(encoding="utf-8")
+            )
+            calibration_data["evidence_binding"] = benchmark_data["evidence_binding"]
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            for card_path in (out_dir / "model-cards").glob("*.json"):
+                card = json.loads(card_path.read_text(encoding="utf-8"))
+                card["evidence_binding"] = benchmark_data["evidence_binding"]
+                card_path.write_text(
+                    json.dumps(card, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            check(
+                "LAB public contract: rejects exporter byte drift",
+                any(
+                    "exporter digest does not match the current exporter" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
+            benchmark_data = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            binding = benchmark_data["evidence_binding"]
+            binding["current_public_protocol"]["score_operant.py"] = "0" * 64
+            combined = json.dumps(
+                {
+                    "source_indexes": binding["source_indexes"],
+                    "lab_receipts": binding["lab_receipts"],
+                    "current_public_corpus": binding["current_public_corpus"],
+                    "current_public_protocol": binding["current_public_protocol"],
+                    "private_case_overlays": binding["private_case_overlays"],
+                    "receipt_lineage": binding["receipt_lineage"],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            binding["source_bundle_sha256"] = hashlib.sha256(combined).hexdigest()
+            benchmark_path.write_text(
+                json.dumps(benchmark_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            calibration_data = json.loads(
+                calibration_path.read_text(encoding="utf-8")
+            )
+            calibration_data["evidence_binding"] = binding
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            for card_path in (out_dir / "model-cards").glob("*.json"):
+                card = json.loads(card_path.read_text(encoding="utf-8"))
+                card["evidence_binding"] = binding
+                card_path.write_text(
+                    json.dumps(card, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            check(
+                "LAB public contract: rejects current protocol byte drift",
+                any(
+                    "current_public_protocol does not match the current checkout bytes"
+                    in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
+            benchmark_data = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            benchmark_data["claim_status"]["served_model_identity"] = "SUPPORTED"
+            benchmark_path.write_text(
+                json.dumps(benchmark_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            check(
+                "LAB public contract: rejects promoted served-model identity",
+                any(
+                    "benchmark-card.json: unsafe or missing claim_status" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
+            calibration_data = json.loads(calibration_path.read_text(encoding="utf-8"))
+            calibration_data["claim_status"]["historical_reference_profiles"][
+                "cross_model_ranking"
+            ] = "SUPPORTED"
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            check(
+                "LAB public contract: rejects promoted historical ranking",
+                any(
+                    "calibration-profiles.json: unsafe or missing claim_status" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
+            benchmark_data = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            benchmark_data["evidence_binding"]["source_indexes"][
+                "operant_index.jsonl"
+            ] = "UNKNOWN"
+            benchmark_path.write_text(
+                json.dumps(benchmark_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            calibration_data = json.loads(
+                calibration_path.read_text(encoding="utf-8")
+            )
+            calibration_data["evidence_binding"] = benchmark_data["evidence_binding"]
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            for card_path in (out_dir / "model-cards").glob("*.json"):
+                card = json.loads(card_path.read_text(encoding="utf-8"))
+                card["evidence_binding"] = benchmark_data["evidence_binding"]
+                card_path.write_text(
+                    json.dumps(card, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            check(
+                "LAB public contract: rejects unavailable source digest",
+                any(
+                    "source_indexes contains unusable digest" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
+            calibration_data = json.loads(
+                calibration_path.read_text(encoding="utf-8")
+            )
+            calibration_data["models"][0]["ocs_mean"] = 999.0
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            check(
+                "LAB public contract: rejects calibration/model-card score drift",
+                any(
+                    "model rows do not match active model cards" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
+            calibration_data = json.loads(
+                calibration_path.read_text(encoding="utf-8")
+            )
+            family = calibration_data["models"][0]["run_family"]
+            card_path = out_dir / "model-cards" / f"{family}.json"
+            card_data = json.loads(card_path.read_text(encoding="utf-8"))
+            card_data["decision"]["ocs_mean"] = 999.0
+            card_path.write_text(
+                json.dumps(card_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            calibration_data["models"][0]["ocs_mean"] = 999.0
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            check(
+                "LAB public contract: rejects coordinated aggregate score drift",
+                any(
+                    "decision ocs_mean aggregate mismatch" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
+            calibration_data = json.loads(
+                calibration_path.read_text(encoding="utf-8")
+            )
+            family = calibration_data["models"][0]["run_family"]
+            card_path = out_dir / "model-cards" / f"{family}.json"
+            card_data = json.loads(card_path.read_text(encoding="utf-8"))
+            repeat = next(iter(card_data["decision"]["repeats"].values()))
+            repeat["tpr"] = 999.0
+            repeat["fpr"] = 0.0
+            repeat["ocs"] = 999.0
+            card_data["decision"]["ocs_mean"] = 999.0
+            card_path.write_text(
+                json.dumps(card_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            calibration_data["models"][0]["ocs_mean"] = 999.0
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            check(
+                "LAB public contract: rejects coordinated impossible metrics",
+                any(
+                    "outside [0, 1]" in error or "outside [-1, 1]" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            export_public_artifacts(source, out_dir)
+            stale_path = out_dir / "model-cards" / "stale-profile.json"
+            stale_path.write_text(
+                json.dumps({"run_family": "stale-profile"}) + "\n",
+                encoding="utf-8",
+            )
+            try:
+                export_public_artifacts(source, out_dir)
+                check("LAB export: rejects unmarked stale model card", False)
+            except RuntimeError as exc:
+                check(
+                    "LAB export: rejects unmarked stale model card",
+                    "orphaned_public_artifact" in str(exc),
+                    str(exc),
+                )
+            stale_path.unlink()
+            orphan = json.loads(
+                (out_dir / "model-cards" / "opus.json").read_text(encoding="utf-8")
+            )
+            orphan["run_family"] = "stale-profile"
+            orphan["claim_status"] = dict(REQUIRED_ORPHANED_CLAIM_STATUS)
+            orphan["presentation"] = "orphaned_historical_artifact_not_active_profile"
+            orphan.pop("orphan_reason", None)
+            stale_path.write_text(
+                json.dumps(orphan, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            check(
+                "LAB public contract: orphaned model card requires a reason",
+                any(
+                    "model card stale-profile: missing orphan_reason" in error
+                    for error in validate_public_artifacts(out_dir)
+                ),
+            )
+            stale_path.unlink()
             label = "synthetic-export-r1"
             runs_dir = _write_synthetic_export_lab(Path(tmp) / "lab", label)
             out_tmp = Path(tmp) / "out-with-lab"
@@ -528,6 +936,14 @@ def run_lab_layer_selftests() -> None:
                 out_tmp,
                 lab_runs_dir=runs_dir,
                 lab_labels={label},
+            )
+            bound_lab = json.loads(
+                (out_tmp / "benchmark-card.json").read_text(encoding="utf-8")
+            )["evidence_binding"]["lab_receipts"]
+            check(
+                "LAB export: binds selected local receipt bytes",
+                len(bound_lab) == 1 and all(len(value) == 64 for value in bound_lab.values()),
+                str(bound_lab),
             )
             status = json.loads(
                 (out_tmp / "lab-run-status.json").read_text(encoding="utf-8")
@@ -539,12 +955,175 @@ def run_lab_layer_selftests() -> None:
                 str(status_run),
             )
             check(
+                "LAB export: projects v2 non-confirmatory binding status",
+                status_run["evaluation_binding"]["status"]
+                == "V2_BOUND_NONCONFIRMATORY"
+                and status_run["evaluation_binding"]["confirmatory_eligible"] is False,
+                str(status_run.get("evaluation_binding")),
+            )
+            synthetic_card = json.loads(
+                (out_tmp / "model-cards" / "synthetic-export.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            check(
+                "LAB export: model card carries run binding status",
+                synthetic_card["evaluation_binding"]["status"]
+                == "V2_BOUND_NONCONFIRMATORY",
+                str(synthetic_card.get("evaluation_binding")),
+            )
+            check(
                 "LAB export: lab status excludes prompt text",
                 "SYNTHETIC EXPORT" not in json.dumps(status, sort_keys=True),
             )
             check(
                 "LAB public contract: lab export passes",
                 validate_public_artifacts(out_tmp) == [],
+            )
+            check(
+                "LAB public contract: local receipt and private cases reconnect",
+                validate_public_artifacts(
+                    out_tmp,
+                    lab_runs_dir=runs_dir,
+                    private_case_overlays_dir=(
+                        HERE / "lab" / "followup" / "private"
+                    ),
+                )
+                == [],
+            )
+            receipt_drift = Path(tmp) / "receipt-drift"
+            for receipt_path in runs_dir.glob("*/*.json"):
+                target = receipt_drift / receipt_path.relative_to(runs_dir)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(receipt_path.read_bytes())
+            drifted_receipt = next(receipt_drift.glob("*/*.json"))
+            drifted_receipt.write_bytes(drifted_receipt.read_bytes() + b"\n")
+            check(
+                "LAB public contract: rejects local receipt byte drift",
+                any(
+                    "lab receipts do not match the supplied local receipt bytes"
+                    in error
+                    for error in validate_public_artifacts(
+                        out_tmp,
+                        lab_runs_dir=receipt_drift,
+                    )
+                ),
+            )
+            overlay_source = HERE / "lab" / "followup" / "private"
+            overlay_drift = Path(tmp) / "overlay-drift"
+            overlay_drift.mkdir()
+            for overlay_path in overlay_source.glob("*cases*.json"):
+                (overlay_drift / overlay_path.name).write_bytes(
+                    overlay_path.read_bytes()
+                )
+            drifted_overlay = next(overlay_drift.glob("*cases*.json"))
+            drifted_overlay.write_bytes(drifted_overlay.read_bytes() + b"\n")
+            check(
+                "LAB public contract: rejects private case byte drift",
+                any(
+                    "private case overlays do not match the supplied private case bytes"
+                    in error
+                    for error in validate_public_artifacts(
+                        out_tmp,
+                        private_case_overlays_dir=overlay_drift,
+                    )
+                ),
+            )
+            benchmark_path = out_tmp / "benchmark-card.json"
+            benchmark_data = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            receipt_key = next(iter(benchmark_data["evidence_binding"]["lab_receipts"]))
+            del benchmark_data["evidence_binding"]["lab_receipts"][receipt_key]
+            binding = benchmark_data["evidence_binding"]
+            combined = json.dumps(
+                {
+                    "source_indexes": binding["source_indexes"],
+                    "lab_receipts": binding["lab_receipts"],
+                    "current_public_corpus": binding["current_public_corpus"],
+                    "current_public_protocol": binding["current_public_protocol"],
+                    "private_case_overlays": binding["private_case_overlays"],
+                    "receipt_lineage": binding["receipt_lineage"],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            binding["source_bundle_sha256"] = hashlib.sha256(combined).hexdigest()
+            benchmark_path.write_text(
+                json.dumps(benchmark_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            calibration_path = out_tmp / "calibration-profiles.json"
+            calibration_data = json.loads(
+                calibration_path.read_text(encoding="utf-8")
+            )
+            calibration_data["evidence_binding"] = binding
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            for card_path in (out_tmp / "model-cards").glob("*.json"):
+                card_data = json.loads(card_path.read_text(encoding="utf-8"))
+                card_data["evidence_binding"] = binding
+                card_path.write_text(
+                    json.dumps(card_data, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            check(
+                "LAB public contract: rejects partial local receipt coverage",
+                any(
+                    "lab receipt coverage does not match scored repeats" in error
+                    for error in validate_public_artifacts(out_tmp)
+                ),
+            )
+            export_public_artifacts(
+                source,
+                out_tmp,
+                lab_runs_dir=runs_dir,
+                lab_labels={label},
+            )
+            benchmark_data = json.loads(benchmark_path.read_text(encoding="utf-8"))
+            binding = benchmark_data["evidence_binding"]
+            receipt_key, receipt_digest = next(iter(binding["lab_receipts"].items()))
+            run_label = receipt_key.split("/", 1)[0]
+            del binding["lab_receipts"][receipt_key]
+            binding["lab_receipts"][f"{run_label}/not-a-scored-case.json"] = receipt_digest
+            combined = json.dumps(
+                {
+                    "source_indexes": binding["source_indexes"],
+                    "lab_receipts": binding["lab_receipts"],
+                    "current_public_corpus": binding["current_public_corpus"],
+                    "current_public_protocol": binding["current_public_protocol"],
+                    "private_case_overlays": binding["private_case_overlays"],
+                    "receipt_lineage": binding["receipt_lineage"],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            binding["source_bundle_sha256"] = hashlib.sha256(combined).hexdigest()
+            benchmark_path.write_text(
+                json.dumps(benchmark_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            calibration_data = json.loads(
+                calibration_path.read_text(encoding="utf-8")
+            )
+            calibration_data["evidence_binding"] = binding
+            calibration_path.write_text(
+                json.dumps(calibration_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            for card_path in (out_tmp / "model-cards").glob("*.json"):
+                card_data = json.loads(card_path.read_text(encoding="utf-8"))
+                card_data["evidence_binding"] = binding
+                card_path.write_text(
+                    json.dumps(card_data, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            check(
+                "LAB public contract: rejects substituted receipt case id",
+                any(
+                    "lab receipt coverage does not match scored repeats" in error
+                    for error in validate_public_artifacts(out_tmp)
+                ),
             )
     else:
         with tempfile.TemporaryDirectory() as tmp:
@@ -569,11 +1148,23 @@ def run_lab_layer_selftests() -> None:
                 + "\n",
                 encoding="utf-8",
             )
+            for name in (
+                "operant_orchestration_judge_index.jsonl",
+                "operant_orchestration_judge_opus_index.jsonl",
+            ):
+                (source_tmp / name).write_text("", encoding="utf-8")
+            private_cases = Path(tmp) / "private"
+            private_cases.mkdir()
+            (private_cases / "synthetic-cases.json").write_text(
+                "{}\n",
+                encoding="utf-8",
+            )
             summary = export_public_artifacts(
                 source_tmp,
                 out_tmp,
                 lab_runs_dir=runs_dir,
                 lab_labels={label},
+                private_case_overlays_dir=private_cases,
             )
             check(
                 "LAB export: synthetic source imports model cards",
@@ -618,9 +1209,11 @@ def run_lab_layer_selftests() -> None:
                 "source_results" not in calibration and "/Users/" not in serialized_calibration,
                 serialized_calibration,
             )
+            synthetic_errors = validate_public_artifacts(out_tmp)
             check(
                 "LAB public contract: synthetic export passes",
-                validate_public_artifacts(out_tmp) == [],
+                synthetic_errors == [],
+                str(synthetic_errors),
             )
 
     with tempfile.TemporaryDirectory() as tmp:

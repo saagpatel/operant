@@ -19,8 +19,120 @@ function read(relFromRepo) {
 	return JSON.parse(readFileSync(abs, "utf8"));
 }
 
-// Calibration profiles — only allowed file from lab/.
-const calibration = read("lab/public/calibration-profiles.json");
+function requireObject(value, label) {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		throw new Error(`${label} must be an object`);
+	}
+	return value;
+}
+
+function requireString(value, label) {
+	if (typeof value !== "string" || value.length === 0) {
+		throw new Error(`${label} must be a non-empty string`);
+	}
+	return value;
+}
+
+function requireStringArray(value, label) {
+	if (
+		!Array.isArray(value) ||
+		!value.every((item) => typeof item === "string" && item.length > 0)
+	) {
+		throw new Error(`${label} must be an array of non-empty strings`);
+	}
+	return value;
+}
+
+// Calibration profiles — only allowed file from lab/. Project only the public
+// fields the MCP contract needs so the Worker does not bake receipt inventories.
+const rawCalibration = requireObject(
+	read("lab/public/calibration-profiles.json"),
+	"calibration profiles",
+);
+const claimStatus = requireObject(
+	rawCalibration.claim_status,
+	"calibration claim_status",
+);
+const historicalStatus = requireObject(
+	claimStatus.historical_reference_profiles,
+	"historical reference claim status",
+);
+const localStatus = requireObject(
+	claimStatus.local_lab_profiles,
+	"local lab claim status",
+);
+const evidenceBinding = requireObject(
+	rawCalibration.evidence_binding,
+	"calibration evidence_binding",
+);
+
+const requiredHistoricalStatus = {
+	cross_model_ranking: "NOT_DURABLE",
+	inferential_statistics_as_model_evidence: "NOT_DURABLE",
+	served_model_identity: "UNKNOWN",
+};
+const requiredLocalStatus = {
+	cross_profile_ranking: "NOT_DURABLE",
+	served_model_identity: "UNKNOWN",
+};
+for (const [key, expected] of Object.entries(requiredHistoricalStatus)) {
+	if (historicalStatus[key] !== expected) {
+		throw new Error(
+			`historical reference claim_status.${key} must be ${expected}`,
+		);
+	}
+}
+for (const [key, expected] of Object.entries(requiredLocalStatus)) {
+	if (localStatus[key] !== expected) {
+		throw new Error(`local lab claim_status.${key} must be ${expected}`);
+	}
+}
+
+const calibration = {
+	generated_at: requireString(
+		rawCalibration.generated_at,
+		"calibration generated_at",
+	),
+	claim_status: {
+		historical_reference_profiles: historicalStatus,
+		local_lab_profiles: localStatus,
+	},
+	claims_at_risk: requireStringArray(
+		rawCalibration.claims_at_risk,
+		"calibration claims_at_risk",
+	),
+	evidence_binding: {
+		schema: requireString(
+			evidenceBinding.schema,
+			"calibration evidence_binding.schema",
+		),
+		claim_boundary: requireString(
+			evidenceBinding.claim_boundary,
+			"calibration evidence_binding.claim_boundary",
+		),
+		historical_as_run_corpus: requireString(
+			evidenceBinding.historical_as_run_corpus,
+			"calibration evidence_binding.historical_as_run_corpus",
+		),
+		historical_as_run_protocol: requireString(
+			evidenceBinding.historical_as_run_protocol,
+			"calibration evidence_binding.historical_as_run_protocol",
+		),
+	},
+	included_lab_labels: requireStringArray(
+		rawCalibration.included_lab_labels,
+		"calibration included_lab_labels",
+	),
+	models: rawCalibration.models,
+	presentation: requireString(
+		rawCalibration.presentation,
+		"calibration presentation",
+	),
+	source_result_policy: requireString(
+		rawCalibration.source_result_policy,
+		"calibration source_result_policy",
+	),
+};
 
 // Axis case files — all at repo root, not under lab/.
 const axis1 = read("operant_cases.json");        // axis: refusal-calibration

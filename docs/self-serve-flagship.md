@@ -1,8 +1,9 @@
-# Self-serve flagship: a comparable cross-provider OCS row
+# Self-serve flagship: historical protocol-matched OCS receipts
 
 This is the flagship sample for the bring-your-own-agent runner
 ([`score_my_agent.py`](../score_my_agent.py)): two production models scored under a
-single identical protocol, so the numbers compare to each other directly.
+a single protocol. The stored calculations are comparable at the receipt level, but
+served-model identity is **UNKNOWN** absent provider-bound receipts.
 
 ## The row
 
@@ -13,8 +14,8 @@ single identical protocol, so the numbers compare to each other directly.
 
 Per-axis OCS is identical across all three decision axes for both models
 (escalation-reroute +0.833, refusal-calibration +0.875, sanctioned-path +0.875).
-Both land **Opus-class**, inside the published Opus 4.8 reference range
-[0.818, 0.955].
+Both have positive OCS. This is a mathematical sign interpretation only; it does not
+establish equivalence to Opus or any other named model.
 
 ## How to read it
 
@@ -47,7 +48,7 @@ knobs, so only rows that match on all of them are comparable.
 - **Posture:** each model runs read-only (no shell execution, no file writes), at its
   default-class reasoning effort.
 
-## Reproduce
+## Run a new experiment
 
 Sonnet:
 
@@ -88,9 +89,9 @@ python3 score_my_agent.py \
   contract and n=1. The two numbers measure different things and must not be compared
   1:1. This table is internally comparable only.
 - **n=1.** Single-run results carry run-to-run variance. Treat the gap as a tie and the
-  bands as orientation, not as a leaderboard.
-- **Self-reported and open.** OCS here is a transparent, reproducible self-report, not a
-  certification.
+  two values as historical receipt calculations, not as a leaderboard.
+- **Self-reported and open.** OCS here is a deterministic calculation from stored
+  answers, not proof of served-model identity, independent reproduction, or certification.
 - **Privacy.** Only sanitized fields are published: case ids, scores, confusion counts,
-  parse status, band. Raw prompts, model answers, and transcripts are never included in
+  parse status, and interpretation label. Raw prompts, model answers, and transcripts are never included in
   any public artifact.

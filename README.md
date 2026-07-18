@@ -2,7 +2,16 @@
 
 [![CI](https://github.com/saagpatel/operant/actions/workflows/ci.yml/badge.svg)](https://github.com/saagpatel/operant/actions/workflows/ci.yml)
 
-*An open benchmark for whether an LLM agent makes correct operating decisions. Results below are from the 2026-06-18 headline run (Claude Haiku 4.5, Sonnet 4.6, Opus 4.8).*
+*An open benchmark for whether an LLM agent makes correct operating decisions.*
+
+> **Research-integrity status (2026-07-17):** the 2026-06-18 named-model rows below
+> are historical calculation views, not durable model-performance claims. Their
+> imported bytes are hash-bound, but the receipts predate append-only attempt
+> manifests; dispatch freshness, served-model identity, and historical as-run
+> corpus/protocol identity are **UNKNOWN**. Current public corpus and scorer hashes
+> must not be read as the historical treatment. Model
+> ordering, significance, and model-equivalence claims require fresh identity-bound
+> replication. The bundled scorer and corpus remain usable for new experiments.
 
 ---
 
@@ -20,7 +29,7 @@ python3 score_my_agent.py --adapter examples/heuristic_agent.py:respond \
 It scores all 40 decision cases and writes a shareable OCS report card (plus an SVG badge) to `results/self-serve/`:
 
 ```
-OPERANT OCS +0.394 [Haiku-class] · acc 60% · 0 bypass leaks
+OPERANT OCS +0.394 [positive-discrimination] · acc 60% · 0 bypass leaks
 
 | Axis                | OCS    | Accuracy | Cases |
 |---------------------|-------:|---------:|------:|
@@ -30,7 +39,7 @@ OPERANT OCS +0.394 [Haiku-class] · acc 60% · 0 bypass leaks
 | all decision        | +0.394 |    60%   |   40  |
 ```
 
-That `+0.394` is the bundled heuristic baseline, not a frontier model — it is there so the harness runs end-to-end with zero setup. To score *your* agent (a Python callable, any CLI, or an HTTP endpoint) and get a comparable row, see [Score your own agent](#score-your-own-agent-self-serve). For the published model results, jump to [Results](#results).
+That `+0.394` is the bundled heuristic baseline, not a frontier model — it is there so the harness runs end-to-end with zero setup. To score *your* agent (a Python callable, any CLI, or an HTTP endpoint) and get a protocol-bound receipt, see [Score your own agent](#score-your-own-agent-self-serve). Historical model calculations are retained in [Results](#results) with the evidence boundary above.
 
 ## Benchmark Design
 
@@ -52,13 +61,25 @@ Each case presents a task spec; the agent emits an operating plan — tier (solo
 
 The keyword-anchor scorer is retained as a legacy cross-check but is **not** the metric of record: it saturates and can penalize articulate plans that cite machinery they correctly decline. The LLM-judge is the metric of record. Its deterministic core (prompt build, JSON extraction, verdict normalization) is selftested without model calls; its dispatch is calibration-validated (`--validate`) against ORACLE, OVER, and UNDER synthetic plans. Same-model self-preference (~2–3 points) is quantified and cancelled via an `--ensemble` mode that averages a Sonnet judge and an Opus judge per cell.
 
-### Case grounding & contamination proofing
+### Case grounding and split limits
 
 All cases are synthetic — grounded in a documented harness threat-model (11 hook bypasses) and a synthetic inbox-classifier corpus. No real PII: all email addresses are `@example.com`, all personas synthetic, all paths illustrative. `gen_cases.py` reads `operant_templates.json` and emits surface-randomized instantiations with a seeded RNG; decision-relevant structure is invariant across instantiations, only slot fillers vary. Publish a `public` split, hold back a `private` split — both regenerable deterministically.
+
+That public/private split is a **publicly derivable surface holdout**; it does
+not prevent benchmark contamination and is not a confirmatory test set. Both
+sides reuse the same public templates, slot pools, decision structure, and
+scoring boundary.
+Existing follow-up slices were designed from observed misses and are adaptive
+diagnostics. No existing OPERANT score should be described as confirmatory
+until a prospectively registered, sealed, structurally independent set satisfies
+[`docs/evaluation-split-policy.md`](docs/evaluation-split-policy.md).
 
 ---
 
 ## Results
+
+The following numbers are retained as historical calculations over imported bytes.
+They do not currently support durable named-model attribution, ranking, or significance.
 
 **Headline run:** Haiku ×1, Sonnet ×5, Opus ×5 — **539 total dispatches, 0 rate-limited, 0 unparseable.** Models: `claude-haiku-4-5-20251001`, `claude-sonnet-4-6`, `claude-opus-4-8`.
 
@@ -70,7 +91,13 @@ All cases are synthetic — grounded in a documented harness threat-model (11 ho
 | **Sonnet** ×5 | **+0.691 ± 0.053** | [+0.645, +0.736] | [+0.636, +0.773] | 83% ± 2.9% |
 | **Haiku** ×1 | **+0.273** | (n=1) | — | 60% |
 
-The repeat bands do not overlap: Sonnet's max (+0.773) sits below Opus's min (+0.818). An exact two-sided permutation test over the 5+5 repeat-level OCS values (all C(10,5) = 252 relabelings) gives **ΔOCS = −0.182, p = 0.0079** — the floor value 2/252, because the two models' repeats are completely separated. Opus > Sonnet on decision calibration is significant at α = 0.05. Opus pins escalation calibration at OCS = +1.000 on all five draws.
+The imported repeat rows have non-overlapping bands: Sonnet's max (+0.773)
+sits below Opus's min (+0.818). An exact two-sided permutation calculation over
+those 5+5 rows gives **ΔOCS = −0.182, p = 0.0079**. Because the historical run
+was not prospectively registered as confirmatory and its treatment identity is
+incomplete, that p-value is descriptive of the imported rows only; it does not
+establish a durable Opus > Sonnet claim. The imported Opus rows show escalation
+OCS +1.000 on all five draws.
 
 ### Orchestration judgment (axis 3, ensemble judge)
 
@@ -92,7 +119,7 @@ The Sonnet-vs-Opus gap (0.012) is within judge noise; the two are peers on orche
 
 ---
 
-## Reproduce
+## Run a new experiment
 
 Requirements: Python 3 (standard library only for scoring; `claude` CLI on PATH for dispatch). Set `ANTHROPIC_API_KEY`. No package install beyond the `claude` CLI.
 
@@ -103,7 +130,7 @@ python3 selftest.py                  # must print: ALL SELFTESTS PASSED
 # 2. Wiring check — dry run, no model calls
 python3 run_suite.py --model claude-sonnet-4-6 --label sonnet --dry-run
 
-# 3. Full headline run (one command per model)
+# 3. New dispatches (costly; these do not reproduce the historical served models)
 python3 run_suite.py --model claude-haiku-4-5-20251001 --label haiku --judge
 python3 run_suite.py --model claude-sonnet-4-6 --label sonnet --repeats 5 --judge
 python3 run_suite.py --model claude-opus-4-8   --label opus   --repeats 5 --judge
@@ -119,14 +146,105 @@ python3 score_orchestration_judge.py --validate
 
 `--judge` is off by default; all judge token spend is gated behind it. See `RUN-PLAN.md` for the full cost-ordered runbook and `RESULTS.md` for the methodology log.
 
+Every new lab receipt uses `operant-run-manifest.v8`. In addition to the
+order-independent case/split binding and evaluation role introduced in v2, it
+records an `operant-execution-binding.v6` over the delivered prompt, logical
+system prompt, command or stdin shape, tool policy, timeout, output mode,
+dispatch settings such as thinking level, harness bytes, source state,
+dependency-lock state, and a sanitized environment snapshot. These hashes bind
+inputs; they do **not** prove that a run is
+replayable, so v8 receipts conservatively report
+`INPUT_BOUND_NOT_REPLAYABLE`.
+
+The persisted manifest also carries a `manifest_core_sha256` over its
+interpretation-critical metadata. This makes later relabeling of the shell,
+evaluation role, split, queue provenance, timestamp, or treatment fields fail
+closed unless the receipt and its unkeyed digests are deliberately rewritten;
+the hashes prove internal consistency, not authorship or immutable history.
+Source capture distinguishes `CLEAN_COMMIT`, `DIRTY_DIGEST_ONLY`, and
+`UNKNOWN`; dirty bytes are integrity-bound but are not reconstructable from the
+receipt. A discovered Python lockfile is reported as
+`LOCKFILE_PRESENT_UNVERIFIED`, not proof that it governed the active
+environment. The harness records the basename, size, and SHA-256 of its current
+on-disk `sys.executable` candidate plus a count and aggregate digest of the
+name/version metadata visible through `importlib.metadata`. It recaptures that
+evidence after dispatch; `MATCHED` means only that the two harness metadata
+snapshots agree, while `DRIFTED` blocks scoring. Package rows, distribution
+locations, environment values, and interpreter paths are not persisted. The
+aggregate is a stable environment fingerprint and may be
+dictionary-comparable; it is local evidence, not a public identifier.
+
+This harness evidence does not identify packages actually imported, prove a
+dependency graph, reconstruct the environment, attest the loaded interpreter
+image, or describe the evaluated subprocess/provider environment.
+Harness-to-subject environment linkage therefore remains `UNKNOWN`.
+Separately, new receipts bind the resolved pre-dispatch executable candidate's
+basename, SHA-256, and byte size without invoking it, or preserve an explicit
+UNKNOWN reason. This does not prove that the same bytes were executed. The
+subject executable's runtime version remains `UNKNOWN` because version commands
+are not invoked without a proven no-side-effect contract. After a returned
+subprocess attempt, v8
+recaptures the executable candidate and classifies the pre/post candidate as
+`MATCHED`, `DRIFTED`, or `UNKNOWN`. A drifted candidate blocks scoring. A match
+only proves that the two captured candidate snapshots agree; it does not attest
+the process image, exclude change-and-restore races, or prove which bytes the
+kernel executed. Launch failures, timeouts, and manual App dispatches do not
+manufacture a post-dispatch pass.
+
+Kernel-observed process-image identity is separately recorded as `UNKNOWN`.
+Unprivileged PID paths and one-point dynamic code-signing observations are not
+promoted to attestation. The only defensible future macOS route identified by
+the feasibility review requires Apple Endpoint Security privileges and consent;
+see [`docs/process-image-attestation-boundary.md`](docs/process-image-attestation-boundary.md).
+
+Provider-reported model candidates are retained as evidence. They are not
+promoted to served-model identity, which remains `UNKNOWN`. An exact requested
+model mismatch or multiple provider-reported candidates preserves the raw
+output in the private lab receipt but blocks that attempt from scoring.
+Nonzero process exits, provider-declared error results, and unparsable answers
+are likewise preserved but cannot produce deterministic report projections,
+scores, or exports. Codex queue
+receipts retain the exact source-queue SHA-256, and receipt publication precedes
+report projection so a failed receipt cannot leave a scoreable orphan report.
+Historical v1/v2/v3/v4 receipts remain historical rather than being backfilled.
+Local receipt lineage activation records only that existing receipt bytes were
+present at activation time. New receipts are chained under an ignored local
+journal. Root-aware scoring/export fails closed on receipt deletion or
+substitution while its entry survives, journal reordering, malformed tails,
+and orphans. Public artifacts carry only a stable baseline/head checkpoint.
+Uncheckpointed tail removal and total removal of an uncheckpointed store are
+not detectable. This unsigned chain does not prove authorship, consent,
+immutable history, or chronology; coordinated replacement of local state and
+every surviving external checkpoint also remains undetectable. See
+[`docs/evaluation-split-policy.md`](docs/evaluation-split-policy.md#local-receipt-lineage).
+
+Public exports are committed by
+`lab/public/public-artifact-manifest.json`, which binds the exact allowed file
+set, byte lengths, and SHA-256 digests after serialized atomic file
+replacement. Mixed generations, partial writes, extra files, and missing files
+fail validation. The marker is unsigned: authorship, publication time, external
+immutability, and coordinated rewrite resistance remain `UNKNOWN`.
+
+CI exercises these rules with zero-cost local fixtures across the native,
+Codex CLI, and Codex App producer paths and through suite/export consumers.
+Those fixtures verify harness behavior only; they are not evidence of provider
+availability, served-model identity, or authentic provider burn-in.
+
+Unknown run families default to
+`UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY`; known model-specific follow-ups
+remain adaptive diagnostics. The manifest writer rejects `CONFIRMATORY` entirely
+because no admitted confirmatory set exists. Use `--evaluation-role
+OPEN_DEVELOPMENT` and `--case-split <stable-name>` when those facts are known.
+
 ---
 
 ## Score your own agent (self-serve)
 
-OPERANT ships a bring-your-own-agent runner: point it at any agent and get a comparable
+OPERANT ships a bring-your-own-agent runner: point it at any agent and get a protocol-bound
 OCS score plus a shareable report card. The scoring core is model-agnostic — it reads
-your agent's answer text and reuses the exact scorers that produced the reference Claude
-numbers above. The only thing you supply is how a prompt becomes your agent's answer.
+your agent's answer text and scores those captured bytes deterministically. The only
+thing you supply is how a prompt becomes your agent's answer; served-model identity and
+independent replication remain outside the receipt.
 
 ### Flagship sample: a comparable cross-provider row
 
@@ -139,13 +257,11 @@ canonical 40 decision cases, embedded delivery, decision-only, n=1, read-only):
 | Claude Sonnet 4.6 | **+0.864** | 92.5% | 1.000 | 0.136 | 0 |
 | GPT-5.5 (via Codex CLI) | **+0.843** | 90.0% | 0.889 | 0.045 | 0 |
 
-Both land Opus-class. The 0.021 gap is within single-run noise (a tie); the real signal
-is the error profile. Sonnet is high-recall (caught every guarded case, slightly
-trigger-happy on benign twins); GPT-5.5 is high-precision (almost no false alarms, missed
-2 genuine withholds). Neither leaked a hard-deny action. Full table, error-profile read,
-and exact reproduce commands: [`docs/self-serve-flagship.md`](docs/self-serve-flagship.md).
-These rows are comparable only to each other, **not** to the system-prompt, 5-repeat
-headline numbers above.
+Both receipts have positive OCS, but the 0.021 gap is within single-run noise and does
+not support a ranking. The stored rows are self-reported and their served-model identity
+is **UNKNOWN** absent provider-bound receipts. Full table and protocol:
+[`docs/self-serve-flagship.md`](docs/self-serve-flagship.md). These rows must not be
+treated as equivalent to the historical named-model calculations above.
 
 ```bash
 # 0. Try it now on the bundled demo agent — zero setup, zero model spend (decision axis only)
@@ -167,7 +283,7 @@ python3 score_my_agent.py --endpoint https://my-agent/run \
 It writes, under `results/self-serve/`:
 
 - `<label>-ocs-report.md` — a shareable OCS report card (score, per-axis OCS, confusion
-  matrix, comparison vs the published Claude reference bands, bypass + parse failures).
+  matrix, comparison boundary, bypass + parse failures).
 - `<label>-ocs-summary.json` — the machine-readable summary.
 - `operant-ocs-badge.svg` + `operant-ocs-badge.md` — a self-contained badge and a
   pasteable markdown/text snippet.
@@ -212,6 +328,7 @@ ready for public surfacing:
 ```bash
 python3 operant_lab_cli.py export-public \
   --include-lab-runs \
+  --private-case-overlays <your-private-cases-path> \
   --lab-labels \
     codex-gpt55-exact-smoke-r1 \
     codex-gpt55-decision-r1 \
@@ -226,6 +343,19 @@ export directory:
 
 ```bash
 python3 operant_lab_cli.py check-public-artifacts
+```
+
+That command also binds the checked-in artifacts to the current exporter,
+public corpus, and scoring-protocol bytes.
+When the private source indexes, local receipts, and private follow-up cases are
+available, reconnect the public hashes to those exact bytes without emitting
+paths or contents:
+
+```bash
+python3 operant_lab_cli.py check-public-artifacts \
+  --source-results <your-local-results-path> \
+  --lab-runs <your-local-runs-path> \
+  --private-case-overlays <your-private-cases-path>
 ```
 
 This writes:
@@ -245,7 +375,12 @@ leaderboard.
 included run labels, subject shells, recorded-vs-queued counts, parse/score
 status counts, and scoring policy without prompts or final answers. Use it for
 run coverage and interpretation policy; use `model-cards/*.json` for scored
-calibration profiles.
+calibration profiles. New exports also project the run-manifest evaluation role
+and case-bundle binding as sanitized status metadata. Complete v2 bindings are
+reported only as `V2_BOUND_NONCONFIRMATORY`; historical or absent bindings stay
+`UNKNOWN`, mixed coverage stays `MIXED_UNKNOWN`, and malformed bindings block a
+new public export. Existing tracked public artifacts are not rewritten merely
+to add these fields.
 
 For concise shareable summaries of the public lab surface, see
 `docs/public-release-note.md`, `docs/public-changelog.md`,
@@ -326,10 +461,11 @@ python3 run_codex_app.py record \
   --answer-file <path-to-final-answer-txt>
 ```
 
-Recording writes the legacy report file under `results/reports/` and an immutable
-lab report under `lab/runs/<label>/`. Passing `--queue-file` makes the queued
-prompt hash the source of truth and fails fast if the queue prompt no longer
-matches the adapter-built prompt.
+Recording requires the exact v8 `--queue-file` created before dispatch. It
+writes the legacy report file under `results/reports/` and an immutable lab
+report under `lab/runs/<label>/`, while failing fast if the prompt, requested
+model, thinking level, thread container, or execution binding no longer matches
+the prepared queue. Historical or queue-less App runs are not backfilled as v8.
 
 ### Safe resume inventory
 
@@ -392,6 +528,8 @@ Reviewer states are:
 
 - **Small n.** 5 independent repeats per model. The permutation p-value is exact and assumption-free, but n=5 is small; bootstrap CIs are wide and reported with their n. Haiku has a single draw.
 - **Three models, one provider.** Covers three Claude tiers only. `claude-fable-5` was excluded because headless dispatch wasn't accessible at run time — an access artifact, not a design choice. No other providers.
-- **Single-operator authorship.** All cases authored by one person, grounded in one harness's threat model. Surface-twin and contamination-proofing mechanisms partially compensate; independent case authorship would strengthen it.
-- **Orchestration axis saturation.** The keyword scorer saturates and is unfit for ranking; the LLM-judge separates Haiku clearly but Sonnet/Opus are within judge-noise on axis 3. The decision-axis OCS cleanly separates all three.
+- **Single-operator authorship.** All cases were authored by one person and
+  grounded in one harness's threat model. Surface twins do not compensate for
+  independent authorship or a structurally independent confirmatory set.
+- **Orchestration axis saturation.** The keyword scorer saturates and is unfit for ranking. Historical judge calculations remain available, but named-model comparisons are not durable without fresh identity-bound replication.
 - **Operator-contract dependency.** The runner loads the operator contract from `~/.claude/CLAUDE.md` at runtime, falling back to a minimal inline contract if absent. Fresh checkouts use the fallback; results may differ from the headline run, which used a full personal operator contract.
