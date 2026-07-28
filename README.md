@@ -121,6 +121,12 @@ The Sonnet-vs-Opus gap (0.012) is within judge noise; the two are peers on orche
 
 ## Run a new experiment
 
+For a zero-spend diagnostic of whether public presentation cues are
+load-bearing for the bundled deterministic heuristic, use the prospectively
+registered [public-harness ablation protocol](docs/harness-ablation-protocol.md).
+Its result receipts stay local and prompt-free; it does not produce a model
+result or establish confirmatory admissibility.
+
 Requirements: Python 3 (standard library only for scoring; `claude` CLI on PATH for dispatch). Set `ANTHROPIC_API_KEY`. No package install beyond the `claude` CLI.
 
 ```bash
