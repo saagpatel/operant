@@ -1226,12 +1226,255 @@ def run_experiment(prereg_path: Path, out_dir: Path) -> Path:
     return receipt_path
 
 
+def _git_show_bytes(commit_sha: str, relative_path: str) -> bytes:
+    proc = subprocess.run(
+        ["git", "show", f"{commit_sha}:{relative_path}"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise ValueError(f"cannot read {relative_path} from preregistration commit")
+    return proc.stdout
+
+
+def _verify_preregistration_commit(
+    receipt: dict[str, Any],
+) -> dict[str, Any]:
+    entry = receipt["preregistration"]
+    prereg_path = REPO_ROOT / "experiments" / "preregistrations" / entry["file"]
+    if not prereg_path.is_file():
+        raise ValueError("committed preregistration is unavailable")
+    raw = prereg_path.read_bytes()
+    if sha256_bytes(raw) != entry["sha256"]:
+        raise ValueError("preregistration digest mismatch")
+    relative = prereg_path.relative_to(REPO_ROOT).as_posix()
+    committed = _git_show_bytes(entry["commit_sha"], relative)
+    if committed != raw:
+        raise ValueError("preregistration commit does not contain the verified bytes")
+    sidecar_relative = f"{relative}.sha256"
+    sidecar = _git_show_bytes(entry["commit_sha"], sidecar_relative).decode("utf-8")
+    expected_sidecar = f"{entry['sha256']}  {prereg_path.name}\n"
+    if sidecar != expected_sidecar:
+        raise ValueError("committed preregistration sidecar mismatch")
+
+    preregistration = json.loads(raw)
+    if receipt["identities"] != preregistration["identities"]:
+        raise ValueError("receipt identities do not match the preregistration")
+    bound_files = {
+        **preregistration["identities"]["code"],
+        **preregistration["identities"]["corpus"]["files"],
+    }
+    for relative_path, expected_digest in bound_files.items():
+        committed_bytes = _git_show_bytes(entry["commit_sha"], relative_path)
+        if sha256_bytes(committed_bytes) != expected_digest:
+            raise ValueError(f"preregistered file digest mismatch: {relative_path}")
+    return preregistration
+
+
+def _matrix_contract(preregistration: dict[str, Any]) -> tuple[list[str], list[int], int, int]:
+    variants = [
+        str(variant["id"]) for variant in preregistration["transformations"]["variants"]
+    ]
+    seeds = [
+        int(seed) for seed in preregistration["sample_size"]["seeds_and_orders"]
+    ]
+    case_count = int(preregistration["sample_size"]["unique_cases"])
+    pair_count = int(preregistration["sample_size"]["matched_pairs"])
+    if len(variants) != len(set(variants)) or len(seeds) != len(set(seeds)):
+        raise ValueError("preregistration matrix contains duplicate variants or seeds")
+    return variants, seeds, case_count, pair_count
+
+
+def _verify_attempt_matrix(
+    preregistration: dict[str, Any],
+    attempts: list[dict[str, Any]],
+) -> None:
+    variants, seeds, case_count, pair_count = _matrix_contract(preregistration)
+    planned = int(preregistration["sample_size"]["planned_attempts"])
+    if planned != len(variants) * len(seeds) * case_count:
+        raise ValueError("preregistration planned-attempt count is internally inconsistent")
+    if len(attempts) != planned:
+        raise ValueError(f"attempt matrix is incomplete: {len(attempts)} != {planned}")
+    attempt_ids = [attempt.get("attempt_id") for attempt in attempts]
+    if None in attempt_ids or len(set(attempt_ids)) != len(attempt_ids):
+        raise ValueError("attempt ids are missing or duplicated")
+
+    expected_groups = {(variant, seed) for variant in variants for seed in seeds}
+    groups: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    for attempt in attempts:
+        if attempt.get("schema") != "operant-harness-ablation-attempt.v1":
+            raise ValueError("unexpected attempt schema")
+        key = (str(attempt.get("variant_id")), int(attempt.get("seed")))
+        if key not in expected_groups:
+            raise ValueError(f"attempt falls outside preregistered matrix: {key}")
+        groups[key].append(attempt)
+    if set(groups) != expected_groups:
+        raise ValueError("attempt matrix is missing a variant/seed cell")
+
+    expected_case_refs: set[str] | None = None
+    expected_pair_refs: set[str] | None = None
+    for key, rows in groups.items():
+        if len(rows) != case_count:
+            raise ValueError(f"matrix cell {key} has {len(rows)} cases, expected {case_count}")
+        order_indexes = {int(row["order_index"]) for row in rows}
+        if order_indexes != set(range(case_count)):
+            raise ValueError(f"matrix cell {key} has incomplete order indexes")
+        case_refs = {str(row["case_ref_sha256"]) for row in rows}
+        if len(case_refs) != case_count:
+            raise ValueError(f"matrix cell {key} duplicates a case reference")
+        pair_rows: dict[str, int] = defaultdict(int)
+        for row in rows:
+            pair_rows[str(row["pair_ref_sha256"])] += 1
+        if len(pair_rows) != pair_count or set(pair_rows.values()) != {2}:
+            raise ValueError(f"matrix cell {key} does not contain {pair_count} complete pairs")
+        pair_refs = set(pair_rows)
+        if expected_case_refs is None:
+            expected_case_refs = case_refs
+            expected_pair_refs = pair_refs
+        elif case_refs != expected_case_refs or pair_refs != expected_pair_refs:
+            raise ValueError("variant/seed cells do not cover the same cases and pairs")
+
+
+def _verify_analysis_calculations(
+    preregistration: dict[str, Any],
+    attempts: list[dict[str, Any]],
+    analysis: dict[str, Any],
+) -> None:
+    variants, seeds, case_count, pair_count = _matrix_contract(preregistration)
+    grouped: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    for attempt in attempts:
+        grouped[(str(attempt["variant_id"]), int(attempt["seed"]))].append(attempt)
+
+    if analysis.get("unique_cases") != case_count or analysis.get("matched_pairs") != pair_count:
+        raise ValueError("analysis case or pair denominator drifted")
+    if analysis.get("seeds") != seeds or analysis.get("attempt_count") != len(attempts):
+        raise ValueError("analysis seed or attempt accounting drifted")
+    rows = {
+        str(row["variant"]["id"]): row for row in analysis.get("ablation_matrix", [])
+    }
+    if set(rows) != set(variants) or len(rows) != len(variants):
+        raise ValueError("analysis variant matrix drifted")
+
+    prereg_variants = {
+        str(variant["id"]): variant
+        for variant in preregistration["transformations"]["variants"]
+    }
+    for variant_id in variants:
+        row = rows[variant_id]
+        if row["variant"] != prereg_variants[variant_id]:
+            raise ValueError(f"analysis treatment identity drifted: {variant_id}")
+        seed_rows = {int(seed_row["seed"]): seed_row for seed_row in row["seed_runs"]}
+        if set(seed_rows) != set(seeds) or len(seed_rows) != len(seeds):
+            raise ValueError(f"analysis seed rows drifted: {variant_id}")
+        for seed in seeds:
+            seed_row = seed_rows[seed]
+            metrics = compute_metrics(grouped[(variant_id, seed)])
+            if seed_row["metrics"] != metrics:
+                raise ValueError(f"analysis metrics drifted: {variant_id}/{seed}")
+            baseline_metrics = compute_metrics(grouped[("baseline_public", seed)])
+            deltas = {
+                key: round(float(metrics[key]) - float(baseline_metrics[key]), 6)
+                for key in METRIC_KEYS
+            }
+            if seed_row["delta_from_baseline"] != deltas:
+                raise ValueError(f"analysis deltas drifted: {variant_id}/{seed}")
+            bootstrap = {
+                metric: paired_cluster_bootstrap_delta(
+                    grouped[("baseline_public", seed)],
+                    grouped[(variant_id, seed)],
+                    metric=metric,
+                    seed=seed + int(canonical_digest(variant_id)[:8], 16),
+                )
+                for metric in ("ocs", "decision_accuracy")
+            }
+            if seed_row["paired_cluster_bootstrap_95"] != bootstrap:
+                raise ValueError(f"analysis bootstrap drifted: {variant_id}/{seed}")
+
+        expected_means = {
+            key: round(mean(float(seed_rows[seed]["metrics"][key]) for seed in seeds), 6)
+            for key in METRIC_KEYS
+        }
+        expected_ranges = {
+            key: [
+                round(min(float(seed_rows[seed]["metrics"][key]) for seed in seeds), 6),
+                round(max(float(seed_rows[seed]["metrics"][key]) for seed in seeds), 6),
+            ]
+            for key in METRIC_KEYS
+        }
+        expected_delta_means = {
+            key: round(
+                mean(
+                    float(seed_rows[seed]["delta_from_baseline"][key]) for seed in seeds
+                ),
+                6,
+            )
+            for key in METRIC_KEYS
+        }
+        expected_ci_union = {
+            metric: {
+                "low": min(
+                    float(
+                        seed_rows[seed]["paired_cluster_bootstrap_95"][metric]["low"]
+                    )
+                    for seed in seeds
+                ),
+                "high": max(
+                    float(
+                        seed_rows[seed]["paired_cluster_bootstrap_95"][metric]["high"]
+                    )
+                    for seed in seeds
+                ),
+                "n_pairs": pair_count,
+                "resamples_per_seed": BOOTSTRAP_RESAMPLES,
+                "interpretation": "union_of_seed_specific_paired_cluster_intervals",
+            }
+            for metric in ("ocs", "decision_accuracy")
+        }
+        if row["mean"] != expected_means:
+            raise ValueError(f"analysis means drifted: {variant_id}")
+        if row["seed_range"] != expected_ranges:
+            raise ValueError(f"analysis seed ranges drifted: {variant_id}")
+        if row["mean_delta_from_baseline"] != expected_delta_means:
+            raise ValueError(f"analysis mean deltas drifted: {variant_id}")
+        if row["paired_cluster_bootstrap_95_union"] != expected_ci_union:
+            raise ValueError(f"analysis confidence intervals drifted: {variant_id}")
+
+
+def _analysis_core(analysis: dict[str, Any]) -> dict[str, Any]:
+    core = json.loads(json.dumps(analysis))
+    for key in ("admissibility", "claim_ceiling", "prohibited_claims"):
+        core.pop(key, None)
+    return core
+
+
+def _verify_replay_digests(
+    receipt: dict[str, Any],
+    attempts: list[dict[str, Any]],
+    analysis: dict[str, Any],
+) -> None:
+    replay = receipt["execution"]["deterministic_replay"]
+    attempt_core = canonical_digest(attempts)
+    analysis_core = canonical_digest(_analysis_core(analysis))
+    if replay.get("attempt_core_sha256") != attempt_core:
+        raise ValueError("attempt replay core digest mismatch")
+    if replay.get("analysis_core_sha256") != analysis_core:
+        raise ValueError("analysis replay core digest mismatch")
+    derived_match = (
+        replay.get("attempt_core_sha256") == replay.get("replay_attempt_core_sha256")
+        and replay.get("analysis_core_sha256") == replay.get("replay_analysis_core_sha256")
+    )
+    if replay.get("matched") is not derived_match or not derived_match:
+        raise ValueError("deterministic replay digests do not match")
+
+
 def verify_receipt(receipt_path: Path) -> dict[str, Any]:
     receipt_path = receipt_path.resolve()
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     if receipt.get("schema") != "operant-harness-ablation-receipt.v1":
         raise ValueError("unexpected receipt schema")
     assert_prompt_free(receipt)
+    preregistration = _verify_preregistration_commit(receipt)
     out_dir = receipt_path.parent
     attempts_entry = receipt["outputs"]["attempts"]
     analysis_entry = receipt["outputs"]["analysis"]
@@ -1249,12 +1492,29 @@ def verify_receipt(receipt_path: Path) -> dict[str, Any]:
     analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
     if len(attempts) != attempts_entry["record_count"]:
         raise ValueError("attempt record count mismatch")
-    if len({attempt["attempt_id"] for attempt in attempts}) != len(attempts):
-        raise ValueError("duplicate attempt id")
     assert_prompt_free(attempts)
     assert_prompt_free(analysis)
-    if not receipt["execution"]["deterministic_replay"]["matched"]:
-        raise ValueError("receipt does not carry a matching deterministic replay")
+    _verify_attempt_matrix(preregistration, attempts)
+    _verify_analysis_calculations(preregistration, attempts, analysis)
+    _verify_replay_digests(receipt, attempts, analysis)
+    failures = sum(attempt["dispatch_status"] != "ok" for attempt in attempts)
+    unparseable = sum(attempt["parse_status"] == "unparseable" for attempt in attempts)
+    execution = receipt["execution"]
+    if (
+        execution.get("attempt_count") != len(attempts)
+        or execution.get("failed_attempts") != failures
+        or execution.get("unparseable_attempts") != unparseable
+        or execution.get("retries") != 0
+    ):
+        raise ValueError("receipt execution accounting drifted")
+    if analysis.get("admissibility") != receipt.get("admissibility"):
+        raise ValueError("analysis and receipt admissibility decisions disagree")
+    if analysis.get("claim_ceiling") != preregistration["permitted_claims"]:
+        raise ValueError("analysis claim ceiling drifted")
+    if receipt.get("claim_ceiling") != preregistration["permitted_claims"]:
+        raise ValueError("receipt claim ceiling drifted")
+    if receipt.get("public_result_published") is not False:
+        raise ValueError("receipt does not preserve the local-result boundary")
     if receipt["admissibility"]["decision"] != (
         "STOP — confirmatory treatment not currently admissible."
     ):

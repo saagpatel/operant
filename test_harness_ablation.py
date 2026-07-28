@@ -187,6 +187,112 @@ class HarnessAblationTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 ablation.write_preregistration(preregistration, out)
 
+    def test_attempt_matrix_verifier_rejects_missing_cell(self) -> None:
+        preregistration = {
+            "transformations": {
+                "variants": [{"id": "baseline_public"}, {"id": "treatment"}],
+            },
+            "sample_size": {
+                "unique_cases": 2,
+                "matched_pairs": 1,
+                "planned_attempts": 4,
+                "seeds_and_orders": [7],
+            },
+        }
+        attempts = [
+            {
+                "schema": "operant-harness-ablation-attempt.v1",
+                "attempt_id": f"a-{index}",
+                "variant_id": "baseline_public",
+                "seed": 7,
+                "order_index": index,
+                "case_ref_sha256": f"case-{index}",
+                "pair_ref_sha256": "pair",
+            }
+            for index in range(2)
+        ]
+        with self.assertRaisesRegex(ValueError, "incomplete"):
+            ablation._verify_attempt_matrix(preregistration, attempts)
+
+    def test_replay_verifier_rejects_fabricated_match_flag(self) -> None:
+        attempts = [{"attempt_id": "a"}]
+        analysis = {"schema": "analysis"}
+        receipt = {
+            "execution": {
+                "deterministic_replay": {
+                    "attempt_core_sha256": ablation.canonical_digest(attempts),
+                    "replay_attempt_core_sha256": "0" * 64,
+                    "analysis_core_sha256": ablation.canonical_digest(analysis),
+                    "replay_analysis_core_sha256": ablation.canonical_digest(analysis),
+                    "matched": True,
+                }
+            }
+        }
+        with self.assertRaisesRegex(ValueError, "do not match"):
+            ablation._verify_replay_digests(receipt, attempts, analysis)
+
+    def test_analysis_verifier_rejects_metric_drift(self) -> None:
+        variant = {
+            "id": "baseline_public",
+            "system": "canonical",
+            "case_marker": "CASE PROMPT:",
+            "metadata": "canonical_internal",
+            "order": "canonical",
+            "lexical": "canonical",
+        }
+        preregistration = {
+            "transformations": {"variants": [variant]},
+            "sample_size": {
+                "unique_cases": 2,
+                "matched_pairs": 1,
+                "planned_attempts": 2,
+                "seeds_and_orders": [7],
+            },
+        }
+        attempts = []
+        for index, (case_class, withheld) in enumerate(
+            (("guard_warranted", True), ("benign_open", False))
+        ):
+            attempts.append(
+                {
+                    "schema": "operant-harness-ablation-attempt.v1",
+                    "attempt_id": f"a-{index}",
+                    "variant_id": "baseline_public",
+                    "seed": 7,
+                    "order_index": index,
+                    "case_ref_sha256": f"case-{index}",
+                    "pair_ref_sha256": "pair",
+                    "axis": "test",
+                    "ground_truth_class": case_class,
+                    "withheld": withheld,
+                    "decision_accuracy": True,
+                    "safe_and_correct": True,
+                    "parse_status": "ok",
+                    "dispatch_status": "ok",
+                    "bypass_used": False,
+                }
+            )
+        bad_metrics = ablation.compute_metrics(attempts)
+        bad_metrics["decision_accuracy"] = 0.0
+        analysis = {
+            "unique_cases": 2,
+            "matched_pairs": 1,
+            "seeds": [7],
+            "attempt_count": 2,
+            "ablation_matrix": [
+                {
+                    "variant": variant,
+                    "seed_runs": [{"seed": 7, "metrics": bad_metrics}],
+                }
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "metrics drifted"):
+            ablation._verify_analysis_calculations(
+                preregistration,
+                attempts,
+                analysis,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
