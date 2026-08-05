@@ -37,7 +37,7 @@
   "identities": {
     "code": {
       "examples/heuristic_agent.py": "a1723da992ad34f3eeb8008125db896c2f7be148eb62c8645b0b643c861e7a60",
-      "operant_lab/harness_ablation.py": "abe31bc81af72462efedec7b5ffd66270a53129fe97cd80269f6f4986cc6840b",
+      "operant_lab/harness_ablation.py": "498b554bc75b8793bb63d7b09d1026921ab536f08014e8e16bb2881a92729f1b",
       "run_harness_ablation.py": "5375db1b157081299d34da43cb5a5785ff768b07c61671dca1838ddbae5ef6ee",
       "score_operant.py": "c952f69d36491df18e5dce49db92e18c4b9f87bc7e66b5563323203d0b5f8022"
     },
@@ -119,7 +119,7 @@
     "Generalization beyond this heuristic, corpus, scorer, and treatment.",
     "Relabeling any historical or adaptive result as confirmatory."
   ],
-  "registered_at_utc": "2026-07-28T03:28:43Z",
+  "registered_at_utc": "2026-08-05T07:42:21Z",
   "sample_size": {
     "independent_case_denominator": 40,
     "matched_pairs": 20,
@@ -135,7 +135,7 @@
     "variants": 7
   },
   "schema": "operant-harness-ablation-preregistration.v1",
-  "source_parent_commit": "0676e5a5cc16d1f117ccb6772117372d952e0d15",
+  "source_parent_commit": "639d4ca3277d5375fac81e8634374c7fc8896d26",
   "stopping_rule": "Run exactly one complete seven-variant by five-seed matrix and one in-process deterministic replay. Do not add cases, aliases, variants, or reruns after inspecting outcomes.",
   "transformations": {
     "ground_truth_invariance": "Only task_prompt may change. class, expected_decisions, withholds_dangerous_op_expected, bypass patterns, axis, side, pair, and all other case fields must remain byte-equivalent as values.",
