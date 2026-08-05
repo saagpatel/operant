@@ -28,9 +28,11 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import hashlib
 import json
 import shlex
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -40,6 +42,7 @@ from pathlib import Path
 from typing import Any
 
 PROMPT_TOKEN = "{prompt}"
+DEFAULT_MAX_ANSWER_BYTES = 1024 * 1024
 
 
 def build_byo_prompt(case: dict, system_prompt: str) -> str:
@@ -100,9 +103,10 @@ class ShellCommandRunner(AgentRunner):
     evaluated. Prefer passing the prompt as a positional arg instead
     (`bash -c 'agent "$1"' _ {prompt}`) or use `prompt_via='stdin'`.
 
-    A non-zero exit with non-empty stdout is treated as a usable answer (many agents
-    exit non-zero on warnings yet still print a valid response); the exit code is kept
-    in `meta`. Only a non-zero exit with empty stdout is a hard failure.
+    A non-zero exit is always a failed attempt, even when stdout resembles a usable
+    answer. Failed-process output is represented only by SHA-256 digests and byte
+    counts; raw stdout/stderr cannot flow into retained results or console/CI logs.
+    Successful stdout is bounded before it is admitted as an answer.
     """
 
     shell = "byo-shell"
@@ -114,6 +118,7 @@ class ShellCommandRunner(AgentRunner):
         prompt_via: str = "placeholder",
         timeout: int = 900,
         cwd: str | None = None,
+        max_answer_bytes: int = DEFAULT_MAX_ANSWER_BYTES,
     ) -> None:
         if prompt_via not in ("placeholder", "stdin"):
             raise ValueError("prompt_via must be 'placeholder' or 'stdin'")
@@ -126,6 +131,9 @@ class ShellCommandRunner(AgentRunner):
         self.prompt_via = prompt_via
         self.timeout = timeout
         self.cwd = cwd
+        if type(max_answer_bytes) is not int or max_answer_bytes < 1:
+            raise ValueError("max_answer_bytes must be a positive integer")
+        self.max_answer_bytes = max_answer_bytes
         self.descriptor = f"shell:{command}"
 
     def _argv(self, prompt: str) -> list[str]:
@@ -138,36 +146,52 @@ class ShellCommandRunner(AgentRunner):
         argv = self._argv(prompt)
         stdin = prompt if self.prompt_via == "stdin" else None
         t0 = time.time()
-        try:
-            proc = subprocess.run(
-                argv,
-                input=stdin,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                cwd=self.cwd,
-            )
-        except subprocess.TimeoutExpired:
-            return RunnerResult("", False, "timeout", round(time.time() - t0, 2))
-        except (FileNotFoundError, OSError) as exc:
-            return RunnerResult("", False, f"spawn_failed: {exc}", round(time.time() - t0, 2))
-        dur = round(time.time() - t0, 2)
-        text = (proc.stdout or "").strip()
-        if proc.returncode != 0 and not text:
-            return RunnerResult(
-                "",
-                False,
-                f"exit_{proc.returncode}: {(proc.stderr or '').strip()[-300:]}",
-                dur,
-                {"exit_code": proc.returncode},
-            )
-        return RunnerResult(
-            text,
-            bool(text),
-            None if text else "empty_stdout",
-            dur,
-            {"exit_code": proc.returncode},
-        )
+        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+            try:
+                proc = subprocess.run(
+                    argv,
+                    input=stdin,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    text=True,
+                    timeout=self.timeout,
+                    cwd=self.cwd,
+                )
+            except subprocess.TimeoutExpired:
+                return RunnerResult("", False, "timeout", round(time.time() - t0, 2))
+            except (FileNotFoundError, OSError) as exc:
+                return RunnerResult(
+                    "",
+                    False,
+                    f"spawn_failed:{type(exc).__name__}",
+                    round(time.time() - t0, 2),
+                )
+
+            def output_metadata(handle) -> tuple[str, int]:  # noqa: ANN001
+                size = handle.tell()
+                handle.seek(0)
+                digest = hashlib.sha256()
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                return f"sha256:{digest.hexdigest()}", size
+
+            stdout_digest, stdout_bytes = output_metadata(stdout_file)
+            stderr_digest, stderr_bytes = output_metadata(stderr_file)
+            meta = {
+                "exit_code": proc.returncode,
+                "stdout_sha256": stdout_digest,
+                "stdout_bytes": stdout_bytes,
+                "stderr_sha256": stderr_digest,
+                "stderr_bytes": stderr_bytes,
+            }
+            dur = round(time.time() - t0, 2)
+            if proc.returncode != 0:
+                return RunnerResult("", False, f"exit_{proc.returncode}", dur, meta)
+            if stdout_bytes > self.max_answer_bytes:
+                return RunnerResult("", False, "stdout_too_large", dur, meta)
+            stdout_file.seek(0)
+            text = stdout_file.read(self.max_answer_bytes).decode("utf-8", errors="replace").strip()
+            return RunnerResult(text, bool(text), None if text else "empty_stdout", dur, meta)
 
 
 class PythonEntrypointRunner(AgentRunner):

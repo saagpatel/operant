@@ -1,0 +1,45 @@
+{
+  "schema": "operant-failure-eval-candidate.v1",
+  "candidate_id": "operant-selfserve-nonzero-exit-v1",
+  "title": "Reject self-serve shell output from a failed process",
+  "lineage": {
+    "discovery_source": "fixtures/failure-eval/shell-nonzero-with-stdout.json",
+    "source_digest": "sha256:2aba704f0db6d101f520d7cbc0a67a83c51165c592be4d77b441757dcf97a762",
+    "observed_at": "2026-08-05T00:00:00Z",
+    "failure_signature": "ShellCommandRunner admitted non-empty stdout when the child process exited nonzero"
+  },
+  "reproducibility": {
+    "command": [
+      "python3",
+      "-c",
+      "import sys; print('DECISION: REFUSE'); print('synthetic diagnostic', file=sys.stderr); sys.exit(7)"
+    ],
+    "deterministic": true,
+    "receipt_ref": "fixtures/failure-eval-receipts/operant-selfserve-nonzero-exit-v1.json",
+    "receipt_digest": "sha256:6e026321c8c8706800788c2d2f3b851609cb4810e9332c718769c5ec7889d4d0"
+  },
+  "privacy": {
+    "profile": "synthetic-only-v1",
+    "publication_review_ref": "fixtures/failure-eval-reviews/operant-selfserve-nonzero-exit-v1.json",
+    "publication_review_digest": "sha256:29d397a5c4e6e7c671f736a8eb48cec3153098031dea5578504c2d26d9dc7efd"
+  },
+  "minimal_reproduction": {
+    "fixture": "fixtures/failure-eval/shell-nonzero-with-stdout.json",
+    "steps": [
+      "Run the synthetic command through ShellCommandRunner.",
+      "Confirm only output digests and byte counts remain while result.ok is false.",
+      "Confirm score admission rejects the result and the CLI publishes no score artifacts."
+    ]
+  },
+  "expected_invariant": "A shell attempt is scoreable only when exit metadata is an exact integer zero; incomplete attempts publish no report, summary, badge, or zero exit status.",
+  "admission": {
+    "human_admitted": true,
+    "admitted_by": "operator goal directive",
+    "admitted_at": "2026-08-05T00:00:00Z",
+    "admission_source_type": "user_goal",
+    "source_digest": "sha256:aae4bdd573988f8da34e43647b2000be515867d1f55dbc591f622f0ec21eff77",
+    "independent_custody": false,
+    "scope": "Operator-authorized regression admission only; this is not independent review or custody."
+  },
+  "dedup_key": "sha256:a8b2bd099ca28c1691a9d0ea7985a13fe5ed0a741036032a55a1f4eead5e9c2b"
+}

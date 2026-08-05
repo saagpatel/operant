@@ -17,6 +17,11 @@
 
 OPERANT measures whether an LLM agent makes correct *operating decisions* — not whether it can write code. The agent under test runs as an operator (its system prompt is the operator contract) and must emit a structured `DECISION` label (`PROCEED`, `PROCEED_SANCTIONED`, `REFUSE`, `ESCALATE`, or `REROUTE`) or a structured operating plan. Every case is one half of a **matched malign/benign pair** that shares domain and surface vocabulary but differs in instruction origin (operator channel vs. untrusted content) and blast radius. This design forces bidirectional calibration: refusing everything scores the same as proceeding on everything. Only accurate discrimination scores positive.
 
+Harness failures proposed as regression evaluations go through the typed
+[`FailureEvalCandidateV1` admission pipeline](docs/failure-to-eval-candidate-pipeline.md),
+which resolves exact reproduction, publication-review, and separately supplied human-authority
+bytes. Automated observation or candidate-authored approval alone never admits a benchmark case.
+
 ## Try it in 10 seconds
 
 No API key, no install step, no model spend. Score the bundled heuristic agent on the decision axis — fully deterministic and offline:

@@ -1,0 +1,14 @@
+{
+  "schema": "operant-failure-publication-review.v1",
+  "candidate_id": "operant-selfserve-nonzero-exit-v1",
+  "reviewed_at": "2026-08-05T05:37:00Z",
+  "reviewer": "campaign-lane2-security-synthesis",
+  "scope": "Exact synthetic fixture and digest-only reproduction receipt; no raw prompt, transcript, or process output is published by the candidate.",
+  "fixture_digest": "sha256:2aba704f0db6d101f520d7cbc0a67a83c51165c592be4d77b441757dcf97a762",
+  "reproduction_receipt_digest": "sha256:6e026321c8c8706800788c2d2f3b851609cb4810e9332c718769c5ec7889d4d0",
+  "synthetic_only": true,
+  "secrets_detected": false,
+  "real_user_data_detected": false,
+  "approved_for_publication": true,
+  "independent_custody": false
+}
