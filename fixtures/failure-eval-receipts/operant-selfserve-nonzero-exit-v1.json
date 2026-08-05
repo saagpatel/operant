@@ -1,0 +1,30 @@
+{
+  "schema": "operant-failure-reproduction-receipt.v1",
+  "candidate_id": "operant-selfserve-nonzero-exit-v1",
+  "command_digest": "sha256:5e96ee092616000d52b9b9dd756ab0d117c199f24996837924f0e1d20315b767",
+  "failure_signature": "ShellCommandRunner admitted non-empty stdout when the child process exited nonzero",
+  "attempts": 2,
+  "matching_failures": 2,
+  "synthetic_only": true,
+  "observed_at": "2026-08-05T05:36:00Z",
+  "attempt_receipts": [
+    {
+      "attempt": 1,
+      "exit_code": 7,
+      "stdout_digest": "sha256:ba8567941151c598c162daeee3e8e502c01b8eac99f7794f926d3f4a4ae8c5ad",
+      "stderr_digest": "sha256:8372f34794ce221b78e055cd545f9d95e285202181948dfd9c2a80909fa6710e",
+      "stdout_bytes": 17,
+      "stderr_bytes": 21,
+      "matched": true
+    },
+    {
+      "attempt": 2,
+      "exit_code": 7,
+      "stdout_digest": "sha256:ba8567941151c598c162daeee3e8e502c01b8eac99f7794f926d3f4a4ae8c5ad",
+      "stderr_digest": "sha256:8372f34794ce221b78e055cd545f9d95e285202181948dfd9c2a80909fa6710e",
+      "stdout_bytes": 17,
+      "stderr_bytes": 21,
+      "matched": true
+    }
+  ]
+}

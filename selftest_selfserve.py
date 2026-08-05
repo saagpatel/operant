@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import io
 import json
+import shlex
+import sys
 import tempfile
 from pathlib import Path
 
@@ -68,6 +70,49 @@ def test_shell_runner() -> None:
     r3 = ShellCommandRunner("definitely-not-a-real-binary-xyz {prompt}")
     res3 = r3.respond("hi")
     check("spawn failure -> ok=False", not res3.ok and res3.error is not None, str(res3))
+
+    failing_command = (
+        f"{shlex.quote(sys.executable)} -c "
+        "'import sys; print(\"DECISION: REFUSE\"); "
+        "print(\"synthetic diagnostic\", file=sys.stderr); sys.exit(7)' {prompt}"
+    )
+    failed_with_stdout = ShellCommandRunner(failing_command).respond("synthetic prompt")
+    check("nonzero with stdout -> ok=False", not failed_with_stdout.ok, str(failed_with_stdout))
+    check(
+        "nonzero excludes raw stdout diagnostics",
+        failed_with_stdout.text == "" and "DECISION: REFUSE" not in str(failed_with_stdout),
+        str(failed_with_stdout),
+    )
+    check(
+        "nonzero preserves digest-only output diagnostics",
+        failed_with_stdout.meta.get("exit_code") == 7
+        and failed_with_stdout.meta.get("stdout_bytes") == 17
+        and failed_with_stdout.meta.get("stderr_bytes") == 21
+        and str(failed_with_stdout.meta.get("stdout_sha256", "")).startswith("sha256:")
+        and str(failed_with_stdout.meta.get("stderr_sha256", "")).startswith("sha256:")
+        and "synthetic diagnostic" not in str(failed_with_stdout),
+        str(failed_with_stdout.meta),
+    )
+
+    oversized_command = (
+        f"{shlex.quote(sys.executable)} -c 'print(\"x\" * 100)' {{prompt}}"
+    )
+    oversized = ShellCommandRunner(oversized_command, max_answer_bytes=16).respond("synthetic")
+    check(
+        "oversized successful stdout is rejected without retention",
+        not oversized.ok and oversized.error == "stdout_too_large" and oversized.text == "",
+        str(oversized),
+    )
+
+    empty_command = f"{shlex.quote(sys.executable)} -c 'pass' {{prompt}}"
+    empty = ShellCommandRunner(empty_command).respond("synthetic prompt")
+    check("zero exit with empty stdout stays failed", not empty.ok and empty.error == "empty_stdout")
+
+    timeout_command = (
+        f"{shlex.quote(sys.executable)} -c 'import time; time.sleep(1)' {{prompt}}"
+    )
+    timed_out = ShellCommandRunner(timeout_command, timeout=0.01).respond("synthetic prompt")
+    check("shell timeout behavior stays failed", not timed_out.ok and timed_out.error == "timeout")
 
 
 # --- python entrypoint runner --------------------------------------------
@@ -214,6 +259,37 @@ def test_score_decision() -> None:
     )
     check("no rows scored when all fail", h["n"] == 0, str(h["n"]))
 
+    check(
+        "score admission independently rejects nonzero exit metadata",
+        not selfserve._is_real_answer(
+            RunnerResult("DECISION: REFUSE", True, meta={"exit_code": 7})
+        ),
+    )
+    check(
+        "score admission rejects boolean exit metadata",
+        not selfserve._is_real_answer(
+            RunnerResult("DECISION: REFUSE", True, meta={"exit_code": False})
+        ),
+    )
+    check(
+        "score admission rejects string exit metadata",
+        not selfserve._is_real_answer(
+            RunnerResult("DECISION: REFUSE", True, meta={"exit_code": "0"})
+        ),
+    )
+    malformed_meta = RunnerResult("DECISION: REFUSE", True)
+    malformed_meta.meta = None  # type: ignore[assignment] - exercise runtime boundary
+    check(
+        "score admission rejects malformed metadata container",
+        not selfserve._is_real_answer(malformed_meta),
+    )
+    check(
+        "score admission accepts exact integer zero exit metadata",
+        selfserve._is_real_answer(
+            RunnerResult("DECISION: REFUSE", True, meta={"exit_code": 0})
+        ),
+    )
+
 
 def test_classify_band() -> None:
     print("\n--- classify_band ---")
@@ -301,6 +377,56 @@ def test_report_render() -> None:
             loaded["agent_label"] == "demo-agent" and loaded["ocs"] == 1.0,
         )
 
+    incomplete = dict(summary)
+    incomplete["decision"] = dict(summary["decision"])
+    incomplete["decision"]["n_scored"] = summary["decision"]["n_cases"] - 1
+    incomplete["decision"]["errored"] = [
+        {"case_id": "synthetic.failure", "error": "nonzero_exit_code_7"}
+    ]
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td)
+        try:
+            selfserve.write_outputs(out, incomplete)
+            check("incomplete summary blocks all artifacts", False, "write unexpectedly succeeded")
+        except ValueError:
+            check("incomplete summary blocks all artifacts", not out.exists() or not list(out.iterdir()))
+
+
+def test_cli_incomplete_attempt() -> None:
+    print("\n--- CLI incomplete attempt boundary ---")
+    import score_my_agent
+
+    failing_command = (
+        f"{shlex.quote(sys.executable)} -c "
+        "'import sys; print(\"DECISION: REFUSE\"); sys.exit(7)' {prompt}"
+    )
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td)
+        stale = selfserve.output_paths(out, "synthetic-failure")
+        for path in stale.values():
+            path.write_text("STALE\n", encoding="utf-8")
+        rc = score_my_agent.main(
+            [
+                "--cmd",
+                failing_command,
+                "--label",
+                "synthetic-failure",
+                "--axes",
+                "decision",
+                "--no-judge",
+                "--cases",
+                str(Path(__file__).resolve().parent / "operant_cases.json"),
+                "--out",
+                str(out),
+            ]
+        )
+        check("parent CLI exits nonzero for incomplete attempt", rc != 0, str(rc))
+        check(
+            "incomplete attempt removes stale projections and writes none",
+            not any(path.exists() for path in stale.values()),
+            str([str(path) for path in stale.values() if path.exists()]),
+        )
+
 
 def run_all() -> list[str]:
     """Run every self-serve check and return the failure list (no exit). Lets
@@ -316,6 +442,7 @@ def run_all() -> list[str]:
     test_classify_band()
     test_orchestration_degrade()
     test_report_render()
+    test_cli_incomplete_attempt()
     return FAILURES
 
 

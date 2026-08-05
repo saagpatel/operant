@@ -123,11 +123,28 @@ def load_axes(cases_glob: str | None = None, orch_cases_glob: str | None = None)
     return {"decision": decision, "orchestration": orchestration}
 
 
-def _is_real_answer(res: RunnerResult) -> bool:
+def _result_rejection_reason(res: RunnerResult) -> str | None:
     if not res.ok or not res.text.strip():
-        return False
+        return res.error or "empty_answer"
+    if not isinstance(res.meta, dict):
+        return "malformed_runner_metadata"
+    if "exit_code" in res.meta:
+        exit_code = res.meta["exit_code"]
+        # `bool` is a subclass of int in Python. Exact typing prevents True from
+        # masquerading as exit 1 and False from masquerading as a clean exit.
+        if type(exit_code) is not int:
+            return "malformed_exit_code_metadata"
+        if exit_code != 0:
+            return f"nonzero_exit_code_{exit_code}"
     low = res.text.lower()
-    return not any(m in low for m in RATE_LIMIT_MARKERS)
+    if any(m in low for m in RATE_LIMIT_MARKERS):
+        return "rate_limited_answer"
+    return None
+
+
+def _is_real_answer(res: RunnerResult) -> bool:
+    """Admission guard independent of runner implementation details."""
+    return _result_rejection_reason(res) is None
 
 
 def dispatch_cases(
@@ -164,7 +181,12 @@ def score_decision(cases: dict[str, dict], answers: dict[str, RunnerResult]) -> 
         res = answers.get(cid)
         if res is None or not _is_real_answer(res):
             bucket = rate_limited if (res and "limit" in (res.text or "").lower()) else errored
-            bucket.append({"case_id": cid, "error": (res.error if res else "no_answer")})
+            bucket.append(
+                {
+                    "case_id": cid,
+                    "error": (_result_rejection_reason(res) if res else "no_answer"),
+                }
+            )
             continue
         row = so.score_one(case, res.text)
         rows.append(row)
@@ -311,6 +333,61 @@ def build_summary(
             "or equivalence to any named model."
         ),
     }
+
+
+def incomplete_attempt_reasons(summary: dict[str, Any]) -> list[str]:
+    """Return fail-closed reasons that prohibit publishing score artifacts."""
+    reasons: list[str] = []
+    decision = summary.get("decision")
+    if not isinstance(decision, dict):
+        return ["decision_summary_missing"]
+    n_scored = decision.get("n_scored")
+    n_cases = decision.get("n_cases")
+    if type(n_scored) is not int or type(n_cases) is not int or n_scored != n_cases:
+        reasons.append(f"decision_dispatch_incomplete:{n_scored}/{n_cases}")
+    if decision.get("rate_limited"):
+        reasons.append("decision_rate_limited")
+    if decision.get("errored"):
+        reasons.append("decision_dispatch_error")
+    unparseable = decision.get("unparseable")
+    if type(unparseable) is not int or unparseable != 0:
+        reasons.append(f"decision_unparseable:{unparseable}")
+
+    orchestration = summary.get("orchestration")
+    if not isinstance(orchestration, dict):
+        reasons.append("orchestration_summary_missing")
+    elif orchestration.get("missing"):
+        reasons.append("orchestration_dispatch_incomplete")
+    elif orchestration.get("status") == "agent_no_answers":
+        reasons.append("orchestration_dispatch_incomplete")
+    return reasons
+
+
+def output_paths(out_dir: Path, agent_label: str) -> dict[str, Path]:
+    slug = "".join(c if c.isalnum() or c in "-_" else "-" for c in agent_label)[:60]
+    return {
+        "report_md": out_dir / f"{slug}-ocs-report.md",
+        "summary_json": out_dir / f"{slug}-ocs-summary.json",
+        "badge_svg": out_dir / "operant-ocs-badge.svg",
+        "badge_md": out_dir / "operant-ocs-badge.md",
+    }
+
+
+def invalidate_output_paths(out_dir: Path, agent_label: str) -> list[Path]:
+    """Remove only this command's exact output names before a fresh attempt.
+
+    The two badge names are intentionally singleton projections in the existing
+    contract.  Removing them before dispatch prevents a prior run's badge from being
+    mistaken for the current incomplete attempt.
+    """
+    removed: list[Path] = []
+    for path in output_paths(out_dir, agent_label).values():
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        removed.append(path)
+    return removed
 
 
 def _fmt_pct(x: Any) -> str:
@@ -506,14 +583,11 @@ def write_outputs(out_dir: Path, summary: dict[str, Any]) -> dict[str, Path]:
     """Write report card (md), JSON summary, badge (svg), and badge snippet (md)."""
     import json
 
+    incomplete = incomplete_attempt_reasons(summary)
+    if incomplete:
+        raise ValueError(f"refusing score artifact publication: {', '.join(incomplete)}")
     out_dir.mkdir(parents=True, exist_ok=True)
-    slug = "".join(c if c.isalnum() or c in "-_" else "-" for c in summary["agent_label"])[:60]
-    paths = {
-        "report_md": out_dir / f"{slug}-ocs-report.md",
-        "summary_json": out_dir / f"{slug}-ocs-summary.json",
-        "badge_svg": out_dir / "operant-ocs-badge.svg",
-        "badge_md": out_dir / "operant-ocs-badge.md",
-    }
+    paths = output_paths(out_dir, summary["agent_label"])
     paths["report_md"].write_text(render_report_card(summary), encoding="utf-8")
     paths["summary_json"].write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
