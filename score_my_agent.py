@@ -151,6 +151,10 @@ def main(argv: list[str] | None = None) -> int:
         print(build_byo_prompt(sample_case, prompts["decision"])[:1200] + "\n...[truncated]")
         return 0
 
+    # Exact prior projections are invalidated before dispatch. If this attempt is
+    # incomplete, no old report/summary/badge may remain and look like its result.
+    selfserve.invalidate_output_paths(Path(args.out), args.label)
+
     # on_progress fires from worker threads; serialize prints so concurrent
     # progress lines don't interleave.
     import threading
@@ -203,6 +207,14 @@ def main(argv: list[str] | None = None) -> int:
         n_orch_cases=len(orch_cases),
         cases_glob=args.cases,
     )
+    incomplete = selfserve.incomplete_attempt_reasons(summary)
+    if incomplete:
+        print("\n" + "=" * 64)
+        print("OPERANT RESULT INCOMPLETE — no report, summary, or badge published")
+        for reason in incomplete:
+            print(f"  - {reason}")
+        print("=" * 64)
+        return 2
     paths = selfserve.write_outputs(Path(args.out), summary)
 
     print("\n" + "=" * 64)

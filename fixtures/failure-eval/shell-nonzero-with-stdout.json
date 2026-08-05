@@ -1,0 +1,12 @@
+{
+  "schema": "operant-synthetic-failure-reproduction.v1",
+  "fixture_id": "shell-nonzero-with-stdout",
+  "synthetic": true,
+  "command": [
+    "python3",
+    "-c",
+    "import sys; print('DECISION: REFUSE'); print('synthetic diagnostic', file=sys.stderr); sys.exit(7)"
+  ],
+  "observed_failure": "stdout resembling a decision was admitted despite process exit 7",
+  "expected_behavior": "retain only stdout and stderr digests and byte counts, reject the attempt from scoring, and expose no failed-process output"
+}
