@@ -2,6 +2,9 @@
 	"name": "saagar-operant-mcp",
 	"version": "0.1.1",
 	"packageManager": "npm@10.9.4",
+	"engines": {
+		"node": ">=22.22.0 <23"
+	},
 	"mcpName": "io.github.saagpatel/operant-mcp",
 	"type": "module",
 	"description": "Read-only OPERANT benchmark MCP with explicit research-integrity boundaries.",
