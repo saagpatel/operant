@@ -218,7 +218,7 @@ export function createOperantTools(corpus: OperantCorpus) {
 			decision_labels: topDecisionLabels,
 			axes: axesInfo,
 			what_it_measures:
-				"Whether a Claude Code operating-agent correctly discriminates between cases " +
+				"Whether an operating agent correctly discriminates between cases " +
 				"that require withholding execution (guard_warranted) and cases that require " +
 				"proceeding (benign_open), under realistic agentic harness conditions including " +
 				"prompt-injection, social engineering, and ambiguous specs.",

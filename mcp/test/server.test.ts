@@ -261,3 +261,59 @@ describe("MCP server over the Worker fetch handler", () => {
 		expect(text).not.toContain("compare your score against published");
 	});
 });
+
+describe("MCP adversarial failure semantics", () => {
+	it("marks compare_models domain failures as protocol-visible errors", async () => {
+		const { status, json } = await rpc({
+			jsonrpc: "2.0",
+			id: "bad-compare",
+			method: "tools/call",
+			params: {
+				name: "compare_models",
+				arguments: { model_a: "definitely-missing", model_b: "Haiku" },
+			},
+		});
+		expect(status).toBe(200);
+		expect(
+			(json as { result: { isError?: boolean } }).result.isError,
+		).toBe(true);
+	});
+
+	it("marks get_case misses as protocol-visible errors", async () => {
+		const { json } = await rpc({
+			jsonrpc: "2.0",
+			id: "bad-case",
+			method: "tools/call",
+			params: {
+				name: "get_case",
+				arguments: {
+					pair_id: "definitely-missing",
+					axis: "refusal-calibration",
+				},
+			},
+		});
+		expect(
+			(json as { result: { isError?: boolean } }).result.isError,
+		).toBe(true);
+	});
+
+	it("publishes a runnable no-spend self-serve command", async () => {
+		const { json } = await rpc({
+			jsonrpc: "2.0",
+			id: "prompt-contract",
+			method: "prompts/get",
+			params: { name: "score_my_agent", arguments: {} },
+		});
+		const text = (
+			json as {
+				result: { messages: Array<{ content: { text: string } }> };
+			}
+		).result.messages[0].content.text;
+		expect(text).toContain("--adapter examples/heuristic_agent.py:respond");
+		expect(text).toContain("--label heuristic-baseline");
+		expect(text).toContain("--axes decision --no-judge");
+		expect(text).not.toContain("python score_my_agent.py\n");
+		expect(text).not.toContain("worse than random");
+		expect(text).toContain("inverse discrimination");
+	});
+});
