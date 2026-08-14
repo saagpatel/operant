@@ -12,7 +12,7 @@ whole repo is standard-library only, so "anyone can run it" stays literally true
                            template (`{prompt}` placeholder) or piped via stdin; the
                            agent's stdout is its answer. Works for `claude`, `codex`,
                            `aider`, a `curl` one-liner, or a custom wrapper script.
-  - PythonEntrypointRunner — an in-process `respond(prompt) -> str` callable, given as
+  - PythonEntrypointRunner — an isolated `respond(prompt) -> str` callable, given as
                            `module:func` or `path/to/file.py:func`. For Python agents.
   - HTTPEndpointRunner   — a hosted agent behind an HTTP endpoint. The prompt is
                            JSON-escaped into a request body template and the answer is
@@ -26,12 +26,15 @@ native dispatch.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import importlib.util
-import hashlib
 import json
+import os
 import shlex
+import signal
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -81,8 +84,8 @@ class AgentRunner:
     """Base contract: turn a fully-built prompt into the agent's answer text.
 
     Subclasses set `shell` (recorded as `subject_shell` in run artifacts) and a
-    `descriptor` (a redactable, human-readable description of how the agent is
-    invoked — no secrets) and implement `respond`.
+    `descriptor` (a secret-safe digest description of how the agent is invoked)
+    and implement `respond`.
     """
 
     shell = "byo"
@@ -129,12 +132,17 @@ class ShellCommandRunner(AgentRunner):
             )
         self.command = command
         self.prompt_via = prompt_via
+        if type(timeout) not in (int, float) or isinstance(timeout, bool) or timeout <= 0:
+            raise ValueError("timeout must be positive")
         self.timeout = timeout
         self.cwd = cwd
         if type(max_answer_bytes) is not int or max_answer_bytes < 1:
             raise ValueError("max_answer_bytes must be a positive integer")
         self.max_answer_bytes = max_answer_bytes
-        self.descriptor = f"shell:{command}"
+        self.descriptor = (
+            "shell-command:sha256:"
+            f"{hashlib.sha256(command.encode('utf-8')).hexdigest()}"
+        )
 
     def _argv(self, prompt: str) -> list[str]:
         parts = shlex.split(self.command)
@@ -148,17 +156,15 @@ class ShellCommandRunner(AgentRunner):
         t0 = time.time()
         with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
             try:
-                proc = subprocess.run(
+                proc = subprocess.Popen(
                     argv,
-                    input=stdin,
+                    stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
                     stdout=stdout_file,
                     stderr=stderr_file,
                     text=True,
-                    timeout=self.timeout,
                     cwd=self.cwd,
+                    start_new_session=os.name == "posix",
                 )
-            except subprocess.TimeoutExpired:
-                return RunnerResult("", False, "timeout", round(time.time() - t0, 2))
             except (FileNotFoundError, OSError) as exc:
                 return RunnerResult(
                     "",
@@ -166,6 +172,23 @@ class ShellCommandRunner(AgentRunner):
                     f"spawn_failed:{type(exc).__name__}",
                     round(time.time() - t0, 2),
                 )
+
+            timed_out = False
+            process_group_terminated = False
+            try:
+                proc.communicate(input=stdin, timeout=self.timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                if os.name == "posix":
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                        process_group_terminated = True
+                    except ProcessLookupError:
+                        process_group_terminated = True
+                else:  # pragma: no cover - CI and supported local path are POSIX
+                    proc.kill()
+                    process_group_terminated = True
+                proc.wait()
 
             def output_metadata(handle) -> tuple[str, int]:  # noqa: ANN001
                 size = handle.tell()
@@ -184,8 +207,20 @@ class ShellCommandRunner(AgentRunner):
                 "stderr_sha256": stderr_digest,
                 "stderr_bytes": stderr_bytes,
             }
+            if timed_out:
+                meta["timed_out"] = True
+                meta["process_group_terminated"] = process_group_terminated
             dur = round(time.time() - t0, 2)
+            if timed_out:
+                return RunnerResult("", False, "timeout", dur, meta)
             if proc.returncode != 0:
+                if proc.returncode < 0:
+                    try:
+                        signal_name = signal.Signals(-proc.returncode).name
+                    except ValueError:  # pragma: no cover - defensive unknown signal
+                        signal_name = f"UNKNOWN_{-proc.returncode}"
+                    meta["signal"] = signal_name
+                    return RunnerResult("", False, f"signal_{signal_name}", dur, meta)
                 return RunnerResult("", False, f"exit_{proc.returncode}", dur, meta)
             if stdout_bytes > self.max_answer_bytes:
                 return RunnerResult("", False, "stdout_too_large", dur, meta)
@@ -197,14 +232,24 @@ class ShellCommandRunner(AgentRunner):
 class PythonEntrypointRunner(AgentRunner):
     shell = "byo-python"
 
-    # No timeout: an in-process callable cannot be safely interrupted in Python, so
-    # we do not pretend to bound it. A hanging agent function blocks its dispatch
-    # thread — wrap slow agents in a ShellCommandRunner/HTTPEndpointRunner (which do
-    # enforce timeouts) if you need a hard limit.
-    def __init__(self, spec: str) -> None:
+    def __init__(
+        self,
+        spec: str,
+        *,
+        timeout: int = 900,
+        cwd: str | None = None,
+        max_answer_bytes: int = DEFAULT_MAX_ANSWER_BYTES,
+    ) -> None:
+        if ":" not in spec:
+            raise ValueError("adapter spec must be 'module:func' or 'path.py:func'")
         self.spec = spec
-        self.descriptor = f"python:{spec}"
-        self._func = self._resolve(spec)
+        self.timeout = timeout
+        self.cwd = cwd
+        self.max_answer_bytes = max_answer_bytes
+        self.descriptor = (
+            "python-entrypoint:sha256:"
+            f"{hashlib.sha256(spec.encode('utf-8')).hexdigest()}"
+        )
 
     @staticmethod
     def _resolve(spec: str) -> Callable[[str], str]:
@@ -226,16 +271,22 @@ class PythonEntrypointRunner(AgentRunner):
         return func
 
     def respond(self, prompt: str) -> RunnerResult:
-        t0 = time.time()
-        try:
-            text = self._func(prompt)
-        except Exception as exc:  # noqa: BLE001 - surface any agent error as a failed run
-            return RunnerResult("", False, f"raised: {exc!r}", round(time.time() - t0, 2))
-        dur = round(time.time() - t0, 2)
-        if not isinstance(text, str):
-            return RunnerResult("", False, f"returned {type(text).__name__}, expected str", dur)
-        text = text.strip()
-        return RunnerResult(text, bool(text), None if text else "empty_return", dur)
+        command = shlex.join(
+            [
+                sys.executable,
+                str(Path(__file__).with_name("adapter_worker.py")),
+                self.spec,
+            ]
+        )
+        result = ShellCommandRunner(
+            command,
+            prompt_via="stdin",
+            timeout=self.timeout,
+            cwd=self.cwd,
+            max_answer_bytes=self.max_answer_bytes,
+        ).respond(prompt)
+        result.meta["adapter_isolation"] = "subprocess"
+        return result
 
 
 def resolve_answer_path(payload: Any, dotted: str) -> Any:
@@ -281,6 +332,7 @@ class HTTPEndpointRunner(AgentRunner):
         body_template: str = '{"prompt": "{prompt}"}',
         answer_path: str | None = None,
         timeout: int = 300,
+        max_answer_bytes: int = DEFAULT_MAX_ANSWER_BYTES,
         opener: Callable[..., Any] = urllib.request.urlopen,
     ) -> None:
         if PROMPT_TOKEN not in body_template:
@@ -290,9 +342,18 @@ class HTTPEndpointRunner(AgentRunner):
         self.headers = {"Content-Type": "application/json", **(headers or {})}
         self.body_template = body_template
         self.answer_path = answer_path
+        if type(timeout) not in (int, float) or isinstance(timeout, bool) or timeout <= 0:
+            raise ValueError("timeout must be positive")
         self.timeout = timeout
+        if type(max_answer_bytes) is not int or max_answer_bytes < 1:
+            raise ValueError("max_answer_bytes must be a positive integer")
+        self.max_answer_bytes = max_answer_bytes
         self._opener = opener
-        self.descriptor = f"http:{self.method} {url}"
+        descriptor_binding = f"{self.method}\n{url}"
+        self.descriptor = (
+            "http-endpoint:sha256:"
+            f"{hashlib.sha256(descriptor_binding.encode('utf-8')).hexdigest()}"
+        )
 
     def _body(self, prompt: str) -> bytes:
         # The prompt is always inserted as a JSON string value: json.dumps(prompt)
@@ -333,7 +394,7 @@ class HTTPEndpointRunner(AgentRunner):
         t0 = time.time()
         try:
             with self._opener(req, timeout=self.timeout) as resp:
-                raw = resp.read().decode("utf-8")
+                raw_bytes = resp.read(self.max_answer_bytes + 1)
         except urllib.error.HTTPError as exc:
             return RunnerResult(
                 "", False, f"http_{exc.code}: {exc.reason}", round(time.time() - t0, 2)
@@ -341,8 +402,16 @@ class HTTPEndpointRunner(AgentRunner):
         except (urllib.error.URLError, OSError) as exc:
             return RunnerResult("", False, f"request_failed: {exc}", round(time.time() - t0, 2))
         dur = round(time.time() - t0, 2)
+        response_meta = {
+            "response_bytes": len(raw_bytes),
+            "response_sha256": f"sha256:{hashlib.sha256(raw_bytes).hexdigest()}",
+        }
+        if len(raw_bytes) > self.max_answer_bytes:
+            response_meta["response_truncated"] = True
+            return RunnerResult("", False, "response_too_large", dur, response_meta)
+        raw = raw_bytes.decode("utf-8", errors="replace")
         text, err = self._extract(raw)
-        return RunnerResult(text, bool(text and not err), err, dur)
+        return RunnerResult(text, bool(text and not err), err, dur, response_meta)
 
 
 def make_runner(
@@ -370,7 +439,7 @@ def make_runner(
             cmd, prompt_via="stdin" if cmd_stdin else "placeholder", timeout=timeout
         )
     if adapter:
-        return PythonEntrypointRunner(adapter)
+        return PythonEntrypointRunner(adapter, timeout=timeout)
     return HTTPEndpointRunner(
         endpoint,  # type: ignore[arg-type]
         method=http_method,

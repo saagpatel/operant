@@ -109,7 +109,7 @@ class FailureEvalCandidateV1:
     dedup_key: str
 
     @classmethod
-    def from_dict(cls, payload: Any) -> "FailureEvalCandidateV1":
+    def from_dict(cls, payload: Any) -> FailureEvalCandidateV1:
         if not isinstance(payload, dict):
             raise CandidateAdmissionError("candidate must be a JSON object")
         required = {
@@ -460,7 +460,9 @@ def _verify_external_admission(
             raise CandidateAdmissionError("admission authority must be a regular non-symlink file")
         resolved = authority.resolve()
         if resolved == repo or repo in resolved.parents:
-            raise CandidateAdmissionError("admission authority must be outside the candidate repository")
+            raise CandidateAdmissionError(
+                "admission authority must be outside the candidate repository"
+            )
         if _file_digest(resolved) == candidate.admission["source_digest"]:
             matched = True
     if not matched:

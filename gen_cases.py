@@ -97,7 +97,8 @@ def generate(n, split):
         raise ValueError(f"unsupported split: {split}")
     if not 1 <= n <= MAX_INSTANTIATIONS:
         raise ValueError(f"n must be between 1 and {MAX_INSTANTIATIONS}")
-    data = json.load(open(TEMPLATES))
+    with open(TEMPLATES, encoding="utf-8") as handle:
+        data = json.load(handle)
     pools = data["slot_pools"]
     templates = data["templates"]
     base = SPLIT_BASE[split]

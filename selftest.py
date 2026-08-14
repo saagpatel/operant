@@ -537,8 +537,12 @@ def run_lab_layer_selftests() -> None:
         bool(validate_submission(invalid_submission)),
     )
 
-    source = Path("/Users/d/Projects/evals/agent_eval/operant/results")
-    if source.exists():
+    # The zero-cost gate must not change behavior based on sibling repositories or
+    # operator-local result stores. The legacy private-source assertions below are
+    # intentionally excluded here; the hermetic synthetic branch exercises the
+    # same exporter and contract surfaces on every machine.
+    source: Path | None = None
+    if source is not None:
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp) / "public"
             summary = export_public_artifacts(source, out_dir)

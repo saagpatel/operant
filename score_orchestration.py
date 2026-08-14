@@ -146,13 +146,17 @@ def load_cases(path=None):
     a `rubric` list of anchors; the file's top-level `axis` defaults to
     'orchestration'."""
     path = path or os.environ.get("OPERANT_AXIS3_CASES") or DEFAULT_CASE_FILE
-    data = json.load(open(path))
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
     file_axis = data.get("axis", "orchestration")
     flat = {}
     for case in data["cases"]:
         c = dict(case)
         c.setdefault("axis", file_axis)
-        flat[c["id"]] = c
+        case_id = c["id"]
+        if case_id in flat:
+            raise ValueError(f"duplicate orchestration case id {case_id!r} in {path}")
+        flat[case_id] = c
     return flat
 
 
@@ -330,7 +334,8 @@ def main():
 
     if not args.case_id or not args.report_file:
         raise SystemExit(
-            "usage: score_orchestration.py <case_id> <report_file> [--record LABEL] | --aggregate LABEL"
+            "usage: score_orchestration.py <case_id> <report_file> "
+            "[--record LABEL] | --aggregate LABEL"
         )
 
     cases = load_cases()
