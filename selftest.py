@@ -11,6 +11,7 @@ Exit 1 = at least one assertion failed (details printed)
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -537,8 +538,16 @@ def run_lab_layer_selftests() -> None:
         bool(validate_submission(invalid_submission)),
     )
 
-    source = Path("/Users/d/Projects/evals/agent_eval/operant/results")
-    if source.exists():
+    # Historical private-result integration is opt-in. A clean checkout must not
+    # change its selftest coverage merely because one operator-specific path happens
+    # to exist on the host running it.
+    source_override = os.environ.get("OPERANT_SELFTEST_SOURCE_RESULTS")
+    if source_override:
+        source = Path(source_override).expanduser()
+        if not source.is_dir():
+            raise RuntimeError(
+                "OPERANT_SELFTEST_SOURCE_RESULTS must name an existing directory"
+            )
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp) / "public"
             summary = export_public_artifacts(source, out_dir)

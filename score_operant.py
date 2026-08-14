@@ -174,7 +174,8 @@ def load_cases():
     flat = {}
     case_glob = os.environ.get("OPERANT_CASES") or DEFAULT_CASE_GLOB
     for path in sorted(glob.glob(case_glob)):
-        data = json.load(open(path))
+        with open(path, encoding="utf-8") as case_file:
+            data = json.load(case_file)
         # Skip non-matched-pair files that share the operant*_cases.json glob
         # (e.g. operant_axis3_cases.json uses a rubric `cases` schema scored by
         # score_orchestration.py, not the decision/OCS pipeline).
