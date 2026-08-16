@@ -24,7 +24,7 @@ Status vocabulary: `READY`, `WORKING`, `BLOCKED`, `VERIFIED`, `DROPPED`.
 | BI-12 | VERIFIED | Harness ablation, bypass, evaluator crash, resume, and interrupted writes | Existing harness-ablation, lineage, manifest, failure-eval, and public-generation tests plus new evaluator-crash/atomic-write tests cover fail-closed interruption and recovery. |
 | BI-13 | VERIFIED | CLI, API, and MCP error contracts | Positive CLI integers, explicit empty-corpus/variance exits, JSON readback, 42 MCP tests, typecheck, stdio probe, manifest signature, and version parity pass. |
 | BI-14 | VERIFIED | Resource ceilings and bounded synthetic workloads | Shell, HTTP, and Python adapter execution is time/byte bounded; concurrency is positive and finite; every new workload is synthetic and local. |
-| BI-15 | VERIFIED | Full local gate and saturation | Python 3.12: 150 tests with `ResourceWarning` promoted to error, both selftests, split verifier, compileall, Ruff gate; MCP: 42 tests and every declared local gate; three saturation lenses reran clean. |
+| BI-15 | VERIFIED | Full local gate and saturation | Python 3.12: 150 tests with `ResourceWarning` promoted to error, both selftests, split verifier, compileall, Ruff 0.15.22; MCP: 42 tests and every declared local gate; three saturation lenses reran clean. |
 
 ## Baseline
 
