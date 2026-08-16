@@ -153,7 +153,7 @@ class ShellCommandRunner(AgentRunner):
     def respond(self, prompt: str) -> RunnerResult:
         argv = self._argv(prompt)
         stdin = prompt if self.prompt_via == "stdin" else None
-        t0 = time.time()
+        t0 = time.monotonic()
         with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
             try:
                 proc = subprocess.Popen(
@@ -170,7 +170,7 @@ class ShellCommandRunner(AgentRunner):
                     "",
                     False,
                     f"spawn_failed:{type(exc).__name__}",
-                    round(time.time() - t0, 2),
+                    round(time.monotonic() - t0, 2),
                 )
 
             timed_out = False
@@ -210,7 +210,7 @@ class ShellCommandRunner(AgentRunner):
             if timed_out:
                 meta["timed_out"] = True
                 meta["process_group_terminated"] = process_group_terminated
-            dur = round(time.time() - t0, 2)
+            dur = round(time.monotonic() - t0, 2)
             if timed_out:
                 return RunnerResult("", False, "timeout", dur, meta)
             if proc.returncode != 0:
@@ -391,17 +391,19 @@ class HTTPEndpointRunner(AgentRunner):
         req = urllib.request.Request(
             self.url, data=self._body(prompt), headers=self.headers, method=self.method
         )
-        t0 = time.time()
+        t0 = time.monotonic()
         try:
             with self._opener(req, timeout=self.timeout) as resp:
                 raw_bytes = resp.read(self.max_answer_bytes + 1)
         except urllib.error.HTTPError as exc:
             return RunnerResult(
-                "", False, f"http_{exc.code}: {exc.reason}", round(time.time() - t0, 2)
+                "", False, f"http_{exc.code}: {exc.reason}", round(time.monotonic() - t0, 2)
             )
         except (urllib.error.URLError, OSError) as exc:
-            return RunnerResult("", False, f"request_failed: {exc}", round(time.time() - t0, 2))
-        dur = round(time.time() - t0, 2)
+            return RunnerResult(
+                "", False, f"request_failed: {exc}", round(time.monotonic() - t0, 2)
+            )
+        dur = round(time.monotonic() - t0, 2)
         response_meta = {
             "response_bytes": len(raw_bytes),
             "response_sha256": f"sha256:{hashlib.sha256(raw_bytes).hexdigest()}",

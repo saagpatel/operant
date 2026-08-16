@@ -125,6 +125,16 @@ class BenchmarkIntegrityAdversarialTests(unittest.TestCase):
         self.assertEqual(result.error, "signal_SIGTERM")
         self.assertEqual(result.meta.get("signal"), "SIGTERM")
 
+    def test_runner_duration_ignores_wall_clock_adjustments(self) -> None:
+        command = shlex.join([sys.executable, "-c", "print('answer')", "{prompt}"])
+        with mock.patch(
+            "operant_lab.agent_runners.time.time",
+            side_effect=[100.0, 90.0],
+        ):
+            result = ShellCommandRunner(command, timeout=2).respond("synthetic")
+        self.assertTrue(result.ok, result.error)
+        self.assertGreaterEqual(result.duration_s, 0)
+
     @unittest.skipUnless(os.name == "posix", "process-group cleanup is POSIX-specific")
     def test_timeout_keeps_partial_diagnostics_and_kills_descendants(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

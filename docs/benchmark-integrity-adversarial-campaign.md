@@ -15,7 +15,7 @@ Status vocabulary: `READY`, `WORKING`, `BLOCKED`, `VERIFIED`, `DROPPED`.
 | BI-03 | VERIFIED | Signals and cancellation | `test_signal_termination_is_distinct_and_never_an_answer` distinguishes `signal_SIGTERM`; timeout and Python-adapter tests cover cancellation. |
 | BI-04 | VERIFIED | Timeouts, hangs, partial output, and cleanup | Deterministic timeout fixture preserves digest-only partial diagnostics, terminates the process group, and proves its child cannot write after cancellation. |
 | BI-05 | VERIFIED | Truncated, oversized, malformed, and missing output/artifacts | Shell and HTTP byte ceilings fail closed; interrupted multi-file publication cleans every exact projection; stale artifacts are invalidated before dispatch. |
-| BI-06 | VERIFIED | Deterministic seeds, ordering, clock, and environment | Seeded bootstrap/generator selftests pass; dispatch returns corpus order; input binding is order-independent and excludes volatile clock/environment state. |
+| BI-06 | VERIFIED | Deterministic seeds, ordering, clock, and environment | Seeded bootstrap/generator selftests pass; dispatch returns corpus order; input binding is order-independent and excludes volatile clock/environment state; runner elapsed diagnostics use monotonic time, proven by `test_runner_duration_ignores_wall_clock_adjustments`; ClockBomb V1 scanned 91 files and 94 visible commits with no findings or unknown coverage. |
 | BI-07 | VERIFIED | Flaky retries, concurrency, duplicates, and idempotent replay | Tests prove one dispatch per case, duplicate case IDs are rejected, distinct labels cannot collide, and a directory-level lock serializes singleton badges. |
 | BI-08 | VERIFIED | Scoring boundaries and special numbers | Empty/missing-class cohorts are `UNDEFINED_*`; NaN/infinity/out-of-range OCS cannot classify or serialize; exact seeded statistical boundary tests remain green. |
 | BI-09 | VERIFIED | Selection bias, leakage, and metric gaming | Partial variance repeats are rejected wholesale; duplicate IDs, incomplete cohorts, bypass gates, evaluation-split roles, and public/private claim boundaries fail closed. |
@@ -24,7 +24,7 @@ Status vocabulary: `READY`, `WORKING`, `BLOCKED`, `VERIFIED`, `DROPPED`.
 | BI-12 | VERIFIED | Harness ablation, bypass, evaluator crash, resume, and interrupted writes | Existing harness-ablation, lineage, manifest, failure-eval, and public-generation tests plus new evaluator-crash/atomic-write tests cover fail-closed interruption and recovery. |
 | BI-13 | VERIFIED | CLI, API, and MCP error contracts | Positive CLI integers, explicit empty-corpus/variance exits, JSON readback, 42 MCP tests, typecheck, stdio probe, manifest signature, and version parity pass. |
 | BI-14 | VERIFIED | Resource ceilings and bounded synthetic workloads | Shell, HTTP, and Python adapter execution is time/byte bounded; concurrency is positive and finite; every new workload is synthetic and local. |
-| BI-15 | VERIFIED | Full local gate and saturation | Python 3.12: 149 tests with `ResourceWarning` promoted to error, both selftests, split verifier, compileall, Ruff 0.15.22; MCP: 42 tests and every declared local gate; three saturation lenses reran clean. |
+| BI-15 | VERIFIED | Full local gate and saturation | Python 3.12: 150 tests with `ResourceWarning` promoted to error, both selftests, split verifier, compileall, Ruff gate; MCP: 42 tests and every declared local gate; three saturation lenses reran clean. |
 
 ## Baseline
 
@@ -51,8 +51,12 @@ Status vocabulary: `READY`, `WORKING`, `BLOCKED`, `VERIFIED`, `DROPPED`.
    full unittest discovery and the standard selftest. Review rerun found the
    timeout proof's remaining 300 ms startup margin was still unstable under full
    load; the bounded synthetic child was widened to a 2 s timeout with no weaker
-   assertion. Five isolated repetitions and the parent rerun passed 149 tests
-   with no new material safe item.
+   assertion. A ClockBomb V1 pass then found no temporal literals, ambient-clock
+   hazards in deterministic paths, or temporal-settlement churn; a targeted
+   wall-clock adjustment fixture did expose runner duration diagnostics using
+   `time.time()`, which was repaired with `time.monotonic()`. Five isolated
+   repetitions and the parent rerun passed 150 tests with no new material safe
+   item.
 3. Consumer contract/readback: searched public wording and runnable commands,
    exercised the local CLI JSON readback, verified empty variance exits 2,
    reverified the evaluation-split contract, and ran all MCP public gates. Manual
