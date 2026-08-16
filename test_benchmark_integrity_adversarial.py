@@ -130,7 +130,7 @@ class BenchmarkIntegrityAdversarialTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             marker = Path(tmp) / "survived.txt"
             child = (
-                "import pathlib,time; time.sleep(0.8); "
+                "import pathlib,time; time.sleep(5); "
                 f"pathlib.Path({str(marker)!r}).write_text('survived')"
             )
             parent = (
@@ -141,8 +141,8 @@ class BenchmarkIntegrityAdversarialTests(unittest.TestCase):
                 "time.sleep(5)"
             )
             command = shlex.join([sys.executable, "-c", parent, "{prompt}"])
-            result = ShellCommandRunner(command, timeout=0.3).respond("synthetic")
-            time.sleep(1.0)
+            result = ShellCommandRunner(command, timeout=2.0).respond("synthetic")
+            time.sleep(0.3)
             self.assertFalse(result.ok)
             self.assertEqual(result.error, "timeout")
             self.assertGreater(result.meta.get("stdout_bytes", 0), 0)

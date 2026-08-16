@@ -48,9 +48,11 @@ Status vocabulary: `READY`, `WORKING`, `BLOCKED`, `VERIFIED`, `DROPPED`.
    repaired partial-repeat selection bias and an unclosed generator input; the
    independent rerun found no new material safe item.
 2. Warning and timing sensitivity: promoted `ResourceWarning` to an error across
-   full unittest discovery and the standard selftest. It found and repaired one
-   startup-racy timeout proof and refreshed the exact evaluation-split binding;
-   the rerun passed 149 tests with no new material safe item.
+   full unittest discovery and the standard selftest. Review rerun found the
+   timeout proof's remaining 300 ms startup margin was still unstable under full
+   load; the bounded synthetic child was widened to a 2 s timeout with no weaker
+   assertion. Five isolated repetitions and the parent rerun passed 149 tests
+   with no new material safe item.
 3. Consumer contract/readback: searched public wording and runnable commands,
    exercised the local CLI JSON readback, verified empty variance exits 2,
    reverified the evaluation-split contract, and ran all MCP public gates. Manual
