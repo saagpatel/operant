@@ -8,6 +8,7 @@ Exit 0 = ALL SELFTESTS PASSED
 Exit 1 = at least one assertion failed (details printed)
 """
 
+import argparse
 import hashlib
 import importlib.util
 import json
@@ -2521,4 +2522,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser(description="Run the OPERANT selftest suite.").parse_args()
     main()
