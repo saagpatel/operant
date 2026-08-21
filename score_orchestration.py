@@ -146,8 +146,8 @@ def load_cases(path=None):
     a `rubric` list of anchors; the file's top-level `axis` defaults to
     'orchestration'."""
     path = path or os.environ.get("OPERANT_AXIS3_CASES") or DEFAULT_CASE_FILE
-    with open(path, encoding="utf-8") as handle:
-        data = json.load(handle)
+    with open(path, encoding="utf-8") as case_file:
+        data = json.load(case_file)
     file_axis = data.get("axis", "orchestration")
     flat = {}
     for case in data["cases"]:
