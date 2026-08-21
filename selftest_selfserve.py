@@ -10,6 +10,7 @@ Mirrors selftest.py's check()/FAILURES idiom.
 
 from __future__ import annotations
 
+import argparse
 import io
 import json
 import shlex
@@ -478,4 +479,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser(
+        description="Run the OPERANT self-serve selftest suite."
+    ).parse_args()
     main()

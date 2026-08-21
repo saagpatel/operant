@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
@@ -269,4 +270,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser(
+        description="Verify the OPERANT adaptive/confirmatory split contract."
+    ).parse_args()
     main()
