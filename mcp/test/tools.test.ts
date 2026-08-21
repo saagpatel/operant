@@ -266,6 +266,12 @@ describe("getMethodology", () => {
 		expect(m.what_it_measures.length).toBeGreaterThan(10);
 		expect(m.what_it_doesnt.length).toBeGreaterThan(10);
 	});
+
+	it("describes the cross-agent product instead of one provider shell", () => {
+		const m = tools.getMethodology();
+		expect(m.what_it_measures).not.toContain("Claude Code");
+		expect(m.what_it_measures).toContain("operating agent");
+	});
 });
 
 describe("listCases", () => {

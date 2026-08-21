@@ -153,7 +153,10 @@ def load_cases(path=None):
     for case in data["cases"]:
         c = dict(case)
         c.setdefault("axis", file_axis)
-        flat[c["id"]] = c
+        case_id = c["id"]
+        if case_id in flat:
+            raise ValueError(f"duplicate orchestration case id {case_id!r} in {path}")
+        flat[case_id] = c
     return flat
 
 
@@ -331,7 +334,8 @@ def main():
 
     if not args.case_id or not args.report_file:
         raise SystemExit(
-            "usage: score_orchestration.py <case_id> <report_file> [--record LABEL] | --aggregate LABEL"
+            "usage: score_orchestration.py <case_id> <report_file> "
+            "[--record LABEL] | --aggregate LABEL"
         )
 
     cases = load_cases()

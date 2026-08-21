@@ -20,12 +20,27 @@ this runner does not establish model identity or independent replication.
 from __future__ import annotations
 
 import concurrent.futures as cf
+import hashlib
 import importlib.util
+import json
+import math
 import os
+import tempfile
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+try:  # POSIX local/CI path.
+    import fcntl as _fcntl
+except ImportError:  # pragma: no cover - Windows import path
+    _fcntl = None
+
+try:  # Windows standard-library fallback.
+    import msvcrt as _msvcrt
+except ImportError:  # pragma: no cover - POSIX import path
+    _msvcrt = None
 
 from operant_lab.agent_runners import AgentRunner, RunnerResult, build_byo_prompt
 
@@ -38,6 +53,10 @@ OPERATOR_CONTRACT_ENV = "OPERANT_OPERATOR_CONTRACT"
 
 
 _SIBLING_CACHE: dict[str, Any] = {}
+
+
+class OutputRunLockedError(RuntimeError):
+    """The exact output label already has an active writer."""
 
 
 def _sibling(name: str):
@@ -58,6 +77,65 @@ def _sibling(name: str):
 
 def utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _canonical_sha256(value: Any) -> str:
+    return _sha256_bytes(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+            "utf-8"
+        )
+    )
+
+
+def build_input_binding(
+    *,
+    contract: str,
+    decision_cases: dict[str, dict],
+    orchestration_cases: dict[str, dict],
+    runner_descriptor: str,
+) -> dict[str, Any]:
+    """Bind interpretation-critical self-serve inputs without retaining secrets.
+
+    Case-map ordering and wall-clock time are deliberately excluded. The runner
+    descriptor is hashed because command templates and endpoint URLs may be
+    sensitive; the binding proves equality without publishing the descriptor.
+    """
+    protocol_paths = [
+        REPO_ROOT / "score_operant.py",
+        REPO_ROOT / "score_orchestration.py",
+        REPO_ROOT / "operant_lab" / "adapter_worker.py",
+        REPO_ROOT / "operant_lab" / "agent_runners.py",
+        REPO_ROOT / "operant_lab" / "selfserve.py",
+    ]
+    core = {
+        "schema": "operant-selfserve-input-binding.v1",
+        "operator_contract_sha256": _sha256_bytes(contract.encode("utf-8")),
+        "decision_corpus_sha256": _canonical_sha256(decision_cases),
+        "decision_case_count": len(decision_cases),
+        "orchestration_corpus_sha256": _canonical_sha256(orchestration_cases),
+        "orchestration_case_count": len(orchestration_cases),
+        "runner_descriptor_sha256": _sha256_bytes(runner_descriptor.encode("utf-8")),
+        "protocol_files_sha256": {
+            path.relative_to(REPO_ROOT).as_posix(): _sha256_bytes(path.read_bytes())
+            for path in protocol_paths
+        },
+    }
+    return {**core, "input_sha256": _canonical_sha256(core)}
+
+
+def _validate_input_binding(input_binding: dict[str, Any], runner_descriptor: str) -> None:
+    if input_binding.get("schema") != "operant-selfserve-input-binding.v1":
+        raise ValueError("unsupported self-serve input binding schema")
+    expected_descriptor = _sha256_bytes(runner_descriptor.encode("utf-8"))
+    if input_binding.get("runner_descriptor_sha256") != expected_descriptor:
+        raise ValueError("input binding does not match runner descriptor")
+    core = {key: value for key, value in input_binding.items() if key != "input_sha256"}
+    if input_binding.get("input_sha256") != _canonical_sha256(core):
+        raise ValueError("self-serve input binding digest mismatch")
 
 
 def resolve_operator_contract(path: str | None = None) -> tuple[str, str]:
@@ -156,20 +234,22 @@ def dispatch_cases(
     on_progress: Callable[[str, RunnerResult], None] | None = None,
 ) -> dict[str, RunnerResult]:
     """Run every case through the agent. Returns {case_id: RunnerResult}."""
+    if type(concurrency) is not int or concurrency < 1:
+        raise ValueError("concurrency must be a positive integer")
     answers: dict[str, RunnerResult] = {}
 
     def one(cid: str, case: dict) -> tuple[str, RunnerResult]:
         prompt = build_byo_prompt(case, system_prompt)
         return cid, runner.respond(prompt)
 
-    with cf.ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
+    with cf.ThreadPoolExecutor(max_workers=concurrency) as pool:
         futures = [pool.submit(one, cid, case) for cid, case in cases.items()]
         for fut in cf.as_completed(futures):
             cid, res = fut.result()
             answers[cid] = res
             if on_progress:
                 on_progress(cid, res)
-    return answers
+    return {case_id: answers[case_id] for case_id in cases}
 
 
 def score_decision(cases: dict[str, dict], answers: dict[str, RunnerResult]) -> dict[str, Any]:
@@ -267,6 +347,13 @@ def score_orchestration(
 
 def classify_band(ocs: float) -> dict[str, str]:
     """Describe only the mathematical sign of OCS; do not imply model equivalence."""
+    if (
+        not isinstance(ocs, (int, float))
+        or isinstance(ocs, bool)
+        or not math.isfinite(float(ocs))
+        or not -1.0 <= float(ocs) <= 1.0
+    ):
+        raise ValueError("OCS must be a finite number in [-1, 1]")
     if ocs < 0.0:
         return {
             "band": "inverse-discrimination",
@@ -293,7 +380,9 @@ def build_summary(
     n_decision_cases: int,
     n_orch_cases: int,
     cases_glob: str | None,
+    input_binding: dict[str, Any],
 ) -> dict[str, Any]:
+    _validate_input_binding(input_binding, runner.descriptor)
     ocs = decision.get("ocs", 0.0)
     band = classify_band(ocs)
     return {
@@ -301,13 +390,18 @@ def build_summary(
         "generated_at": utc_now(),
         "agent_label": label,
         "subject_shell": runner.shell,
-        "agent_descriptor": runner.descriptor,
+        "agent_descriptor": (
+            "sha256:" + input_binding["runner_descriptor_sha256"]
+        ),
         "operator_contract_source": contract_source,
+        "input_binding": input_binding,
         "cases_corpus": cases_glob or "canonical (bundled operant*_cases.json)",
         "ocs": ocs,
         "band": band["band"],
         "band_detail": band["detail"],
         "decision": {
+            "metric_status": decision.get("metric_status"),
+            "class_counts": decision.get("class_counts"),
             "ocs": ocs,
             "accuracy": decision.get("decision_accuracy"),
             "safe_and_correct_rate": decision.get("safe_and_correct_rate"),
@@ -343,8 +437,28 @@ def incomplete_attempt_reasons(summary: dict[str, Any]) -> list[str]:
         return ["decision_summary_missing"]
     n_scored = decision.get("n_scored")
     n_cases = decision.get("n_cases")
+    if type(n_cases) is not int or n_cases < 1:
+        reasons.append("decision_empty_cohort")
     if type(n_scored) is not int or type(n_cases) is not int or n_scored != n_cases:
         reasons.append(f"decision_dispatch_incomplete:{n_scored}/{n_cases}")
+    metric_status = decision.get("metric_status")
+    if metric_status != "DEFINED":
+        reasons.append(f"decision_metric_undefined:{metric_status}")
+    metric_ranges = {
+        "ocs": (-1.0, 1.0),
+        "accuracy": (0.0, 1.0),
+        "tpr": (0.0, 1.0),
+        "fpr": (0.0, 1.0),
+    }
+    for name, (lower, upper) in metric_ranges.items():
+        value = decision.get(name)
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
+            or not lower <= float(value) <= upper
+        ):
+            reasons.append(f"decision_metric_invalid:{name}")
     if decision.get("rate_limited"):
         reasons.append("decision_rate_limited")
     if decision.get("errored"):
@@ -358,19 +472,71 @@ def incomplete_attempt_reasons(summary: dict[str, Any]) -> list[str]:
         reasons.append("orchestration_summary_missing")
     elif orchestration.get("missing"):
         reasons.append("orchestration_dispatch_incomplete")
+    elif orchestration.get("judge_errors"):
+        reasons.append("orchestration_evaluator_incomplete")
     elif orchestration.get("status") == "agent_no_answers":
         reasons.append("orchestration_dispatch_incomplete")
     return reasons
 
 
+def _output_slug(agent_label: str) -> str:
+    normalized = "".join(
+        c if c.isalnum() or c in "-_" else "-" for c in agent_label
+    )
+    if normalized and normalized == agent_label and len(normalized) <= 60:
+        return normalized
+    base = normalized[:43].strip("-_") or "agent"
+    digest = hashlib.sha256(agent_label.encode("utf-8")).hexdigest()[:12]
+    return f"{base}-{digest}"
+
+
 def output_paths(out_dir: Path, agent_label: str) -> dict[str, Path]:
-    slug = "".join(c if c.isalnum() or c in "-_" else "-" for c in agent_label)[:60]
+    slug = _output_slug(agent_label)
     return {
         "report_md": out_dir / f"{slug}-ocs-report.md",
         "summary_json": out_dir / f"{slug}-ocs-summary.json",
         "badge_svg": out_dir / "operant-ocs-badge.svg",
         "badge_md": out_dir / "operant-ocs-badge.md",
     }
+
+
+@contextmanager
+def output_run_lock(out_dir: Path, agent_label: str):  # noqa: ANN201
+    """Hold one nonblocking same-label lease for the complete output attempt."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Badge projections are singleton names, so every label sharing an output
+    # directory must serialize, not merely duplicate labels.
+    lock_path = out_dir / ".operant-output.lock"
+    handle = lock_path.open("a+", encoding="utf-8")
+    acquired = False
+    try:
+        try:
+            if _fcntl is not None:
+                _fcntl.flock(handle.fileno(), _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+            elif _msvcrt is not None:  # pragma: no cover - Windows fallback
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    handle.write("\0")
+                    handle.flush()
+                handle.seek(0)
+                _msvcrt.locking(handle.fileno(), _msvcrt.LK_NBLCK, 1)
+            else:  # pragma: no cover - unsupported interpreter platform
+                raise RuntimeError("no standard-library file-lock implementation")
+            acquired = True
+        except (BlockingIOError, OSError) as exc:
+            raise OutputRunLockedError(
+                f"another OPERANT output attempt holds label {agent_label!r}"
+            ) from exc
+        yield
+    finally:
+        try:
+            if acquired and _fcntl is not None:
+                _fcntl.flock(handle.fileno(), _fcntl.LOCK_UN)
+            elif acquired and _msvcrt is not None:  # pragma: no cover - Windows fallback
+                handle.seek(0)
+                _msvcrt.locking(handle.fileno(), _msvcrt.LK_UNLCK, 1)
+        finally:
+            handle.close()
 
 
 def invalidate_output_paths(out_dir: Path, agent_label: str) -> list[Path]:
@@ -581,20 +747,42 @@ def render_badge_text(summary: dict[str, Any]) -> str:
 
 def write_outputs(out_dir: Path, summary: dict[str, Any]) -> dict[str, Path]:
     """Write report card (md), JSON summary, badge (svg), and badge snippet (md)."""
-    import json
-
     incomplete = incomplete_attempt_reasons(summary)
     if incomplete:
         raise ValueError(f"refusing score artifact publication: {', '.join(incomplete)}")
-    out_dir.mkdir(parents=True, exist_ok=True)
     paths = output_paths(out_dir, summary["agent_label"])
-    paths["report_md"].write_text(render_report_card(summary), encoding="utf-8")
-    paths["summary_json"].write_text(
-        json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    paths["badge_svg"].write_text(render_badge_svg(summary), encoding="utf-8")
-    paths["badge_md"].write_text(
-        render_badge_markdown(summary) + "\n\n```\n" + render_badge_text(summary) + "\n```\n",
-        encoding="utf-8",
-    )
+    contents = {
+        "report_md": render_report_card(summary),
+        "summary_json": json.dumps(
+            summary, indent=2, sort_keys=True, allow_nan=False
+        )
+        + "\n",
+        "badge_svg": render_badge_svg(summary),
+        "badge_md": (
+            render_badge_markdown(summary)
+            + "\n\n```\n"
+            + render_badge_text(summary)
+            + "\n```\n"
+        ),
+    }
+    out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix=f".{_output_slug(summary['agent_label'])}.staging-",
+            dir=out_dir,
+        ) as staging:
+            staging_root = Path(staging)
+            staged: dict[str, Path] = {}
+            for name, target in paths.items():
+                staged[name] = staging_root / target.name
+                staged[name].write_text(contents[name], encoding="utf-8")
+            for name, target in paths.items():
+                staged[name].replace(target)
+    except Exception:
+        for target in paths.values():
+            try:
+                target.unlink()
+            except FileNotFoundError:
+                pass
+        raise
     return paths

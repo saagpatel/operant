@@ -106,7 +106,10 @@ def test_shell_runner() -> None:
 
     empty_command = f"{shlex.quote(sys.executable)} -c 'pass' {{prompt}}"
     empty = ShellCommandRunner(empty_command).respond("synthetic prompt")
-    check("zero exit with empty stdout stays failed", not empty.ok and empty.error == "empty_stdout")
+    check(
+        "zero exit with empty stdout stays failed",
+        not empty.ok and empty.error == "empty_stdout",
+    )
 
     timeout_command = (
         f"{shlex.quote(sys.executable)} -c 'import time; time.sleep(1)' {{prompt}}"
@@ -128,7 +131,8 @@ def test_python_runner() -> None:
     except ValueError:
         check("bad spec raises", True)
 
-    # A callable that raises is surfaced as a failed run, not a crash.
+    # A callable that raises is surfaced as a failed run, not a parent-process
+    # crash. Candidate exception text stays in digest-only subprocess diagnostics.
     import operant_lab.agent_runners as ar
 
     sys_mod = type(ar)("_stub_mod")
@@ -138,7 +142,14 @@ def test_python_runner() -> None:
     sys.modules["_stub_mod"] = sys_mod
     rb = PythonEntrypointRunner("_stub_mod:boom")
     resb = rb.respond("x")
-    check("raising agent -> ok=False", not resb.ok and "kaboom" in (resb.error or ""), str(resb))
+    check(
+        "raising agent -> isolated failure",
+        not resb.ok
+        and resb.error == "exit_3"
+        and "kaboom" not in str(resb)
+        and resb.meta.get("adapter_isolation") == "subprocess",
+        str(resb),
+    )
 
 
 # --- http runner (fake opener, no network) -------------------------------
@@ -349,6 +360,12 @@ def test_report_render() -> None:
         n_decision_cases=len(cases),
         n_orch_cases=17,
         cases_glob=None,
+        input_binding=selfserve.build_input_binding(
+            contract="synthetic contract",
+            decision_cases=cases,
+            orchestration_cases={},
+            runner_descriptor=_Runner.descriptor,
+        ),
     )
     card = selfserve.render_report_card(summary)
     check("card has title", "OPERANT OCS Report" in card)
@@ -389,7 +406,10 @@ def test_report_render() -> None:
             selfserve.write_outputs(out, incomplete)
             check("incomplete summary blocks all artifacts", False, "write unexpectedly succeeded")
         except ValueError:
-            check("incomplete summary blocks all artifacts", not out.exists() or not list(out.iterdir()))
+            check(
+                "incomplete summary blocks all artifacts",
+                not out.exists() or not list(out.iterdir()),
+            )
 
 
 def test_cli_incomplete_attempt() -> None:

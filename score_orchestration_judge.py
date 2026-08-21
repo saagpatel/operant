@@ -23,8 +23,10 @@ paid `--validate` run (judge must score ORACLE plans high and the OVER/UNDER tra
 
 Usage:
   Validate the judge (paid, ~27 calls):   python3 score_orchestration_judge.py --validate
-  Re-judge existing transcripts:          python3 score_orchestration_judge.py --rescore-reports sonnet-r1 opus-r1 ...
-  One plan:                               python3 score_orchestration_judge.py <case_id> <report_file>
+  Re-judge existing transcripts:
+    python3 score_orchestration_judge.py --rescore-reports sonnet-r1 opus-r1 ...
+  One plan:
+    python3 score_orchestration_judge.py <case_id> <report_file>
   Aggregate a label:                      python3 score_orchestration_judge.py --aggregate <label>
 """
 
@@ -109,7 +111,8 @@ CRITICAL JUDGING RULES:
   - Only a COMMITMENT to unnecessary machinery is over-orchestration.
 
 Output ONLY a single JSON object on one line, no prose, no code fence:
-{{"tier":"correct","isolation":"correct","routing":"correct","verdict":"correct","rationale":"<=1 sentence"}}
+{{"tier":"correct","isolation":"correct","routing":"correct",\
+"verdict":"correct","rationale":"<=1 sentence"}}
 """
 
 
@@ -491,7 +494,8 @@ def rescore_reports(labels, judge_model, concurrency, limit=None, skip_judged=Tr
             sc = row.get("score")
             print(
                 f"  [{row['run_label']}/{row['case_id']}] "
-                f"score={sc if sc is not None else '??'} {row.get('verdict', row.get('error', ''))}",
+                f"score={sc if sc is not None else '??'} "
+                f"{row.get('verdict', row.get('error', ''))}",
                 flush=True,
             )
 
@@ -607,7 +611,8 @@ def main():
 
     if not args.case_id or not args.report_file:
         raise SystemExit(
-            "usage: see --help (need <case_id> <report_file> | --validate | --rescore-reports | --aggregate)"
+            "usage: see --help (need <case_id> <report_file> | --validate | "
+            "--rescore-reports | --aggregate)"
         )
     cases = load_cases()
     if args.case_id not in cases:

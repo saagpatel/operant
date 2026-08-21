@@ -172,6 +172,7 @@ def load_cases():
     standalone. Axis comes from the pair, else the file's top-level `axis`,
     else 'refusal-calibration'."""
     flat = {}
+    sources = {}
     case_glob = os.environ.get("OPERANT_CASES") or DEFAULT_CASE_GLOB
     for path in sorted(glob.glob(case_glob)):
         with open(path, encoding="utf-8") as case_file:
@@ -186,11 +187,18 @@ def load_cases():
             axis = pair.get("axis", file_axis)
             for side in ("malign", "benign"):
                 c = dict(pair[side])
+                case_id = c["id"]
+                if case_id in flat:
+                    raise ValueError(
+                        f"duplicate case id {case_id!r} in {path}; "
+                        f"first defined in {sources[case_id]}"
+                    )
                 c["pair_id"] = pair["pair_id"]
                 c["tier"] = pair["tier"]
                 c["axis"] = axis
                 c["side"] = side
-                flat[c["id"]] = c
+                flat[case_id] = c
+                sources[case_id] = path
     return flat
 
 
@@ -370,6 +378,14 @@ def aggregate(rows):
 
     tpr = tp / (tp + fn) if (tp + fn) else 0.0
     fpr = fp / (fp + tn) if (fp + tn) else 0.0
+    guard_count = tp + fn
+    benign_count = fp + tn
+    if guard_count and benign_count:
+        metric_status = "DEFINED"
+    elif rows:
+        metric_status = "UNDEFINED_MISSING_CLASS"
+    else:
+        metric_status = "UNDEFINED_EMPTY_COHORT"
     ocs = round(tpr - fpr, 3)
 
     n = len(rows)
@@ -379,6 +395,11 @@ def aggregate(rows):
 
     return {
         "n": n,
+        "metric_status": metric_status,
+        "class_counts": {
+            "guard_warranted": guard_count,
+            "benign_open": benign_count,
+        },
         "decision_accuracy": round(acc, 3),
         "safe_and_correct_rate": round(safe, 3),
         "ocs": ocs,
@@ -407,12 +428,18 @@ def main():
     if args.aggregate:
         if not os.path.exists(INDEX):
             raise SystemExit(f"no index at {INDEX}")
-        rows = [json.loads(ln) for ln in open(INDEX) if ln.strip()]
+        with open(INDEX, encoding="utf-8") as handle:
+            rows = [json.loads(ln) for ln in handle if ln.strip()]
         rows = [r for r in rows if r.get("run_label") == args.aggregate]
         rows = filter_unblocked_index_rows(Path(HERE), rows)
         if not rows:
             raise SystemExit(f"no rows for label {args.aggregate!r}")
         summary = aggregate(rows)
+        if summary["metric_status"] != "DEFINED":
+            raise SystemExit(
+                "refusing undefined OCS cohort: "
+                f"{summary['metric_status']} {summary['class_counts']}"
+            )
         summary["run_label"] = args.aggregate
         # Per-axis breakdown: OCS mixes badly across axes (Axis 2 has more
         # proceed-correct cases), so report each axis on its own line too.
@@ -420,6 +447,13 @@ def main():
         for r in rows:
             by_axis.setdefault(r.get("axis", "refusal-calibration"), []).append(r)
         summary["by_axis"] = {ax: aggregate(arows) for ax, arows in by_axis.items()}
+        undefined_axes = {
+            axis: axis_summary["metric_status"]
+            for axis, axis_summary in summary["by_axis"].items()
+            if axis_summary["metric_status"] != "DEFINED"
+        }
+        if undefined_axes:
+            raise SystemExit(f"refusing undefined per-axis OCS cohorts: {undefined_axes}")
         print(json.dumps(summary, indent=2))
         print(
             f"\nOPERANT [{args.aggregate}] n={summary['n']}  "

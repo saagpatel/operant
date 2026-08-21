@@ -44,6 +44,13 @@ from operant_lab.agent_runners import make_runner
 HERE = Path(__file__).resolve().parent
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def _parse_headers(pairs: list[str] | None) -> dict[str, str]:
     headers: dict[str, str] = {}
     for raw in pairs or []:
@@ -101,8 +108,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--operator-contract", default=None, help="path to the operator contract (system prompt)"
     )
-    run.add_argument("--concurrency", type=int, default=4, help="parallel dispatches (default 4)")
-    run.add_argument("--timeout", type=int, default=900, help="per-case dispatch timeout seconds")
+    run.add_argument(
+        "--concurrency", type=_positive_int, default=4, help="parallel dispatches (default 4)"
+    )
+    run.add_argument(
+        "--timeout",
+        type=_positive_int,
+        default=900,
+        help="per-case dispatch timeout seconds (default 900)",
+    )
     run.add_argument("--out", default=str(HERE / "results" / "self-serve"), help="output directory")
     run.add_argument(
         "--dry-run", action="store_true", help="print the plan and one sample prompt, no dispatch"
@@ -110,47 +124,16 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-
-    try:
-        runner = make_runner(
-            cmd=args.cmd,
-            cmd_stdin=args.cmd_stdin,
-            adapter=args.adapter,
-            endpoint=args.endpoint,
-            answer_path=args.answer_path,
-            http_method=args.http_method,
-            http_headers=_parse_headers(args.http_header),
-            http_body=args.http_body,
-            timeout=args.timeout,
-        )
-    except ValueError as exc:
-        raise SystemExit(f"agent source error: {exc}")
-
-    contract, contract_source = selfserve.resolve_operator_contract(args.operator_contract)
-    prompts = selfserve.build_system_prompts(contract)
-    axes = selfserve.load_axes(args.cases, args.orch_cases)
-    decision_cases = axes["decision"]
-    orch_cases = axes["orchestration"] if args.axes == "all" else {}
-    judge_enabled = args.axes == "all" and not args.no_judge
-
-    print(
-        f"OPERANT self-serve — agent={runner.descriptor!r} shell={runner.shell}\n"
-        f"  contract={contract_source}  corpus={args.cases or 'canonical'}\n"
-        f"  decision_cases={len(decision_cases)}  orchestration_cases={len(orch_cases)}  "
-        f"judge={'on' if judge_enabled else 'off'}  concurrency={args.concurrency}",
-        flush=True,
-    )
-
-    if args.dry_run:
-        sample_cid, sample_case = next(iter(decision_cases.items()))
-        from operant_lab.agent_runners import build_byo_prompt
-
-        print(f"\n*** DRY RUN — no dispatch ***\nSample prompt for case `{sample_cid}`:\n")
-        print(build_byo_prompt(sample_case, prompts["decision"])[:1200] + "\n...[truncated]")
-        return 0
-
+def _execute_run(
+    args: argparse.Namespace,
+    runner,
+    contract: str,
+    contract_source: str,
+    prompts: dict[str, str],
+    decision_cases: dict[str, dict],
+    orch_cases: dict[str, dict],
+    judge_enabled: bool,
+) -> int:
     # Exact prior projections are invalidated before dispatch. If this attempt is
     # incomplete, no old report/summary/badge may remain and look like its result.
     selfserve.invalidate_output_paths(Path(args.out), args.label)
@@ -206,6 +189,12 @@ def main(argv: list[str] | None = None) -> int:
         n_decision_cases=len(decision_cases),
         n_orch_cases=len(orch_cases),
         cases_glob=args.cases,
+        input_binding=selfserve.build_input_binding(
+            contract=contract,
+            decision_cases=decision_cases,
+            orchestration_cases=orch_cases,
+            runner_descriptor=runner.descriptor,
+        ),
     )
     incomplete = selfserve.incomplete_attempt_reasons(summary)
     if incomplete:
@@ -221,17 +210,85 @@ def main(argv: list[str] | None = None) -> int:
     print(selfserve.render_badge_text(summary))
     print(summary["band_detail"])
     print("=" * 64)
-    rl = decision.get("rate_limited") or []
-    err = decision.get("errored") or []
-    if rl or err:
-        print(
-            f"!! {len(rl)} rate-limited + {len(err)} errored decision dispatches "
-            "— scores are INCOMPLETE."
-        )
     print("\nWrote:")
-    for name, p in paths.items():
-        print(f"  {name}: {p}")
+    for name, path in paths.items():
+        print(f"  {name}: {path}")
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+
+    try:
+        runner = make_runner(
+            cmd=args.cmd,
+            cmd_stdin=args.cmd_stdin,
+            adapter=args.adapter,
+            endpoint=args.endpoint,
+            answer_path=args.answer_path,
+            http_method=args.http_method,
+            http_headers=_parse_headers(args.http_header),
+            http_body=args.http_body,
+            timeout=args.timeout,
+        )
+    except ValueError as exc:
+        raise SystemExit(f"agent source error: {exc}")
+
+    contract, contract_source = selfserve.resolve_operator_contract(args.operator_contract)
+    prompts = selfserve.build_system_prompts(contract)
+    try:
+        axes = selfserve.load_axes(args.cases, args.orch_cases)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"corpus error: {exc}") from exc
+    decision_cases = axes["decision"]
+    orch_cases = axes["orchestration"] if args.axes == "all" else {}
+    if not decision_cases:
+        raise SystemExit("corpus error: no decision cases matched")
+    decision_errors = selfserve._sibling("score_operant").validate_cases(
+        decision_cases
+    )
+    if decision_errors:
+        raise SystemExit(f"corpus error: {'; '.join(decision_errors)}")
+    if args.axes == "all" and not orch_cases:
+        raise SystemExit("corpus error: no orchestration cases matched")
+    orchestration_errors = selfserve._sibling("score_orchestration").validate_cases(
+        orch_cases
+    ) if orch_cases else []
+    if orchestration_errors:
+        raise SystemExit(f"corpus error: {'; '.join(orchestration_errors)}")
+    judge_enabled = args.axes == "all" and not args.no_judge
+
+    print(
+        f"OPERANT self-serve — agent={runner.descriptor!r} shell={runner.shell}\n"
+        f"  contract={contract_source}  corpus={args.cases or 'canonical'}\n"
+        f"  decision_cases={len(decision_cases)}  orchestration_cases={len(orch_cases)}  "
+        f"judge={'on' if judge_enabled else 'off'}  concurrency={args.concurrency}",
+        flush=True,
+    )
+
+    if args.dry_run:
+        sample_cid, sample_case = next(iter(decision_cases.items()))
+        from operant_lab.agent_runners import build_byo_prompt
+
+        print(f"\n*** DRY RUN — no dispatch ***\nSample prompt for case `{sample_cid}`:\n")
+        print(build_byo_prompt(sample_case, prompts["decision"])[:1200] + "\n...[truncated]")
+        return 0
+
+    try:
+        with selfserve.output_run_lock(Path(args.out), args.label):
+            return _execute_run(
+                args,
+                runner,
+                contract,
+                contract_source,
+                prompts,
+                decision_cases,
+                orch_cases,
+                judge_enabled,
+            )
+    except selfserve.OutputRunLockedError as exc:
+        print(f"OPERANT RESULT BLOCKED — {exc}", file=sys.stderr)
+        return 3
 
 
 if __name__ == "__main__":

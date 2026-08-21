@@ -109,7 +109,10 @@ def score_repeat(
         except Exception as e:
             print(f"  Warning: failed to score {case_id}: {e}", file=sys.stderr)
             missing += 1
-    if not rows:
+    # Cross-repeat statistics are invalid when any expected case is absent or
+    # unreadable. Aggregating the surviving rows would create a selection-bias
+    # path where a partial run can look stronger than a complete run.
+    if missing or len(rows) != len(cases):
         return {}, missing
     return aggregate(rows), missing
 
@@ -394,13 +397,10 @@ def analyse(
             if not summary:
                 continue
 
-            ocs_vals.append(summary["ocs"])
-            acc_vals.append(summary["decision_accuracy"])
-
             # Collect per-case decisions for flip analysis
+            repeat_decisions: dict[str, str] = {}
+            repeat_invalid = False
             for case_id, case in cases.items():
-                if case_id not in repeat_files:
-                    continue
                 try:
                     text = repeat_files[case_id].read_text(encoding="utf-8")
                     if receipt_output_scoring_block_reason(
@@ -409,12 +409,29 @@ def analyse(
                         case_id=case_id,
                         final_answer=text,
                     ):
-                        continue
+                        repeat_invalid = True
+                        break
                     row = score_one(case, text)
-                    decision = row.get("decision") or "UNPARSEABLE"
-                    per_case_decisions[case_id].append(decision)
-                except Exception:
-                    pass
+                    repeat_decisions[case_id] = row.get("decision") or "UNPARSEABLE"
+                except Exception as exc:
+                    print(
+                        f"  Warning: repeat {run_label} changed or became unreadable: {exc}",
+                        file=sys.stderr,
+                    )
+                    repeat_invalid = True
+                    break
+
+            if repeat_invalid or len(repeat_decisions) != len(cases):
+                print(
+                    f"  Warning: rejecting incomplete repeat {run_label}",
+                    file=sys.stderr,
+                )
+                continue
+
+            ocs_vals.append(summary["ocs"])
+            acc_vals.append(summary["decision_accuracy"])
+            for case_id, decision in repeat_decisions.items():
+                per_case_decisions[case_id].append(decision)
 
             repeat_details.append(
                 {
@@ -743,8 +760,8 @@ def main() -> None:
     results = analyse(reports_dir, args.models, args.repeats)
 
     if not results:
-        print("No repeat data found — run a variance batch first.", file=sys.stderr)
-        sys.exit(0)
+        print("No complete repeat data found — refusing variance metrics.", file=sys.stderr)
+        sys.exit(2)
 
     print("=== OPERANT CROSS-REPEAT VARIANCE REPORT ===")
     print()
