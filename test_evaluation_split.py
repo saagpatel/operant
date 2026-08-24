@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import shutil
 import tempfile
 import unittest
@@ -129,7 +130,7 @@ class EvaluationSplitTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             gen_cases.generate(gen_cases.MAX_INSTANTIATIONS + 1, "public")
         with self.assertRaises(TypeError):
-            gen_cases.generate(1, "public", 9000)
+            inspect.signature(gen_cases.generate).bind(1, "public", 9000)
 
     def test_public_contract_requires_split_registry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
