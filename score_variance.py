@@ -17,7 +17,7 @@ import statistics
 import sys
 from collections import Counter, defaultdict
 from itertools import combinations
-from math import comb
+from math import comb, isnan
 from pathlib import Path
 
 from operant_lab.artifacts import receipt_output_scoring_block_reason
@@ -659,7 +659,7 @@ def render_significance_section(results: list[dict]) -> str:
             overlap = not (
                 ra["ocs_max"] < rb["ocs_min"] or rb["ocs_max"] < ra["ocs_min"]
             )
-            if total == 0 or p != p:  # nan guard (n=1 group or over cap)
+            if total == 0 or isnan(p):  # nan guard (n=1 group or over cap)
                 verdict = "n too small for a permutation test"
                 pstr = "p=n/a"
             else:
@@ -690,7 +690,7 @@ def render_design_aware_section(results: list[dict]) -> str:
         wp = f"{both}/{dec} pairs both-correct" if dec else "no decidable pairs"
         if npairs == 0:
             lines.append(f"  {r['base']:7s}  (no case outcomes)")
-        elif lo != lo:  # nan guard
+        elif isnan(lo):  # nan guard
             lines.append(f"  {r['base']:7s}  OCS={r['ocs_mean']:+.3f}  (n_pairs={npairs}; {wp})")
         else:
             lines.append(

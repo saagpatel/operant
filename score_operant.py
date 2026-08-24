@@ -494,7 +494,7 @@ def main():
         suffix
     ):
         inferred_label = filename_label
-    report = open(args.report_file, encoding="utf-8").read()
+    report = Path(args.report_file).read_text(encoding="utf-8")
     if inferred_label:
         block_reason = receipt_output_scoring_block_reason(
             Path(HERE),

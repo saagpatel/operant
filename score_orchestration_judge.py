@@ -428,10 +428,11 @@ def _already_judged():
     is incremental — only un-judged transcripts cost judge calls."""
     seen = set()
     if os.path.exists(INDEX):
-        for ln in open(INDEX):
-            if ln.strip():
-                r = json.loads(ln)
-                seen.add((r.get("run_label"), r.get("case_id")))
+        with open(INDEX, encoding="utf-8") as index_file:
+            for ln in index_file:
+                if ln.strip():
+                    r = json.loads(ln)
+                    seen.add((r.get("run_label"), r.get("case_id")))
     return seen
 
 
@@ -452,7 +453,7 @@ def rescore_reports(labels, judge_model, concurrency, limit=None, skip_judged=Tr
             continue
         if cid not in cases:
             continue
-        plan = open(path, encoding="utf-8").read()
+        plan = Path(path).read_text(encoding="utf-8")
         if receipt_output_scoring_block_reason(
             Path(HERE),
             run_label=label,
@@ -599,7 +600,8 @@ def main():
         return
 
     if args.aggregate:
-        rows = [json.loads(ln) for ln in open(INDEX) if ln.strip()]
+        with open(INDEX, encoding="utf-8") as index_file:
+            rows = [json.loads(ln) for ln in index_file if ln.strip()]
         rows = [r for r in rows if r.get("run_label") == args.aggregate]
         rows = filter_unblocked_index_rows(Path(HERE), rows)
         if not rows:
@@ -619,7 +621,7 @@ def main():
         raise SystemExit(f"unknown case: {args.case_id}")
     match = _NAME_RE.search(os.path.basename(args.report_file))
     if match:
-        plan = open(args.report_file, encoding="utf-8").read()
+        plan = Path(args.report_file).read_text(encoding="utf-8")
         block_reason = receipt_output_scoring_block_reason(
             Path(HERE),
             run_label=match.group("label"),
@@ -629,7 +631,7 @@ def main():
         if block_reason:
             raise SystemExit(f"refusing blocked receipt judge: {block_reason}")
     else:
-        plan = open(args.report_file, encoding="utf-8").read()
+        plan = Path(args.report_file).read_text(encoding="utf-8")
     row = judge_one(cases[args.case_id], plan, judge_model=args.judge_model)
     print(json.dumps(row, indent=2))
 

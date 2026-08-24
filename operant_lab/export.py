@@ -826,9 +826,12 @@ def _card_sort_key(card: dict[str, Any]) -> tuple[int, float, str]:
 
 
 def _scorecard_rows(cards: list[dict[str, Any]]) -> str:
-    rows = [
+    header = (
         "| Profile | Subject shell | Scope | OCS | OCS range | "
-        "Exact accuracy | TPR | FPR | Cases | Bypass leaks |",
+        "Exact accuracy | TPR | FPR | Cases | Bypass leaks |"
+    )
+    rows = [
+        header,
         "|---|---|---|---:|---|---:|---:|---:|---:|---:|",
     ]
     for card in sorted(cards, key=_card_sort_key):
@@ -861,9 +864,12 @@ def _scorecard_rows(cards: list[dict[str, Any]]) -> str:
 
 
 def _lab_status_rows(lab_status: dict[str, Any]) -> str:
-    rows = [
+    header = (
         "| Run label | Subject shell | Status | Recorded / queued | "
-        "Parse status | Score outcomes | Scoring policy |",
+        "Parse status | Score outcomes | Scoring policy |"
+    )
+    rows = [
+        header,
         "|---|---|---|---:|---|---|---|",
     ]
     for run in lab_status.get("runs", []):
