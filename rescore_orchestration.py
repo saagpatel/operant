@@ -46,7 +46,8 @@ def main():
     # OLD scores from the recorded index.
     old = {}
     if os.path.exists(INDEX):
-        rows = [json.loads(ln) for ln in open(INDEX) if ln.strip()]
+        with open(INDEX, encoding="utf-8") as index_file:
+            rows = [json.loads(ln) for ln in index_file if ln.strip()]
         for row in filter_unblocked_index_rows(Path(HERE), rows):
             old[(row["run_label"], row["case_id"])] = row["score"]
 
@@ -60,7 +61,7 @@ def main():
         label, cid = m.group("label"), m.group("case")
         if cid not in cases:
             continue
-        report = open(path, encoding="utf-8").read()
+        report = Path(path).read_text(encoding="utf-8")
         if receipt_output_scoring_block_reason(
             Path(HERE),
             run_label=label,

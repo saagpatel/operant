@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+from math import isnan
 import os
 import sys
 import tempfile
@@ -2026,7 +2027,7 @@ def run_stats_selftests() -> None:
         svar.bootstrap_ci([0.42], seed=0) == (0.42, 0.42),
     )
     lo_nan, hi_nan = svar.bootstrap_ci([], seed=0)
-    check("BOOTSTRAP: n==0 -> (nan, nan), never raises", lo_nan != lo_nan)
+    check("BOOTSTRAP: n==0 -> (nan, nan), never raises", isnan(lo_nan) and isnan(hi_nan))
 
 
 def run_design_aware_selftests() -> None:
@@ -2085,7 +2086,7 @@ def run_design_aware_selftests() -> None:
     ci_e = svar.cluster_bootstrap_ocs_ci({}, seed=0)
     check(
         "CLUSTER-BOOT: empty -> nan, n_pairs=0, never raises",
-        ci_e[0] != ci_e[0] and ci_e[2] == 0,
+        isnan(ci_e[0]) and isnan(ci_e[1]) and ci_e[2] == 0,
         f"{ci_e}",
     )
 

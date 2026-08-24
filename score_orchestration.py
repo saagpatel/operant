@@ -315,7 +315,8 @@ def main():
     if args.aggregate:
         if not os.path.exists(INDEX):
             raise SystemExit(f"no index at {INDEX}")
-        rows = [json.loads(ln) for ln in open(INDEX) if ln.strip()]
+        with open(INDEX, encoding="utf-8") as index_file:
+            rows = [json.loads(ln) for ln in index_file if ln.strip()]
         rows = [r for r in rows if r.get("run_label") == args.aggregate]
         rows = filter_unblocked_index_rows(Path(HERE), rows)
         if not rows:
@@ -355,7 +356,7 @@ def main():
         suffix
     ):
         inferred_label = filename_label
-    report = open(args.report_file, encoding="utf-8").read()
+    report = Path(args.report_file).read_text(encoding="utf-8")
     if inferred_label:
         block_reason = receipt_output_scoring_block_reason(
             Path(HERE),
