@@ -9,28 +9,11 @@ import json
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from dataclasses import asdict
 from pathlib import Path
-from unittest import mock
 
-from operant_lab.artifacts import (
-    RunManifest,
-    RunReport,
-    build_execution_binding,
-    complete_execution_binding,
-    execution_input_mismatches,
-    filter_unblocked_index_rows,
-    receipt_output_scoring_block_reason,
-    receipt_scoring_block_reason,
-    scoring_block_reason,
-    validate_execution_binding,
-    validate_run_manifest_v3,
-    validate_run_manifest_v4,
-    validate_run_manifest_v5,
-    validate_run_manifest_v6,
-    validate_run_manifest_v7,
-    validate_run_manifest_v8,
-)
+import operant_lab.artifacts as artifacts
 from operant_lab.inventory import _manifest_binding_projection
 
 HERE = Path(__file__).resolve().parent
@@ -41,7 +24,7 @@ def _binding(
     requested: str = "fixture-model",
     candidates: list[str] | None = None,
 ) -> dict:
-    binding = build_execution_binding(
+    binding = artifacts.build_execution_binding(
         root=HERE,
         exact_prompt="private fixture prompt",
         system_prompt="private fixture system",
@@ -56,7 +39,7 @@ def _binding(
         requested_model_id=requested,
     )
     if candidates is not None:
-        binding = complete_execution_binding(
+        binding = artifacts.complete_execution_binding(
             binding,
             provider_reported_candidates=candidates,
             evidence_source="provider_result_modelUsage",
@@ -68,8 +51,8 @@ def _binding(
     return binding
 
 
-def _manifest(binding: dict) -> RunManifest:
-    return RunManifest(
+def _manifest(binding: dict) -> artifacts.RunManifest:
+    return artifacts.RunManifest(
         run_label="fixture-r1",
         case_id="fixture.case",
         axis="decision",
@@ -90,7 +73,7 @@ class ExecutionBindingTests(unittest.TestCase):
     def test_binding_is_sanitized_and_conservatively_not_replayable(self) -> None:
         binding = _binding()
         serialized = json.dumps(binding, sort_keys=True)
-        self.assertEqual(validate_execution_binding(binding), [])
+        self.assertEqual(artifacts.validate_execution_binding(binding), [])
         self.assertEqual(binding["replay_class"], "INPUT_BOUND_NOT_REPLAYABLE")
         self.assertEqual(binding["dependency_lock"]["status"], "UNKNOWN")
         self.assertEqual(
@@ -162,7 +145,7 @@ class ExecutionBindingTests(unittest.TestCase):
 
     def test_input_drift_is_detected_field_by_field(self) -> None:
         binding = _binding()
-        mismatches = execution_input_mismatches(
+        mismatches = artifacts.execution_input_mismatches(
             binding,
             exact_prompt="changed",
             system_prompt="private fixture system",
@@ -177,8 +160,6 @@ class ExecutionBindingTests(unittest.TestCase):
         self.assertEqual(mismatches, ["delivered_prompt_sha256"])
 
     def test_digest_consistent_malformed_input_types_fail_closed(self) -> None:
-        import operant_lab.artifacts as artifacts
-
         def rehash(binding: dict) -> None:
             pre_dispatch = {
                 **{
@@ -216,7 +197,7 @@ class ExecutionBindingTests(unittest.TestCase):
             binding["input_binding"][field_name] = replacement
             rehash(binding)
             with self.subTest(field=field_name, replacement=replacement):
-                self.assertTrue(validate_execution_binding(binding))
+                self.assertTrue(artifacts.validate_execution_binding(binding))
 
         for files in (
             [{}],
@@ -231,7 +212,7 @@ class ExecutionBindingTests(unittest.TestCase):
             with self.subTest(harness_files=files):
                 self.assertIn(
                     "harness binding is incomplete",
-                    validate_execution_binding(binding),
+                    artifacts.validate_execution_binding(binding),
                 )
 
         binding = _binding()
@@ -244,12 +225,10 @@ class ExecutionBindingTests(unittest.TestCase):
         rehash(binding)
         self.assertIn(
             "environment python executable must be a basename",
-            validate_execution_binding(binding),
+            artifacts.validate_execution_binding(binding),
         )
 
     def test_sha256_fields_require_strings_even_when_digests_match(self) -> None:
-        import operant_lab.artifacts as artifacts
-
         integer_digest = int("1" * 64)
 
         def rehash_binding(binding: dict) -> None:
@@ -305,7 +284,7 @@ class ExecutionBindingTests(unittest.TestCase):
             target[field_path[1]] = integer_digest
             rehash_binding(binding)
             with self.subTest(field_path=field_path):
-                self.assertTrue(validate_execution_binding(binding))
+                self.assertTrue(artifacts.validate_execution_binding(binding))
 
         binding = _binding()
         binding["source_state"].update(
@@ -319,7 +298,7 @@ class ExecutionBindingTests(unittest.TestCase):
         rehash_binding(binding)
         self.assertIn(
             "source commit is invalid",
-            validate_execution_binding(binding),
+            artifacts.validate_execution_binding(binding),
         )
 
         for observation_field in (
@@ -330,7 +309,7 @@ class ExecutionBindingTests(unittest.TestCase):
             binding["model_observation"][observation_field] = integer_digest
             rehash_binding(binding)
             with self.subTest(observation_field=observation_field):
-                self.assertTrue(validate_execution_binding(binding))
+                self.assertTrue(artifacts.validate_execution_binding(binding))
 
         manifest = asdict(_manifest(_binding()))
         manifest["execution_binding"]["input_binding"][
@@ -339,18 +318,18 @@ class ExecutionBindingTests(unittest.TestCase):
         rehash_binding(manifest["execution_binding"])
         manifest["prompt_hash"] = integer_digest
         rehash_manifest(manifest)
-        self.assertTrue(validate_run_manifest_v7(manifest))
+        self.assertTrue(artifacts.validate_run_manifest_v7(manifest))
 
         manifest = asdict(_manifest(_binding()))
         manifest["case_bundle_sha256"] = integer_digest
         rehash_manifest(manifest)
-        self.assertTrue(validate_run_manifest_v7(manifest))
+        self.assertTrue(artifacts.validate_run_manifest_v7(manifest))
 
         manifest = asdict(_manifest(_binding()))
         manifest["source_queue_file"] = "queue.json"
         manifest["source_queue_sha256"] = integer_digest
         rehash_manifest(manifest)
-        self.assertTrue(validate_run_manifest_v7(manifest))
+        self.assertTrue(artifacts.validate_run_manifest_v7(manifest))
 
     def test_dirty_and_untracked_content_change_source_digest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -376,7 +355,7 @@ class ExecutionBindingTests(unittest.TestCase):
             )
 
             def capture() -> dict:
-                return build_execution_binding(
+                return artifacts.build_execution_binding(
                     root=root,
                     exact_prompt="p",
                     system_prompt="s",
@@ -437,7 +416,7 @@ class ExecutionBindingTests(unittest.TestCase):
             lock.write_text("[packages]\na = '1'\n", encoding="utf-8")
 
             def capture() -> dict:
-                return build_execution_binding(
+                return artifacts.build_execution_binding(
                     root=root,
                     exact_prompt="p",
                     system_prompt="s",
@@ -463,9 +442,7 @@ class ExecutionBindingTests(unittest.TestCase):
     def test_harness_environment_capture_is_fail_closed_and_path_private(
         self,
     ) -> None:
-        import operant_lab.artifacts as artifacts
-
-        with mock.patch.object(
+        with unittest.mock.patch.object(
             artifacts,
             "_distribution_metadata_snapshot",
             return_value=[{"name": "fixture", "version": "1.0"}],
@@ -484,7 +461,7 @@ class ExecutionBindingTests(unittest.TestCase):
         class MetadataFailure(Exception):
             pass
 
-        with mock.patch.object(
+        with unittest.mock.patch.object(
             artifacts.importlib.metadata,
             "distributions",
             side_effect=MetadataFailure("fixture"),
@@ -498,19 +475,17 @@ class ExecutionBindingTests(unittest.TestCase):
         )
 
     def test_harness_environment_drift_blocks_scoring(self) -> None:
-        import operant_lab.artifacts as artifacts
-
         binding = _binding()
         changed_environment = copy.deepcopy(
             binding["harness_python_environment"]
         )
         changed_environment["visible_distributions_sha256"] = "f" * 64
-        with mock.patch.object(
+        with unittest.mock.patch.object(
             artifacts,
             "_active_python_environment_binding",
             return_value=changed_environment,
         ):
-            completed = complete_execution_binding(
+            completed = artifacts.complete_execution_binding(
                 binding,
                 provider_reported_candidates=["fixture-model"],
                 evidence_source="provider_result_modelUsage",
@@ -526,7 +501,7 @@ class ExecutionBindingTests(unittest.TestCase):
             "DRIFTED",
         )
         self.assertEqual(
-            scoring_block_reason(asdict(_manifest(completed))),
+            artifacts.scoring_block_reason(asdict(_manifest(completed))),
             "harness_python_environment_drift",
         )
 
@@ -543,19 +518,17 @@ class ExecutionBindingTests(unittest.TestCase):
         )
         self.assertIn(
             "subject environment linkage is overstated",
-            validate_execution_binding(binding),
+            artifacts.validate_execution_binding(binding),
         )
 
     def test_environment_evidence_cannot_be_laundered_by_outer_digests(
         self,
     ) -> None:
-        import operant_lab.artifacts as artifacts
-
         def binding_with_known_environment(
             *,
             completed: bool = False,
         ) -> dict:
-            with mock.patch.object(
+            with unittest.mock.patch.object(
                 artifacts,
                 "_distribution_metadata_snapshot",
                 return_value=[{"name": "fixture", "version": "1.0"}],
@@ -598,7 +571,7 @@ class ExecutionBindingTests(unittest.TestCase):
             with self.subTest(field=field_name, replacement=type(replacement)):
                 self.assertIn(
                     "harness Python environment binding is invalid",
-                    validate_execution_binding(binding),
+                    artifacts.validate_execution_binding(binding),
                 )
 
         binding = binding_with_known_environment()
@@ -606,7 +579,7 @@ class ExecutionBindingTests(unittest.TestCase):
         rehash_pre(binding)
         self.assertIn(
             "unknown harness Python environment carries evidence",
-            validate_execution_binding(binding),
+            artifacts.validate_execution_binding(binding),
         )
 
         binding = binding_with_known_environment()
@@ -622,7 +595,7 @@ class ExecutionBindingTests(unittest.TestCase):
         rehash_pre(binding)
         self.assertIn(
             "subject environment linkage is overstated",
-            validate_execution_binding(binding),
+            artifacts.validate_execution_binding(binding),
         )
 
         for post_hash, comparison in (
@@ -655,10 +628,10 @@ class ExecutionBindingTests(unittest.TestCase):
             with self.subTest(post_hash=post_hash, comparison=comparison):
                 self.assertIn(
                     "post-dispatch Python environment binding is invalid",
-                    validate_execution_binding(persisted_binding),
+                    artifacts.validate_execution_binding(persisted_binding),
                 )
                 self.assertEqual(
-                    scoring_block_reason(manifest),
+                    artifacts.scoring_block_reason(manifest),
                     "invalid_execution_binding",
                 )
 
@@ -672,7 +645,7 @@ class ExecutionBindingTests(unittest.TestCase):
             executable.chmod(0o755)
 
             def capture(command: list[str] | None) -> dict:
-                return build_execution_binding(
+                return artifacts.build_execution_binding(
                     root=root,
                     exact_prompt="p",
                     system_prompt="s",
@@ -732,7 +705,7 @@ class ExecutionBindingTests(unittest.TestCase):
             command = [str(executable)]
 
             def prepared() -> dict:
-                return build_execution_binding(
+                return artifacts.build_execution_binding(
                     root=root,
                     exact_prompt="p",
                     system_prompt="s",
@@ -747,7 +720,7 @@ class ExecutionBindingTests(unittest.TestCase):
                     requested_model_id="fixture-model",
                 )
 
-            stable = complete_execution_binding(
+            stable = artifacts.complete_execution_binding(
                 prepared(),
                 provider_reported_candidates=["fixture-model"],
                 evidence_source="provider_result_modelUsage",
@@ -758,7 +731,7 @@ class ExecutionBindingTests(unittest.TestCase):
             )
             drift_prepared = prepared()
             executable.write_text("#!/bin/sh\nexit 7\n", encoding="utf-8")
-            drifted = complete_execution_binding(
+            drifted = artifacts.complete_execution_binding(
                 drift_prepared,
                 provider_reported_candidates=["fixture-model"],
                 evidence_source="provider_result_modelUsage",
@@ -769,7 +742,7 @@ class ExecutionBindingTests(unittest.TestCase):
             )
             unavailable_prepared = prepared()
             executable.unlink()
-            unavailable = complete_execution_binding(
+            unavailable = artifacts.complete_execution_binding(
                 unavailable_prepared,
                 provider_reported_candidates=["fixture-model"],
                 evidence_source="provider_result_modelUsage",
@@ -784,13 +757,13 @@ class ExecutionBindingTests(unittest.TestCase):
             stable["post_dispatch_runtime"]["comparison"],
             "MATCHED",
         )
-        self.assertEqual(validate_execution_binding(stable), [])
+        self.assertEqual(artifacts.validate_execution_binding(stable), [])
         self.assertEqual(
             drifted["post_dispatch_runtime"]["comparison"],
             "DRIFTED",
         )
         self.assertEqual(
-            scoring_block_reason(asdict(_manifest(drifted))),
+            artifacts.scoring_block_reason(asdict(_manifest(drifted))),
             "runtime_candidate_drift",
         )
         self.assertEqual(
@@ -808,7 +781,7 @@ class ExecutionBindingTests(unittest.TestCase):
         self.assertNotIn(str(root), json.dumps(stable, sort_keys=True))
 
     def test_manual_app_completion_preserves_unknown_runtime_assessment(self) -> None:
-        binding = build_execution_binding(
+        binding = artifacts.build_execution_binding(
             root=HERE,
             exact_prompt="p",
             system_prompt="s",
@@ -822,7 +795,7 @@ class ExecutionBindingTests(unittest.TestCase):
             harness_files=[Path(__file__)],
             requested_model_id="fixture-model",
         )
-        completed = complete_execution_binding(
+        completed = artifacts.complete_execution_binding(
             binding,
             provider_reported_candidates=[],
             evidence_source="NOT_EXPOSED",
@@ -839,7 +812,7 @@ class ExecutionBindingTests(unittest.TestCase):
             completed["post_dispatch_runtime"]["reason"],
             "NO_EXECUTABLE_DISPATCH",
         )
-        self.assertEqual(validate_execution_binding(completed), [])
+        self.assertEqual(artifacts.validate_execution_binding(completed), [])
         self.assertEqual(
             completed["process_image_identity"]["reason"],
             "NO_LOCAL_PROCESS_DISPATCH",
@@ -859,10 +832,10 @@ class ExecutionBindingTests(unittest.TestCase):
         )
         self.assertIn(
             "process image identity evidence is overstated",
-            validate_execution_binding(binding),
+            artifacts.validate_execution_binding(binding),
         )
         self.assertEqual(
-            scoring_block_reason(
+            artifacts.scoring_block_reason(
                 {
                     **manifest,
                     "execution_binding": binding,
@@ -895,7 +868,7 @@ class ExecutionBindingTests(unittest.TestCase):
             (root / "external-link").symlink_to(external)
 
             def source() -> dict:
-                return build_execution_binding(
+                return artifacts.build_execution_binding(
                     root=root,
                     exact_prompt="p",
                     system_prompt="s",
@@ -917,8 +890,6 @@ class ExecutionBindingTests(unittest.TestCase):
         self.assertEqual(before["reconstruction"], "DIRTY_DIGEST_ONLY")
 
     def test_unstable_source_capture_falls_back_to_unknown(self) -> None:
-        import operant_lab.artifacts as artifacts
-
         first = {
             "commit": "a" * 40,
             "dirty": False,
@@ -930,7 +901,7 @@ class ExecutionBindingTests(unittest.TestCase):
             "dirty": True,
             "reconstruction": "DIRTY_DIGEST_ONLY",
         }
-        with mock.patch.object(
+        with unittest.mock.patch.object(
             artifacts,
             "_source_snapshot",
             side_effect=[first, second],
@@ -945,7 +916,7 @@ class ExecutionBindingTests(unittest.TestCase):
                 "reconstruction": "UNKNOWN",
             },
         )
-        with mock.patch.object(
+        with unittest.mock.patch.object(
             artifacts,
             "_source_snapshot",
             side_effect=FileNotFoundError("disappeared"),
@@ -955,7 +926,7 @@ class ExecutionBindingTests(unittest.TestCase):
 
     def test_manifest_core_and_schema_downgrade_are_fail_closed(self) -> None:
         manifest = asdict(_manifest(_binding(candidates=["fixture-model"])))
-        self.assertEqual(validate_run_manifest_v8(manifest), [])
+        self.assertEqual(artifacts.validate_run_manifest_v8(manifest), [])
         for field_name, replacement in (
             ("subject_shell", "relabelled-shell"),
             ("evaluation_role", "SMOKE_ONLY"),
@@ -967,10 +938,10 @@ class ExecutionBindingTests(unittest.TestCase):
             with self.subTest(field=field_name):
                 self.assertIn(
                     "manifest core digest mismatch",
-                    validate_run_manifest_v8(changed),
+                    artifacts.validate_run_manifest_v8(changed),
                 )
                 self.assertEqual(
-                    scoring_block_reason(changed),
+                    artifacts.scoring_block_reason(changed),
                     "invalid_execution_binding",
                 )
         for schema in (
@@ -987,13 +958,11 @@ class ExecutionBindingTests(unittest.TestCase):
             downgraded["manifest_schema"] = schema
             with self.subTest(schema=schema):
                 self.assertEqual(
-                    scoring_block_reason(downgraded),
+                    artifacts.scoring_block_reason(downgraded),
                     "invalid_execution_binding",
                 )
 
     def test_genuine_historical_v3_v1_receipt_remains_interpretable(self) -> None:
-        import operant_lab.artifacts as artifacts
-
         historical_binding = copy.deepcopy(_binding())
         historical_binding["schema"] = "operant-execution-binding.v1"
         historical_binding.pop("subject_runtime")
@@ -1025,15 +994,13 @@ class ExecutionBindingTests(unittest.TestCase):
         historical_manifest.pop("manifest_core_sha256")
         historical_manifest["manifest_schema"] = "operant-run-manifest.v3"
         historical_manifest["execution_binding"] = historical_binding
-        self.assertEqual(validate_run_manifest_v3(historical_manifest), [])
+        self.assertEqual(artifacts.validate_run_manifest_v3(historical_manifest), [])
         self.assertEqual(
-            scoring_block_reason(historical_manifest),
+            artifacts.scoring_block_reason(historical_manifest),
             "incomplete_execution_receipt",
         )
 
     def test_genuine_historical_v4_v2_receipt_remains_interpretable(self) -> None:
-        import operant_lab.artifacts as artifacts
-
         historical_binding = copy.deepcopy(_binding())
         historical_binding["schema"] = "operant-execution-binding.v2"
         historical_binding.pop("subject_runtime")
@@ -1070,15 +1037,13 @@ class ExecutionBindingTests(unittest.TestCase):
                 if key != "manifest_core_sha256"
             }
         )
-        self.assertEqual(validate_run_manifest_v4(historical_manifest), [])
+        self.assertEqual(artifacts.validate_run_manifest_v4(historical_manifest), [])
         self.assertEqual(
-            scoring_block_reason(historical_manifest),
+            artifacts.scoring_block_reason(historical_manifest),
             "incomplete_execution_receipt",
         )
 
     def test_genuine_historical_v5_v3_receipt_remains_interpretable(self) -> None:
-        import operant_lab.artifacts as artifacts
-
         historical_binding = copy.deepcopy(_binding())
         historical_binding["schema"] = "operant-execution-binding.v3"
         historical_binding.pop("post_dispatch_runtime")
@@ -1114,15 +1079,13 @@ class ExecutionBindingTests(unittest.TestCase):
                 if key != "manifest_core_sha256"
             }
         )
-        self.assertEqual(validate_run_manifest_v5(historical_manifest), [])
+        self.assertEqual(artifacts.validate_run_manifest_v5(historical_manifest), [])
         self.assertEqual(
-            scoring_block_reason(historical_manifest),
+            artifacts.scoring_block_reason(historical_manifest),
             "incomplete_execution_receipt",
         )
 
     def test_genuine_historical_v6_v4_receipt_remains_interpretable(self) -> None:
-        import operant_lab.artifacts as artifacts
-
         historical_binding = copy.deepcopy(
             _binding(candidates=["fixture-model"])
         )
@@ -1167,12 +1130,10 @@ class ExecutionBindingTests(unittest.TestCase):
                 if key != "manifest_core_sha256"
             }
         )
-        self.assertEqual(validate_run_manifest_v6(historical_manifest), [])
-        self.assertIsNone(scoring_block_reason(historical_manifest))
+        self.assertEqual(artifacts.validate_run_manifest_v6(historical_manifest), [])
+        self.assertIsNone(artifacts.scoring_block_reason(historical_manifest))
 
     def test_genuine_historical_v7_v5_receipt_remains_interpretable(self) -> None:
-        import operant_lab.artifacts as artifacts
-
         historical_binding = copy.deepcopy(
             _binding(candidates=["fixture-model"])
         )
@@ -1216,8 +1177,8 @@ class ExecutionBindingTests(unittest.TestCase):
                 if key != "manifest_core_sha256"
             }
         )
-        self.assertEqual(validate_run_manifest_v7(historical_manifest), [])
-        self.assertIsNone(scoring_block_reason(historical_manifest))
+        self.assertEqual(artifacts.validate_run_manifest_v7(historical_manifest), [])
+        self.assertIsNone(artifacts.scoring_block_reason(historical_manifest))
 
     def test_contradictory_capture_states_and_nonfinite_cost_are_invalid(self) -> None:
         manifest = asdict(_manifest(_binding()))
@@ -1230,7 +1191,7 @@ class ExecutionBindingTests(unittest.TestCase):
                 "reconstruction": "CLEAN_COMMIT",
             }
         )
-        source_errors = validate_execution_binding(manifest["execution_binding"])
+        source_errors = artifacts.validate_execution_binding(manifest["execution_binding"])
         self.assertIn(
             "unknown source state carries contradictory evidence",
             source_errors,
@@ -1247,12 +1208,12 @@ class ExecutionBindingTests(unittest.TestCase):
         )
         self.assertIn(
             "lockfile evidence is incomplete",
-            validate_execution_binding(dependency_binding),
+            artifacts.validate_execution_binding(dependency_binding),
         )
         malformed_dependency = asdict(_manifest(_binding()))
         malformed_dependency["execution_binding"]["dependency_lock"]["files"] = [{}]
         self.assertEqual(
-            scoring_block_reason(malformed_dependency),
+            artifacts.scoring_block_reason(malformed_dependency),
             "invalid_execution_binding",
         )
 
@@ -1266,7 +1227,7 @@ class ExecutionBindingTests(unittest.TestCase):
             persisted["cost_usd"] = persisted_cost
             with self.subTest(persisted_cost=persisted_cost):
                 self.assertEqual(
-                    scoring_block_reason(persisted),
+                    artifacts.scoring_block_reason(persisted),
                     "invalid_execution_binding",
                 )
 
@@ -1278,7 +1239,7 @@ class ExecutionBindingTests(unittest.TestCase):
         ):
             with self.subTest(cost=cost):
                 with self.assertRaisesRegex(ValueError, "cost_usd"):
-                    RunManifest(
+                    artifacts.RunManifest(
                         **{
                             key: value
                             for key, value in asdict(_manifest(_binding())).items()
@@ -1297,20 +1258,20 @@ class ExecutionBindingTests(unittest.TestCase):
         malformed_values = (None, True, 1, 1.5, "text", [], [1], {}, {"x": 1})
         for value in malformed_values:
             with self.subTest(root_value=value):
-                self.assertTrue(validate_execution_binding(value))
-                self.assertTrue(validate_run_manifest_v3(value))
-                self.assertTrue(validate_run_manifest_v4(value))
-                self.assertTrue(validate_run_manifest_v5(value))
-                self.assertTrue(validate_run_manifest_v6(value))
-                self.assertTrue(validate_run_manifest_v7(value))
-                self.assertTrue(validate_run_manifest_v8(value))
+                self.assertTrue(artifacts.validate_execution_binding(value))
+                self.assertTrue(artifacts.validate_run_manifest_v3(value))
+                self.assertTrue(artifacts.validate_run_manifest_v4(value))
+                self.assertTrue(artifacts.validate_run_manifest_v5(value))
+                self.assertTrue(artifacts.validate_run_manifest_v6(value))
+                self.assertTrue(artifacts.validate_run_manifest_v7(value))
+                self.assertTrue(artifacts.validate_run_manifest_v8(value))
                 expected = (
                     None
                     if isinstance(value, dict)
                     and "execution_binding" not in value
                     else "invalid_execution_binding"
                 )
-                self.assertEqual(scoring_block_reason(value), expected)
+                self.assertEqual(artifacts.scoring_block_reason(value), expected)
 
         mutations = (
             ("manifest_schema", []),
@@ -1356,16 +1317,16 @@ class ExecutionBindingTests(unittest.TestCase):
             cursor[parts[-1]] = value
             with self.subTest(path=path):
                 self.assertEqual(
-                    scoring_block_reason(changed),
+                    artifacts.scoring_block_reason(changed),
                     "invalid_execution_binding",
                 )
 
     def test_identity_mismatch_blocks_scores_but_preserves_failure_receipt(self) -> None:
         binding = _binding(candidates=["different-model"])
         manifest = _manifest(binding)
-        reason = scoring_block_reason(asdict(manifest))
+        reason = artifacts.scoring_block_reason(asdict(manifest))
         self.assertEqual(reason, "identity_blocked:mismatch")
-        preserved = RunReport(
+        preserved = artifacts.RunReport(
             manifest=manifest,
             parse_status=reason,
             final_answer="fixture answer",
@@ -1373,7 +1334,7 @@ class ExecutionBindingTests(unittest.TestCase):
         )
         self.assertEqual(preserved.final_answer, "fixture answer")
         with self.assertRaisesRegex(ValueError, "blocked receipt cannot carry scores"):
-            RunReport(
+            artifacts.RunReport(
                 manifest=manifest,
                 parse_status=reason,
                 final_answer="fixture answer",
@@ -1386,7 +1347,7 @@ class ExecutionBindingTests(unittest.TestCase):
         manifest = asdict(_manifest(binding))
         manifest["model_id"] = "different-model"
         self.assertEqual(
-            scoring_block_reason(manifest),
+            artifacts.scoring_block_reason(manifest),
             "invalid_execution_binding",
         )
 
@@ -1395,7 +1356,7 @@ class ExecutionBindingTests(unittest.TestCase):
         binding["input_binding"]["private_prompt"] = "must not survive"
         self.assertIn(
             "input binding fields are not exact",
-            validate_execution_binding(binding),
+            artifacts.validate_execution_binding(binding),
         )
 
     def test_completed_observation_is_integrity_bound(self) -> None:
@@ -1403,12 +1364,12 @@ class ExecutionBindingTests(unittest.TestCase):
         binding["model_observation"]["comparison_status"] = "MISMATCH"
         self.assertIn(
             "completed execution binding digest mismatch",
-            validate_execution_binding(binding),
+            artifacts.validate_execution_binding(binding),
         )
 
     def test_model_candidates_reject_whitespace_normalization(self) -> None:
         with self.assertRaisesRegex(ValueError, "exact nonempty strings"):
-            complete_execution_binding(
+            artifacts.complete_execution_binding(
                 _binding(),
                 provider_reported_candidates=[" fixture-model "],
                 evidence_source="provider_result_modelUsage",
@@ -1431,7 +1392,7 @@ class ExecutionBindingTests(unittest.TestCase):
             path = root / "lab" / "runs" / "fixture-r1" / "fixture.case.json"
             path.parent.mkdir(parents=True)
             path.write_text(json.dumps(receipt), encoding="utf-8")
-            self.assertEqual(filter_unblocked_index_rows(root, [row]), [])
+            self.assertEqual(artifacts.filter_unblocked_index_rows(root, [row]), [])
 
     def test_receipt_cannot_authorize_substituted_output(self) -> None:
         receipt = {
@@ -1445,7 +1406,7 @@ class ExecutionBindingTests(unittest.TestCase):
             path.parent.mkdir(parents=True)
             path.write_text(json.dumps(receipt), encoding="utf-8")
             self.assertEqual(
-                receipt_output_scoring_block_reason(
+                artifacts.receipt_output_scoring_block_reason(
                     root,
                     run_label="fixture-r1",
                     case_id="fixture.case",
@@ -1464,7 +1425,7 @@ class ExecutionBindingTests(unittest.TestCase):
             path.parent.mkdir(parents=True)
             path.write_text("[]\n", encoding="utf-8")
             self.assertEqual(
-                receipt_scoring_block_reason(
+                artifacts.receipt_scoring_block_reason(
                     root,
                     run_label="fixture-r1",
                     case_id="fixture.case",
@@ -1473,12 +1434,12 @@ class ExecutionBindingTests(unittest.TestCase):
                 "invalid_execution_binding",
             )
             with (
-                mock.patch.object(
+                unittest.mock.patch.object(
                     public_export,
                     "_load_score_operant",
                     return_value=object(),
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     public_export,
                     "load_decision_cases",
                     return_value={},
@@ -1496,7 +1457,7 @@ class ExecutionBindingTests(unittest.TestCase):
     def test_score_recording_requires_receipt_when_requested(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(
-                receipt_scoring_block_reason(
+                artifacts.receipt_scoring_block_reason(
                     Path(tmp),
                     run_label="new-label",
                     case_id="fixture.case",
@@ -1508,14 +1469,14 @@ class ExecutionBindingTests(unittest.TestCase):
     def test_successful_output_rejects_pre_dispatch_only_binding(self) -> None:
         manifest = _manifest(_binding())
         self.assertEqual(
-            scoring_block_reason(asdict(manifest)),
+            artifacts.scoring_block_reason(asdict(manifest)),
             "incomplete_execution_receipt",
         )
         with self.assertRaisesRegex(
             ValueError,
             "successful output requires completed execution binding",
         ):
-            RunReport(
+            artifacts.RunReport(
                 manifest=manifest,
                 parse_status="ok",
                 final_answer="answer",

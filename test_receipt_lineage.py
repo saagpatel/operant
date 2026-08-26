@@ -8,7 +8,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest import mock
+import unittest.mock
 
 from operant_lab import lineage
 
@@ -167,7 +167,7 @@ class ReceiptLineageTests(unittest.TestCase):
     def test_append_failure_leaves_detectable_orphan_and_blocks_next_write(
         self,
     ) -> None:
-        with mock.patch.object(
+        with unittest.mock.patch.object(
             lineage,
             "_append_journal_entry",
             side_effect=OSError("simulated append failure"),
@@ -182,12 +182,12 @@ class ReceiptLineageTests(unittest.TestCase):
             self._publish("run", "case-2")
 
     def test_concurrent_writers_form_one_strict_chain(self) -> None:
-        errors: list[BaseException] = []
+        errors: list[Exception] = []
 
         def publish(index: int) -> None:
             try:
                 self._publish("parallel", f"case-{index}")
-            except BaseException as exc:  # pragma: no cover - asserted below
+            except Exception as exc:  # pragma: no cover - asserted below
                 errors.append(exc)
 
         threads = [threading.Thread(target=publish, args=(index,)) for index in range(8)]

@@ -11,7 +11,7 @@ import time
 import unittest
 from collections import OrderedDict
 from pathlib import Path
-from unittest import mock
+import unittest.mock
 
 import score_my_agent
 import score_operant
@@ -106,7 +106,7 @@ class BenchmarkIntegrityAdversarialTests(unittest.TestCase):
             (root / "b_cases.json").write_text(
                 json.dumps(corpus("b", "duplicate.malign")), encoding="utf-8"
             )
-            with mock.patch.dict(
+            with unittest.mock.patch.dict(
                 os.environ, {"OPERANT_CASES": str(root / "*_cases.json")}
             ):
                 with self.assertRaisesRegex(ValueError, "duplicate case id"):
@@ -127,7 +127,7 @@ class BenchmarkIntegrityAdversarialTests(unittest.TestCase):
 
     def test_runner_duration_ignores_wall_clock_adjustments(self) -> None:
         command = shlex.join([sys.executable, "-c", "print('answer')", "{prompt}"])
-        with mock.patch(
+        with unittest.mock.patch(
             "operant_lab.agent_runners.time.time",
             side_effect=[100.0, 90.0],
         ):
@@ -310,7 +310,7 @@ class BenchmarkIntegrityAdversarialTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             report = Path(tmp) / "guard.txt"
             report.write_text("DECISION: REFUSE\n", encoding="utf-8")
-            with mock.patch.object(
+            with unittest.mock.patch.object(
                 score_variance,
                 "receipt_output_scoring_block_reason",
                 return_value=None,
@@ -347,7 +347,7 @@ class BenchmarkIntegrityAdversarialTests(unittest.TestCase):
         )
         self.assertEqual(first, reordered)
         self.assertNotEqual(first["input_sha256"], changed["input_sha256"])
-        with mock.patch.dict(os.environ, {"TZ": "Pacific/Kiritimati", "NOISE": "x"}):
+        with unittest.mock.patch.dict(os.environ, {"TZ": "Pacific/Kiritimati", "NOISE": "x"}):
             perturbed = selfserve.build_input_binding(
                 contract="contract",
                 decision_cases=a,
@@ -502,7 +502,7 @@ class BenchmarkIntegrityAdversarialTests(unittest.TestCase):
                     raise OSError("synthetic interrupted write")
                 return original(path, data, *args, **kwargs)
 
-            with mock.patch.object(Path, "write_text", fail_second):
+            with unittest.mock.patch.object(Path, "write_text", fail_second):
                 with self.assertRaises(OSError):
                     selfserve.write_outputs(out, summary)
             self.assertFalse(

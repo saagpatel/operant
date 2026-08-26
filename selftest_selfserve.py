@@ -16,6 +16,7 @@ import json
 import shlex
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 from operant_lab import selfserve
@@ -134,9 +135,7 @@ def test_python_runner() -> None:
 
     # A callable that raises is surfaced as a failed run, not a parent-process
     # crash. Candidate exception text stays in digest-only subprocess diagnostics.
-    import operant_lab.agent_runners as ar
-
-    sys_mod = type(ar)("_stub_mod")
+    sys_mod = types.ModuleType("_stub_mod")
     sys_mod.boom = lambda _p: (_ for _ in ()).throw(RuntimeError("kaboom"))
     import sys
 

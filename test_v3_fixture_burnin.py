@@ -11,13 +11,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest import mock
+import unittest.mock
 
-from operant_lab.artifacts import (
-    case_bundle_binding,
-    receipt_output_scoring_block_reason,
-    stable_hash,
-)
+import operant_lab.artifacts as artifacts
 
 
 def _case() -> dict:
@@ -63,7 +59,7 @@ class V3FixtureBurnInTests(unittest.TestCase):
                         "total_cost_usd": 0,
                     }
                 )
-                dispatch = mock.Mock(
+                dispatch = unittest.mock.Mock(
                     return_value=SimpleNamespace(
                         returncode=0,
                         stdout=envelope,
@@ -76,15 +72,15 @@ class V3FixtureBurnInTests(unittest.TestCase):
                     TimeoutExpired=subprocess.TimeoutExpired,
                 )
                 with (
-                    mock.patch.object(runner, "HERE", project),
-                    mock.patch.object(runner, "REPORTS", reports),
-                    mock.patch.object(runner, "HARNESS_FILES", [harness]),
-                    mock.patch.object(
+                    unittest.mock.patch.object(runner, "HERE", project),
+                    unittest.mock.patch.object(runner, "REPORTS", reports),
+                    unittest.mock.patch.object(runner, "HARNESS_FILES", [harness]),
+                    unittest.mock.patch.object(
                         runner.ADAPTER,
                         "command",
                         return_value=["/bin/sh"],
                     ),
-                    mock.patch.object(runner, "subprocess", fake_subprocess),
+                    unittest.mock.patch.object(runner, "subprocess", fake_subprocess),
                 ):
                     meta = runner.run_case(
                         _case(),
@@ -154,11 +150,11 @@ class V3FixtureBurnInTests(unittest.TestCase):
                     ]["reason"],
                     "SUBPROCESS_ENVIRONMENT_NOT_OBSERVED",
                 )
-                self.assertEqual(observation["final_answer_sha256"], stable_hash(answer))
+                self.assertEqual(observation["final_answer_sha256"], artifacts.stable_hash(answer))
                 self.assertEqual(receipt["final_answer"], answer)
                 self.assertEqual(receipt["parse_status"], "ok")
                 self.assertIsNone(
-                    receipt_output_scoring_block_reason(
+                    artifacts.receipt_output_scoring_block_reason(
                         project,
                         run_label=f"{runner.__name__}-fixture-r1",
                         case_id="fixture.case",
@@ -185,7 +181,7 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 }
             )
             fake_subprocess = SimpleNamespace(
-                run=mock.Mock(
+                run=unittest.mock.Mock(
                     return_value=SimpleNamespace(
                         returncode=1,
                         stdout=envelope,
@@ -196,15 +192,15 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 TimeoutExpired=subprocess.TimeoutExpired,
             )
             with (
-                mock.patch.object(run_operant, "HERE", project),
-                mock.patch.object(run_operant, "REPORTS", reports),
-                mock.patch.object(run_operant, "HARNESS_FILES", [harness]),
-                mock.patch.object(
+                unittest.mock.patch.object(run_operant, "HERE", project),
+                unittest.mock.patch.object(run_operant, "REPORTS", reports),
+                unittest.mock.patch.object(run_operant, "HARNESS_FILES", [harness]),
+                unittest.mock.patch.object(
                     run_operant.ADAPTER,
                     "command",
                     return_value=["fixture-provider"],
                 ),
-                mock.patch.object(run_operant, "subprocess", fake_subprocess),
+                unittest.mock.patch.object(run_operant, "subprocess", fake_subprocess),
             ):
                 meta = run_operant.run_case(
                     _case(),
@@ -260,15 +256,15 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 TimeoutExpired=subprocess.TimeoutExpired,
             )
             with (
-                mock.patch.object(run_operant, "HERE", project),
-                mock.patch.object(run_operant, "REPORTS", reports),
-                mock.patch.object(run_operant, "HARNESS_FILES", [harness]),
-                mock.patch.object(
+                unittest.mock.patch.object(run_operant, "HERE", project),
+                unittest.mock.patch.object(run_operant, "REPORTS", reports),
+                unittest.mock.patch.object(run_operant, "HARNESS_FILES", [harness]),
+                unittest.mock.patch.object(
                     run_operant.ADAPTER,
                     "command",
                     return_value=[str(executable)],
                 ),
-                mock.patch.object(run_operant, "subprocess", fake_subprocess),
+                unittest.mock.patch.object(run_operant, "subprocess", fake_subprocess),
             ):
                 meta = run_operant.run_case(
                     _case(),
@@ -316,7 +312,7 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 }
             )
             fake_subprocess = SimpleNamespace(
-                run=mock.Mock(
+                run=unittest.mock.Mock(
                     return_value=SimpleNamespace(
                         returncode=0,
                         stdout=envelope,
@@ -327,15 +323,15 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 TimeoutExpired=subprocess.TimeoutExpired,
             )
             with (
-                mock.patch.object(run_operant, "HERE", project),
-                mock.patch.object(run_operant, "REPORTS", reports),
-                mock.patch.object(run_operant, "HARNESS_FILES", [harness]),
-                mock.patch.object(
+                unittest.mock.patch.object(run_operant, "HERE", project),
+                unittest.mock.patch.object(run_operant, "REPORTS", reports),
+                unittest.mock.patch.object(run_operant, "HARNESS_FILES", [harness]),
+                unittest.mock.patch.object(
                     run_operant.ADAPTER,
                     "command",
                     return_value=["fixture-provider"],
                 ),
-                mock.patch.object(run_operant, "subprocess", fake_subprocess),
+                unittest.mock.patch.object(run_operant, "subprocess", fake_subprocess),
             ):
                 meta = run_operant.run_case(
                     _case(),
@@ -376,7 +372,7 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 }
             )
             fake_subprocess = SimpleNamespace(
-                run=mock.Mock(
+                run=unittest.mock.Mock(
                     return_value=SimpleNamespace(
                         returncode=0,
                         stdout=envelope,
@@ -387,16 +383,16 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 TimeoutExpired=subprocess.TimeoutExpired,
             )
             with (
-                mock.patch.object(run_operant, "HERE", project),
-                mock.patch.object(run_operant, "REPORTS", reports),
-                mock.patch.object(run_operant, "HARNESS_FILES", [harness]),
-                mock.patch.object(
+                unittest.mock.patch.object(run_operant, "HERE", project),
+                unittest.mock.patch.object(run_operant, "REPORTS", reports),
+                unittest.mock.patch.object(run_operant, "HARNESS_FILES", [harness]),
+                unittest.mock.patch.object(
                     run_operant.ADAPTER,
                     "command",
                     return_value=["fixture-provider"],
                 ),
-                mock.patch.object(run_operant, "subprocess", fake_subprocess),
-                mock.patch.object(
+                unittest.mock.patch.object(run_operant, "subprocess", fake_subprocess),
+                unittest.mock.patch.object(
                     run_operant,
                     "write_run_report",
                     side_effect=RuntimeError("fixture receipt failure"),
@@ -441,7 +437,7 @@ class V3FixtureBurnInTests(unittest.TestCase):
                         "manifest": {
                             "case_id": case["id"],
                             "axis": "decision",
-                            "prompt_hash": stable_hash(prompt),
+                            "prompt_hash": artifacts.stable_hash(prompt),
                             "prompt_contract": (
                                 "codex_app_prompt_embeds_operator_contract"
                             ),
@@ -458,7 +454,7 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 timeout=1,
                 dry_run=False,
                 resolved_evaluation_role="OPEN_DEVELOPMENT",
-                case_bundle=case_bundle_binding([case], case_split="fixture"),
+                case_bundle=artifacts.case_bundle_binding([case], case_split="fixture"),
             )
 
             def dispatch(cmd, **_kwargs):
@@ -477,29 +473,29 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 TimeoutExpired=subprocess.TimeoutExpired,
             )
             with (
-                mock.patch.object(run_codex_cli, "HERE", project),
-                mock.patch.object(
+                unittest.mock.patch.object(run_codex_cli, "HERE", project),
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "ANSWERS",
                     project / "lab" / "codex-cli-answers",
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "REPORTS",
                     project / "results" / "reports",
                 ),
-                mock.patch.object(run_codex_cli, "HARNESS_FILES", [harness]),
-                mock.patch.object(
+                unittest.mock.patch.object(run_codex_cli, "HARNESS_FILES", [harness]),
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "_system_prompt",
                     return_value=system_prompt,
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "_load_score_operant",
                     return_value=scorer,
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "codex_command",
                     side_effect=lambda _args, answer_path: [
@@ -508,7 +504,7 @@ class V3FixtureBurnInTests(unittest.TestCase):
                         str(answer_path),
                     ],
                 ),
-                mock.patch.object(run_codex_cli, "subprocess", fake_subprocess),
+                unittest.mock.patch.object(run_codex_cli, "subprocess", fake_subprocess),
             ):
                 meta = run_codex_cli.run_queue_file(
                     queue_path,
@@ -550,14 +546,14 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 receipt["manifest"]["execution_binding"]["completion_sha256"],
                 "UNKNOWN",
             )
-            self.assertEqual(observation["final_answer_sha256"], stable_hash(ANSWER))
+            self.assertEqual(observation["final_answer_sha256"], artifacts.stable_hash(ANSWER))
             self.assertTrue(receipt["score_row"]["decision_accuracy"])
             self.assertEqual(
                 receipt["manifest"]["source_queue_sha256"],
                 hashlib.sha256(queue_path.read_bytes()).hexdigest(),
             )
             self.assertIsNone(
-                receipt_output_scoring_block_reason(
+                artifacts.receipt_output_scoring_block_reason(
                     project,
                     run_label=args.label,
                     case_id=case["id"],
@@ -578,31 +574,31 @@ class V3FixtureBurnInTests(unittest.TestCase):
                     stderr="provider failed",
                 )
 
-            forbidden_scorer = mock.Mock()
+            forbidden_scorer = unittest.mock.Mock()
             with (
-                mock.patch.object(run_codex_cli, "HERE", project),
-                mock.patch.object(
+                unittest.mock.patch.object(run_codex_cli, "HERE", project),
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "ANSWERS",
                     project / "lab" / "codex-cli-answers",
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "REPORTS",
                     project / "results" / "reports",
                 ),
-                mock.patch.object(run_codex_cli, "HARNESS_FILES", [harness]),
-                mock.patch.object(
+                unittest.mock.patch.object(run_codex_cli, "HARNESS_FILES", [harness]),
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "_system_prompt",
                     return_value=system_prompt,
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "_load_score_operant",
                     return_value=SimpleNamespace(score_one=forbidden_scorer),
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "subprocess",
                     SimpleNamespace(
@@ -639,12 +635,12 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 }
             )
             with (
-                mock.patch.object(
+                unittest.mock.patch.object(
                     public_export,
                     "_load_score_operant",
                     return_value=export_scorer,
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     public_export,
                     "load_decision_cases",
                     return_value={case["id"]: case},
@@ -703,21 +699,21 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 thread_id="fixture-thread",
             )
             with (
-                mock.patch.object(run_codex_app, "HERE", project),
-                mock.patch.object(run_codex_app, "QUEUE_DIR", queue_dir),
-                mock.patch.object(run_codex_app, "REPORTS", reports),
-                mock.patch.object(run_codex_app, "HARNESS_FILES", [harness]),
-                mock.patch.object(
+                unittest.mock.patch.object(run_codex_app, "HERE", project),
+                unittest.mock.patch.object(run_codex_app, "QUEUE_DIR", queue_dir),
+                unittest.mock.patch.object(run_codex_app, "REPORTS", reports),
+                unittest.mock.patch.object(run_codex_app, "HARNESS_FILES", [harness]),
+                unittest.mock.patch.object(
                     run_codex_app,
                     "_load_cases",
                     return_value={case["id"]: case},
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_app,
                     "_system_prompt",
                     return_value=system_prompt,
                 ),
-                mock.patch("builtins.print"),
+                unittest.mock.patch("builtins.print"),
             ):
                 run_codex_app.prepare(prepare_args)
                 clean_queue = json.loads(queue_path.read_text(encoding="utf-8"))
@@ -767,7 +763,7 @@ class V3FixtureBurnInTests(unittest.TestCase):
             )
             self.assertEqual(
                 binding["model_observation"]["final_answer_sha256"],
-                stable_hash(ANSWER),
+                artifacts.stable_hash(ANSWER),
             )
             self.assertEqual(
                 receipt["manifest"]["source_queue_file"],
@@ -779,7 +775,7 @@ class V3FixtureBurnInTests(unittest.TestCase):
             )
             self.assertEqual(receipt["final_answer"], ANSWER)
             self.assertIsNone(
-                receipt_output_scoring_block_reason(
+                artifacts.receipt_output_scoring_block_reason(
                     project,
                     run_label=prepare_args.label,
                     case_id=case["id"],
@@ -812,7 +808,7 @@ class V3FixtureBurnInTests(unittest.TestCase):
             reports = project / "results" / "reports"
             index = project / "results" / "fixture-index.jsonl"
             fake_subprocess = SimpleNamespace(
-                run=mock.Mock(
+                run=unittest.mock.Mock(
                     return_value=SimpleNamespace(
                         returncode=0,
                         stdout=envelope,
@@ -844,18 +840,18 @@ class V3FixtureBurnInTests(unittest.TestCase):
                     return {"n": len(rows)}
 
             with (
-                mock.patch.object(run_operant, "HERE", project),
-                mock.patch.object(run_operant, "REPORTS", reports),
-                mock.patch.object(run_operant, "HARNESS_FILES", [harness]),
-                mock.patch.object(
+                unittest.mock.patch.object(run_operant, "HERE", project),
+                unittest.mock.patch.object(run_operant, "REPORTS", reports),
+                unittest.mock.patch.object(run_operant, "HARNESS_FILES", [harness]),
+                unittest.mock.patch.object(
                     run_operant.ADAPTER,
                     "command",
                     return_value=["fixture-provider"],
                 ),
-                mock.patch.object(run_operant, "subprocess", fake_subprocess),
-                mock.patch.object(run_suite, "HERE", project),
-                mock.patch.object(run_suite, "REPORTS", reports),
-                mock.patch("builtins.print"),
+                unittest.mock.patch.object(run_operant, "subprocess", fake_subprocess),
+                unittest.mock.patch.object(run_suite, "HERE", project),
+                unittest.mock.patch.object(run_suite, "REPORTS", reports),
+                unittest.mock.patch("builtins.print"),
             ):
                 aggregate = run_suite.run_axis(
                     runner=Runner,
@@ -882,12 +878,12 @@ class V3FixtureBurnInTests(unittest.TestCase):
                 }
             )
             with (
-                mock.patch.object(
+                unittest.mock.patch.object(
                     public_export,
                     "_load_score_operant",
                     return_value=export_scorer,
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     public_export,
                     "load_decision_cases",
                     return_value={case["id"]: case},
