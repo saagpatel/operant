@@ -14,18 +14,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest import mock
+import unittest.mock
 
-from operant_lab.artifacts import (
-    RunManifest,
-    RunReport,
-    build_execution_binding,
-    case_bundle_binding,
-    complete_execution_binding,
-    resolve_evaluation_role,
-    stable_hash,
-    write_run_report,
-)
+import operant_lab.artifacts as artifacts
 
 HERE = Path(__file__).resolve().parent
 
@@ -47,7 +38,7 @@ def _execution_binding(
     tool_policy: str = "none",
 ) -> dict:
     root = Path(__file__).resolve().parent
-    return build_execution_binding(
+    return artifacts.build_execution_binding(
         root=root,
         exact_prompt=exact_prompt,
         system_prompt="fixture system",
@@ -99,11 +90,11 @@ class RunManifestBindingTests(unittest.TestCase):
     def test_case_bundle_is_order_independent(self) -> None:
         first = _case("a", "alpha")
         second = _case("b", "beta")
-        forward = case_bundle_binding(
+        forward = artifacts.case_bundle_binding(
             [first, second],
             case_split="development",
         )
-        reverse = case_bundle_binding(
+        reverse = artifacts.case_bundle_binding(
             [second, first],
             case_split="development",
         )
@@ -111,15 +102,15 @@ class RunManifestBindingTests(unittest.TestCase):
         self.assertEqual(forward["case_bundle_case_count"], 2)
 
     def test_case_or_split_drift_changes_bundle_digest(self) -> None:
-        baseline = case_bundle_binding(
+        baseline = artifacts.case_bundle_binding(
             [_case("a", "alpha")],
             case_split="development",
         )
-        changed_case = case_bundle_binding(
+        changed_case = artifacts.case_bundle_binding(
             [_case("a", "alpha!")],
             case_split="development",
         )
-        changed_split = case_bundle_binding(
+        changed_split = artifacts.case_bundle_binding(
             [_case("a", "alpha")],
             case_split="surface-holdout",
         )
@@ -134,21 +125,21 @@ class RunManifestBindingTests(unittest.TestCase):
 
     def test_empty_duplicate_and_unidentified_cases_fail(self) -> None:
         with self.assertRaises(ValueError):
-            case_bundle_binding([], case_split="development")
+            artifacts.case_bundle_binding([], case_split="development")
         with self.assertRaises(ValueError):
-            case_bundle_binding(
+            artifacts.case_bundle_binding(
                 [_case("a", "one"), _case("a", "two")],
                 case_split="development",
             )
         with self.assertRaises(ValueError):
-            case_bundle_binding(
+            artifacts.case_bundle_binding(
                 [{"task_prompt": "missing id"}],
                 case_split="development",
             )
 
     def test_known_adaptive_family_is_classified(self) -> None:
         self.assertEqual(
-            resolve_evaluation_role(
+            artifacts.resolve_evaluation_role(
                 None,
                 run_label="codex-gpt55-refusal-calibration-followup-r2",
             ),
@@ -157,13 +148,13 @@ class RunManifestBindingTests(unittest.TestCase):
 
     def test_unknown_family_defaults_nonconfirmatory(self) -> None:
         self.assertEqual(
-            resolve_evaluation_role(None, run_label="new-experiment-r1"),
+            artifacts.resolve_evaluation_role(None, run_label="new-experiment-r1"),
             "UNREGISTERED_EXPERIMENTAL_NONCONFIRMATORY",
         )
 
     def test_confirmatory_role_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
-            resolve_evaluation_role(
+            artifacts.resolve_evaluation_role(
                 "CONFIRMATORY",
                 run_label="new-experiment",
             )
@@ -182,37 +173,37 @@ class RunManifestBindingTests(unittest.TestCase):
             "execution_binding": _execution_binding(),
         }
         with self.assertRaises(ValueError):
-            RunManifest(
+            artifacts.RunManifest(
                 **common,
                 case_bundle_sha256="not-a-digest",
                 case_bundle_case_count=1,
             )
         with self.assertRaises(ValueError):
-            RunManifest(
+            artifacts.RunManifest(
                 **common,
                 case_bundle_sha256="2" * 64,
                 case_bundle_case_count=0,
             )
 
     def test_written_receipt_carries_v8_execution_contract(self) -> None:
-        binding = case_bundle_binding(
+        binding = artifacts.case_bundle_binding(
             [_case("a", "alpha")],
             case_split="development",
         )
-        manifest = RunManifest(
+        manifest = artifacts.RunManifest(
             run_label="demo",
             case_id="a",
             axis="decision",
             subject_shell="fixture",
             model_id="fixture",
-            prompt_hash=stable_hash("fixture prompt"),
+            prompt_hash=artifacts.stable_hash("fixture prompt"),
             prompt_contract="fixture",
             tool_policy="none",
             evaluation_role="OPEN_DEVELOPMENT",
             case_bundle_sha256=str(binding["case_bundle_sha256"]),
             case_bundle_case_count=int(binding["case_bundle_case_count"]),
             case_split=str(binding["case_split"]),
-            execution_binding=complete_execution_binding(
+            execution_binding=artifacts.complete_execution_binding(
                 _execution_binding(),
                 provider_reported_candidates=[],
                 evidence_source="NOT_EXPOSED",
@@ -223,9 +214,9 @@ class RunManifestBindingTests(unittest.TestCase):
             ),
         )
         with tempfile.TemporaryDirectory() as tmp:
-            path = write_run_report(
+            path = artifacts.write_run_report(
                 Path(tmp),
-                RunReport(
+                artifacts.RunReport(
                     manifest=manifest,
                     parse_status="ok",
                     final_answer="fixture",
@@ -241,11 +232,11 @@ class RunManifestBindingTests(unittest.TestCase):
         self.assertFalse(written["confirmatory_eligible"])
 
     def test_run_receipt_is_no_clobber(self) -> None:
-        binding = case_bundle_binding(
+        binding = artifacts.case_bundle_binding(
             [_case("a", "alpha")],
             case_split="development",
         )
-        execution = complete_execution_binding(
+        execution = artifacts.complete_execution_binding(
             _execution_binding(),
             provider_reported_candidates=[],
             evidence_source="NOT_EXPOSED",
@@ -254,14 +245,14 @@ class RunManifestBindingTests(unittest.TestCase):
             runtime_root=HERE,
             runtime_command=["fixture"],
         )
-        report = RunReport(
-            manifest=RunManifest(
+        report = artifacts.RunReport(
+            manifest=artifacts.RunManifest(
                 run_label="demo",
                 case_id="a",
                 axis="decision",
                 subject_shell="fixture",
                 model_id="fixture",
-                prompt_hash=stable_hash("fixture prompt"),
+                prompt_hash=artifacts.stable_hash("fixture prompt"),
                 prompt_contract="fixture",
                 tool_policy="none",
                 evaluation_role="OPEN_DEVELOPMENT",
@@ -277,7 +268,7 @@ class RunManifestBindingTests(unittest.TestCase):
             root = Path(tmp)
             def attempt() -> str:
                 try:
-                    write_run_report(root, report)
+                    artifacts.write_run_report(root, report)
                     return "created"
                 except FileExistsError:
                     return "blocked"
@@ -310,14 +301,14 @@ class RunManifestBindingTests(unittest.TestCase):
         }
         output = io.StringIO()
         with (
-            mock.patch.object(
+            unittest.mock.patch.object(
                 run_codex_app,
                 "_load_cases",
                 return_value={"a": _case("a", "alpha")},
             ),
-            mock.patch.object(run_codex_app, "_system_prompt", return_value="fixture system"),
-            mock.patch.object(run_codex_app.ADAPTER, "queue_record", return_value=record),
-            mock.patch.object(
+            unittest.mock.patch.object(run_codex_app, "_system_prompt", return_value="fixture system"),
+            unittest.mock.patch.object(run_codex_app.ADAPTER, "queue_record", return_value=record),
+            unittest.mock.patch.object(
                 run_codex_app,
                 "build_execution_binding",
                 return_value=_execution_binding(
@@ -366,22 +357,22 @@ class RunManifestBindingTests(unittest.TestCase):
             project = Path(tmp) / "project"
             queue_dir = project / "queue"
             with (
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_app,
                     "_load_cases",
                     return_value={"a": _case("a", "alpha")},
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_app,
                     "_system_prompt",
                     return_value="fixture system",
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_app.ADAPTER,
                     "queue_record",
                     return_value=record,
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_app,
                     "build_execution_binding",
                     return_value=_execution_binding(
@@ -389,9 +380,9 @@ class RunManifestBindingTests(unittest.TestCase):
                         tool_policy=run_codex_app.ADAPTER.tool_policy,
                     ),
                 ),
-                mock.patch.object(run_codex_app, "HERE", project),
-                mock.patch.object(run_codex_app, "QUEUE_DIR", queue_dir),
-                mock.patch("builtins.print"),
+                unittest.mock.patch.object(run_codex_app, "HERE", project),
+                unittest.mock.patch.object(run_codex_app, "QUEUE_DIR", queue_dir),
+                unittest.mock.patch("builtins.print"),
             ):
                 run_codex_app.prepare(args)
                 with self.assertRaises(FileExistsError):
@@ -418,17 +409,17 @@ class RunManifestBindingTests(unittest.TestCase):
                 thread_container=None,
             )
             with (
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_app,
                     "_load_cases",
                     return_value={"a": _case("a", "alpha")},
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_app,
                     "_system_prompt",
                     return_value="fixture system",
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_app.ADAPTER,
                     "build_prompt",
                     return_value=SimpleNamespace(full_prompt="fixture prompt"),
@@ -457,7 +448,7 @@ class RunManifestBindingTests(unittest.TestCase):
                         "manifest": {
                             "case_id": "a",
                             "axis": "decision",
-                            "prompt_hash": stable_hash("original"),
+                            "prompt_hash": artifacts.stable_hash("original"),
                         },
                     }
                 ),
@@ -465,8 +456,8 @@ class RunManifestBindingTests(unittest.TestCase):
             )
             args = self._cli_args()
             with (
-                mock.patch.object(run_codex_cli, "HERE", root),
-                mock.patch.object(run_codex_cli.subprocess, "run") as dispatch,
+                unittest.mock.patch.object(run_codex_cli, "HERE", root),
+                unittest.mock.patch.object(run_codex_cli.subprocess, "run") as dispatch,
             ):
                 with self.assertRaisesRegex(ValueError, "prompt hash mismatch"):
                     run_codex_cli.run_queue_file(queue_path, args, {"a": case})
@@ -490,7 +481,7 @@ class RunManifestBindingTests(unittest.TestCase):
                         "manifest": {
                             "case_id": "a",
                             "axis": "decision",
-                            "prompt_hash": stable_hash(tampered_prompt),
+                            "prompt_hash": artifacts.stable_hash(tampered_prompt),
                         },
                     }
                 ),
@@ -498,16 +489,16 @@ class RunManifestBindingTests(unittest.TestCase):
             )
             args = self._cli_args()
             with (
-                mock.patch.object(run_codex_cli, "HERE", root),
-                mock.patch.object(
+                unittest.mock.patch.object(run_codex_cli, "HERE", root),
+                unittest.mock.patch.object(
                     run_codex_cli, "_system_prompt", return_value="fixture system"
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_cli.ADAPTER,
                     "build_prompt",
                     return_value=SimpleNamespace(full_prompt="canonical prompt"),
                 ),
-                mock.patch.object(run_codex_cli.subprocess, "run") as dispatch,
+                unittest.mock.patch.object(run_codex_cli.subprocess, "run") as dispatch,
             ):
                 with self.assertRaisesRegex(ValueError, "canonical case"):
                     run_codex_cli.run_queue_file(queue_path, args, {"a": case})
@@ -531,7 +522,7 @@ class RunManifestBindingTests(unittest.TestCase):
                         "manifest": {
                             "case_id": "a",
                             "axis": "decision",
-                            "prompt_hash": stable_hash(prompt),
+                            "prompt_hash": artifacts.stable_hash(prompt),
                         },
                     }
                 ),
@@ -548,13 +539,13 @@ class RunManifestBindingTests(unittest.TestCase):
                 return out
 
             with (
-                mock.patch.object(run_codex_cli, "HERE", root),
-                mock.patch.object(run_codex_cli, "ANSWERS", root / "answers"),
-                mock.patch.object(run_codex_cli, "REPORTS", root / "reports"),
-                mock.patch.object(
+                unittest.mock.patch.object(run_codex_cli, "HERE", root),
+                unittest.mock.patch.object(run_codex_cli, "ANSWERS", root / "answers"),
+                unittest.mock.patch.object(run_codex_cli, "REPORTS", root / "reports"),
+                unittest.mock.patch.object(
                     run_codex_cli, "_system_prompt", return_value="fixture system"
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_cli.ADAPTER,
                     "build_prompt",
                     return_value=SimpleNamespace(
@@ -562,8 +553,8 @@ class RunManifestBindingTests(unittest.TestCase):
                         prompt_contract="codex_app_prompt_embeds_operator_contract",
                     ),
                 ),
-                mock.patch.object(run_codex_cli, "write_run_report", capture),
-                mock.patch.object(
+                unittest.mock.patch.object(run_codex_cli, "write_run_report", capture),
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "build_execution_binding",
                     return_value=_execution_binding(
@@ -571,7 +562,7 @@ class RunManifestBindingTests(unittest.TestCase):
                         tool_policy=run_codex_cli.TOOL_POLICY,
                     ),
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_cli.subprocess,
                     "run",
                     side_effect=subprocess.TimeoutExpired(["codex"], 1),
@@ -604,7 +595,7 @@ class RunManifestBindingTests(unittest.TestCase):
                         "manifest": {
                             "case_id": "a",
                             "axis": "decision",
-                            "prompt_hash": stable_hash(prompt),
+                            "prompt_hash": artifacts.stable_hash(prompt),
                         },
                     }
                 ),
@@ -627,13 +618,13 @@ class RunManifestBindingTests(unittest.TestCase):
                 return out
 
             with (
-                mock.patch.object(run_codex_cli, "HERE", root),
-                mock.patch.object(run_codex_cli, "ANSWERS", root / "answers"),
-                mock.patch.object(run_codex_cli, "REPORTS", root / "reports"),
-                mock.patch.object(
+                unittest.mock.patch.object(run_codex_cli, "HERE", root),
+                unittest.mock.patch.object(run_codex_cli, "ANSWERS", root / "answers"),
+                unittest.mock.patch.object(run_codex_cli, "REPORTS", root / "reports"),
+                unittest.mock.patch.object(
                     run_codex_cli, "_system_prompt", return_value="fixture system"
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_cli.ADAPTER,
                     "build_prompt",
                     return_value=SimpleNamespace(
@@ -641,8 +632,8 @@ class RunManifestBindingTests(unittest.TestCase):
                         prompt_contract="codex_app_prompt_embeds_operator_contract",
                     ),
                 ),
-                mock.patch.object(run_codex_cli, "write_run_report", capture),
-                mock.patch.object(
+                unittest.mock.patch.object(run_codex_cli, "write_run_report", capture),
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "build_execution_binding",
                     return_value=_execution_binding(
@@ -650,14 +641,14 @@ class RunManifestBindingTests(unittest.TestCase):
                         tool_policy=run_codex_cli.TOOL_POLICY,
                     ),
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_cli,
                     "_load_score_operant",
                     return_value=SimpleNamespace(
                         score_one=lambda *_args: {"decision_accuracy": 0}
                     ),
                 ),
-                mock.patch.object(
+                unittest.mock.patch.object(
                     run_codex_cli.subprocess,
                     "run",
                     return_value=SimpleNamespace(
@@ -696,9 +687,9 @@ class RunManifestBindingTests(unittest.TestCase):
                     }
                 )
                 with (
-                    mock.patch.object(runner, "HERE", root),
-                    mock.patch.object(runner, "REPORTS", reports),
-                    mock.patch.object(
+                    unittest.mock.patch.object(runner, "HERE", root),
+                    unittest.mock.patch.object(runner, "REPORTS", reports),
+                    unittest.mock.patch.object(
                         runner.ADAPTER,
                         "build_prompt",
                         return_value=SimpleNamespace(
@@ -707,18 +698,18 @@ class RunManifestBindingTests(unittest.TestCase):
                             tool_policy="none",
                         ),
                     ),
-                    mock.patch.object(
+                    unittest.mock.patch.object(
                         runner.ADAPTER,
                         "command",
                         return_value=["fixture"],
                     ),
-                    mock.patch.object(
+                    unittest.mock.patch.object(
                         runner,
                         "build_execution_binding",
                         return_value=_execution_binding(),
                     ),
-                    mock.patch.object(runner, "write_run_report", capture),
-                    mock.patch.object(
+                    unittest.mock.patch.object(runner, "write_run_report", capture),
+                    unittest.mock.patch.object(
                         runner.subprocess,
                         "run",
                         return_value=SimpleNamespace(
@@ -776,8 +767,8 @@ class RunManifestBindingTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with (
-                mock.patch.object(run_suite, "REPORTS", reports),
-                mock.patch("builtins.print"),
+                unittest.mock.patch.object(run_suite, "REPORTS", reports),
+                unittest.mock.patch("builtins.print"),
             ):
                 result = run_suite.run_axis(
                     runner=Runner,
@@ -800,7 +791,7 @@ class RunManifestBindingTests(unittest.TestCase):
         import run_suite
 
         case = _case("a", "alpha")
-        blocked_binding = complete_execution_binding(
+        blocked_binding = artifacts.complete_execution_binding(
             _execution_binding(),
             provider_reported_candidates=["different-model"],
             evidence_source="provider_result_modelUsage",
@@ -837,9 +828,9 @@ class RunManifestBindingTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with (
-                mock.patch.object(run_suite, "HERE", project),
-                mock.patch.object(run_suite, "REPORTS", reports),
-                mock.patch("builtins.print"),
+                unittest.mock.patch.object(run_suite, "HERE", project),
+                unittest.mock.patch.object(run_suite, "REPORTS", reports),
+                unittest.mock.patch("builtins.print"),
             ):
                 result = run_suite.run_axis(
                     runner=Runner,
@@ -860,7 +851,7 @@ class RunManifestBindingTests(unittest.TestCase):
 
     @staticmethod
     def _cli_args() -> argparse.Namespace:
-        binding = case_bundle_binding(
+        binding = artifacts.case_bundle_binding(
             [_case("a", "alpha")],
             case_split="development",
         )

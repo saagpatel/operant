@@ -9,7 +9,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest import mock
+import unittest.mock
 
 from operant_lab import export, public_generation
 
@@ -204,15 +204,15 @@ class PublicGenerationTests(unittest.TestCase):
                 with active_lock:
                     active -= 1
 
-        errors: list[BaseException] = []
+        errors: list[Exception] = []
 
         def run_export() -> None:
             try:
                 export.export_public_artifacts(Path("source"), self.public)
-            except BaseException as exc:  # pragma: no cover - asserted below
+            except Exception as exc:  # pragma: no cover - asserted below
                 errors.append(exc)
 
-        with mock.patch.object(
+        with unittest.mock.patch.object(
             export,
             "_export_public_artifacts_locked",
             side_effect=fake_export,

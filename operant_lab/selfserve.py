@@ -27,7 +27,7 @@ import math
 import os
 import tempfile
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -156,11 +156,9 @@ def resolve_operator_contract(path: str | None = None) -> tuple[str, str]:
         return text, f"file:{explicit}"
     claude_md = Path.home() / ".claude" / "CLAUDE.md"
     if claude_md.exists():
-        try:
+        # The file can race away between exists() and read; fall through then.
+        with suppress(FileNotFoundError):
             return run_operant.load_operator_contract(), "default:~/.claude/CLAUDE.md"
-        except FileNotFoundError:
-            # Raced away between exists() and read — fall through to the fallback.
-            pass
     return run_operant.OPERATOR_CONTRACT_FALLBACK, "bundled-fallback"
 
 
@@ -780,9 +778,7 @@ def write_outputs(out_dir: Path, summary: dict[str, Any]) -> dict[str, Path]:
                 staged[name].replace(target)
     except Exception:
         for target in paths.values():
-            try:
+            with suppress(FileNotFoundError):
                 target.unlink()
-            except FileNotFoundError:
-                pass
         raise
     return paths
