@@ -1,0 +1,5 @@
+{
+  "name": "operant",
+  "disableAllMcpServers": true,
+  "install": "set -eu; corepack npm@10.9.4 ci --prefix mcp; python3 selftest.py"
+}
