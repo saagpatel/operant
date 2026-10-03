@@ -247,6 +247,12 @@ remain adaptive diagnostics. The manifest writer rejects `CONFIRMATORY` entirely
 because no admitted confirmatory set exists. Use `--evaluation-role
 OPEN_DEVELOPMENT` and `--case-split <stable-name>` when those facts are known.
 
+For a new experiment, record its question, hypotheses, metrics, exclusions,
+stopping rule, and exact input digests before dispatch with the reusable
+[`operant-experiment-preregistration.v1` workflow](docs/prospective-experiment-registration.md).
+The registration is result-blind, exclusive-write, and permanently
+non-confirmatory; it complements (and does not replace) the v8 run receipt.
+
 ---
 
 ## Score your own agent (self-serve)

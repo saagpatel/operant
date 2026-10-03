@@ -15,6 +15,11 @@ from operant_lab.lineage import (
     lineage_checkpoint,
     validate_receipt_lineage,
 )
+from operant_lab.preregistration import (
+    build_preregistration,
+    load_verified_preregistration,
+    write_preregistration,
+)
 from operant_lab.public_contract import validate_public_artifacts
 from operant_lab.submissions import TEMPLATE, load_submission, validate_submission
 
@@ -91,6 +96,42 @@ def check_lineage(args: argparse.Namespace) -> None:
             print(f"ERROR: {error}", file=sys.stderr)
         raise SystemExit(1)
     print(json.dumps(lineage_checkpoint(args.root), indent=2, sort_keys=True))
+
+
+def register_experiment(args: argparse.Namespace) -> None:
+    """Create a result-blind registration and adjacent digest sidecar."""
+    spec = json.loads(args.spec.read_text(encoding="utf-8"))
+    registration = build_preregistration(spec, registered_at=args.registered_at)
+    digest, digest_path = write_preregistration(registration, args.out)
+    print(
+        json.dumps(
+            {
+                "status": registration["status"],
+                "experiment_id": registration["experiment_id"],
+                "preregistration": str(args.out),
+                "sha256": digest,
+                "digest_sidecar": str(digest_path),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
+def verify_experiment_registration(args: argparse.Namespace) -> None:
+    registration, digest = load_verified_preregistration(args.path)
+    print(
+        json.dumps(
+            {
+                "status": registration["status"],
+                "experiment_id": registration["experiment_id"],
+                "preregistration": str(args.path),
+                "sha256": digest,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 def main() -> None:
@@ -174,6 +215,30 @@ def main() -> None:
     )
     check_receipts.add_argument("--root", type=Path, default=HERE)
     check_receipts.set_defaults(func=check_lineage)
+
+    register = sub.add_parser(
+        "register-experiment",
+        help="write a result-blind, identity-bound experiment registration",
+    )
+    register.add_argument(
+        "--spec",
+        type=Path,
+        required=True,
+        help="JSON design spec; results and admission fields are not accepted",
+    )
+    register.add_argument("--out", type=Path, required=True)
+    register.add_argument(
+        "--registered-at",
+        help="explicit UTC timestamp for reproducible fixtures (default: now)",
+    )
+    register.set_defaults(func=register_experiment)
+
+    verify_registration = sub.add_parser(
+        "verify-experiment-registration",
+        help="verify a registration and its adjacent SHA-256 sidecar",
+    )
+    verify_registration.add_argument("path", type=Path)
+    verify_registration.set_defaults(func=verify_experiment_registration)
 
     args = ap.parse_args()
     args.func(args)
