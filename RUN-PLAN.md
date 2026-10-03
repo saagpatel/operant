@@ -20,9 +20,11 @@ follow the steps below to replicate or extend the run.
 ## 1. Pre-flight (always, costs nothing)
 
 ```bash
-cd ~/Projects/evals/agent_eval/operant
-python3 selftest.py          # MUST print ALL SELFTESTS PASSED (gates all 4 axes)
-ruff check .
+
+# Run from this checkout's repository root.
+OPERANT_OPERATOR_CONTRACT=examples/example-operator-contract.md python3 selftest.py
+# MUST print ALL SELFTESTS PASSED (gates all 4 axes)
+# For the pinned Ruff version and exact lint command, see docs/verification.md.
 python3 run_suite.py --model claude-sonnet-4-6 --label sonnet --dry-run   # wiring check
 ```
 
@@ -85,10 +87,9 @@ python3 score_variance.py            # see its --help for label-glob usage
 - **Fable is unavailable** for headless dispatch here (`claude-fable-5` →
   "may not exist or you may not have access"). Exclude it as a model-access
   artifact, not a calibration result. Re-attempt if headless access is provisioned.
-- **Re-scoring double-counts.** The driver appends rows; if you re-run a label,
-  first drop its old rows:
-  `grep -v '"run_label": "<label>"' results/operant_index.jsonl > t && mv t results/operant_index.jsonl`
-  (and the same for `results/operant_orchestration_index.jsonl`).
+- **Re-scoring double-counts.** The driver appends rows. Use a fresh, unused
+  run label for a new dispatch and preserve the old indexes and receipts; do
+  not delete prior rows as part of preflight or routine verification.
 - **Cost order:** Opus is ~1.67× Sonnet per token; run Haiku+Sonnet first to
   confirm separation, then spend on Opus. A full 5×-repeat 3-model matrix is
   ~855 dispatches — budget accordingly.

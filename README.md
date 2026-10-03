@@ -124,6 +124,11 @@ The Sonnet-vs-Opus gap (0.012) is within judge noise; the two are peers on orche
 
 ---
 
+## Local development verification
+
+See [Local verification](docs/verification.md) for prerequisites, focused fixture
+checks, the broader CI commands and safe MCP smoke checks.
+
 ## Run a new experiment
 
 For a zero-spend diagnostic of whether public presentation cues are
