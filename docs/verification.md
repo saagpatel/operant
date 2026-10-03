@@ -38,6 +38,9 @@ The explicit bundled operator contract avoids the runner's default personal
 `~/.claude/CLAUDE.md` fallback. Selftests exercise fake/local agents and temporary
 outputs. A live `run_operant.py`
 or `run_suite.py` invocation can dispatch paid agents; it is not a test substitute.
+`run_suite.py --dry-run` avoids model calls but reads the personal
+`~/.claude/CLAUDE.md` contract and does not use `OPERANT_OPERATOR_CONTRACT`; keep
+that optional personal-input wiring lane separate from fixture verification.
 The README's [heuristic demo](../README.md#try-it-in-10-seconds) is a zero-spend
 end-to-end example, but writes report/badge files under `results/self-serve/`.
 
@@ -70,7 +73,7 @@ and requires no diff in `mcp/src/corpus.generated.ts` or
 that lane in an isolated checkout and inspect any diff rather than discarding it.
 
 `npm --prefix mcp run probe:mcp` exercises only the local stdio CLI after
-`build:cli`. Currently that script and `build:wellknown` derive filesystem paths
+`build:cli`. Currently that script, `build:corpus` and `build:wellknown` derive filesystem paths
 from URL `.pathname`, so checkout paths containing spaces can fail with `%20`
 paths. Use a checkout path without spaces for those existing scripts. For a local
 stdio smoke in a path containing spaces, the same installed probe library accepts

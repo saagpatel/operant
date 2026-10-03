@@ -28,7 +28,8 @@ No API key, no install step, no model spend. Score the bundled heuristic agent o
 
 ```bash
 python3 score_my_agent.py --adapter examples/heuristic_agent.py:respond \
-    --label heuristic-baseline --axes decision --no-judge
+    --label heuristic-baseline --axes decision --no-judge \
+    --operator-contract examples/example-operator-contract.md
 ```
 
 It scores all 40 decision cases and writes a shareable OCS report card (plus an SVG badge) to `results/self-serve/`:
@@ -288,7 +289,8 @@ treated as equivalent to the historical named-model calculations above.
 ```bash
 # 0. Try it now on the bundled demo agent — zero setup, zero model spend (decision axis only)
 python3 score_my_agent.py --adapter examples/heuristic_agent.py:respond \
-    --label heuristic-baseline --axes decision --no-judge
+    --label heuristic-baseline --axes decision --no-judge \
+    --operator-contract examples/example-operator-contract.md
 
 # 1. A Python callable of your own — respond(prompt: str) -> str
 python3 score_my_agent.py --adapter path/to/agent.py:respond --label my-agent

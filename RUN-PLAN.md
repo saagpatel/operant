@@ -25,8 +25,12 @@ follow the steps below to replicate or extend the run.
 OPERANT_OPERATOR_CONTRACT=examples/example-operator-contract.md python3 selftest.py
 # MUST print ALL SELFTESTS PASSED (gates all 4 axes)
 # For the pinned Ruff version and exact lint command, see docs/verification.md.
-python3 run_suite.py --model claude-sonnet-4-6 --label sonnet --dry-run   # wiring check
 ```
+
+The optional `run_suite.py --dry-run` wiring lane avoids model calls but reads
+the personal `~/.claude/CLAUDE.md` contract; it does not use
+`OPERANT_OPERATOR_CONTRACT`. Keep it separate from the bundled-contract fixture
+preflight above.
 
 ## 2. The run (one command per model)
 
