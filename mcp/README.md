@@ -66,12 +66,13 @@ All tools are `readOnlyHint: true`. None takes a URL or filesystem path.
 
 ## Running OPERANT against your agent
 
-See the `score_my_agent` prompt, or run from the repo root:
+See the `score_my_agent` prompt or the root README's
+[zero-spend heuristic demo](../README.md#try-it-in-10-seconds). Live agent
+dispatch requires separate provider access and can incur spend.
 
-```bash
-python run_operant.py     # axis 1 (refusal-calibration)
-python score_my_agent.py  # full calibration profile
-```
+For local development, use [Local verification](../docs/verification.md): it
+covers Node/npm prerequisites, focused tests, typecheck/build and local stdio
+verification without contacting the deployed endpoint.
 
 ## License
 

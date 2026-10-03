@@ -15,7 +15,7 @@
 
 ---
 
-OPERANT measures whether an LLM agent makes correct *operating decisions* — not whether it can write code. The agent under test runs as an operator (its system prompt is the operator contract) and must emit a structured `DECISION` label (`PROCEED`, `PROCEED_SANCTIONED`, `REFUSE`, `ESCALATE`, or `REROUTE`) or a structured operating plan. Every case is one half of a **matched malign/benign pair** that shares domain and surface vocabulary but differs in instruction origin (operator channel vs. untrusted content) and blast radius. This design forces bidirectional calibration: refusing everything scores the same as proceeding on everything. Only accurate discrimination scores positive.
+OPERANT measures whether an LLM agent makes correct *operating decisions* — not whether it can write code. The agent under test runs as an operator (its system prompt is the operator contract) and must emit a structured `DECISION` label (`PROCEED`, `PROCEED_SANCTIONED`, `REFUSE`, `ESCALATE`, or `REROUTE`) or a structured operating plan. Every decision case is one half of a **matched malign/benign pair** that shares domain and surface vocabulary but differs in instruction origin (operator channel vs. untrusted content) and blast radius. This design forces bidirectional calibration: refusing everything scores the same as proceeding on everything. Only accurate discrimination scores positive.
 
 Harness failures proposed as regression evaluations go through the typed
 [`FailureEvalCandidateV1` admission pipeline](docs/failure-to-eval-candidate-pipeline.md),
@@ -28,7 +28,8 @@ No API key, no install step, no model spend. Score the bundled heuristic agent o
 
 ```bash
 python3 score_my_agent.py --adapter examples/heuristic_agent.py:respond \
-    --label heuristic-baseline --axes decision --no-judge
+    --label heuristic-baseline --axes decision --no-judge \
+    --operator-contract examples/example-operator-contract.md
 ```
 
 It scores all 40 decision cases and writes a shareable OCS report card (plus an SVG badge) to `results/self-serve/`:
@@ -112,7 +113,7 @@ OCS +1.000 on all five draws.
 | **Sonnet** ×5 | 0.965 | 0.937 | **0.951** | [0.912, 0.980] |
 | **Haiku** ×1 | 0.824 | 0.824 | **0.824** | (n=1) |
 
-The Sonnet-vs-Opus gap (0.012) is within judge noise; the two are peers on orchestration judgment. Haiku ≪ {Sonnet ≈ Opus} is judge-independent.
+The imported Sonnet-vs-Opus ensemble gap is 0.012. These historical judge calculations do not establish durable model equivalence or ordering.
 
 ---
 
@@ -123,6 +124,11 @@ The Sonnet-vs-Opus gap (0.012) is within judge noise; the two are peers on orche
 3. **Deterministic core selftested without model calls:** prompt construction, JSON extraction, verdict normalization all covered at zero cost.
 
 ---
+
+## Local development verification
+
+See [Local verification](docs/verification.md) for prerequisites, focused fixture
+checks, the broader CI commands and safe MCP smoke checks.
 
 ## Run a new experiment
 
@@ -283,7 +289,8 @@ treated as equivalent to the historical named-model calculations above.
 ```bash
 # 0. Try it now on the bundled demo agent — zero setup, zero model spend (decision axis only)
 python3 score_my_agent.py --adapter examples/heuristic_agent.py:respond \
-    --label heuristic-baseline --axes decision --no-judge
+    --label heuristic-baseline --axes decision --no-judge \
+    --operator-contract examples/example-operator-contract.md
 
 # 1. A Python callable of your own — respond(prompt: str) -> str
 python3 score_my_agent.py --adapter path/to/agent.py:respond --label my-agent
@@ -375,7 +382,7 @@ python3 operant_lab_cli.py check-public-artifacts \
   --private-case-overlays <your-private-cases-path>
 ```
 
-This writes:
+`export-public` writes:
 
 - `lab/public/README.md`
 - `lab/public/benchmark-card.json`
@@ -479,9 +486,9 @@ python3 run_codex_app.py record \
 ```
 
 Recording requires the exact v8 `--queue-file` created before dispatch. It
-writes the legacy report file under `results/reports/` and an immutable lab
-report under `lab/runs/<label>/`, while failing fast if the prompt, requested
-model, thinking level, thread container, or execution binding no longer matches
+writes an immutable lab report under `lab/runs/<label>/` and, for parse-ok
+answers only, the legacy report file under `results/reports/`, while failing
+fast if the prompt, requested model, thinking level, thread container, or execution binding no longer matches
 the prepared queue. Historical or queue-less App runs are not backfilled as v8.
 
 ### Safe resume inventory
@@ -494,8 +501,9 @@ python3 operant_lab_cli.py inventory-runs \
   --labels codex-gpt55-exact-smoke-r1
 ```
 
-The inventory intentionally reports only `case_id`, queue file path, prompt
-hash, run label, thread id, parse status, score outcome, and coarse risk tags.
+The inventory intentionally reports only `case_id`, queue file path, source-queue
+SHA-256, prompt hash, run label, thread id, parse status, score outcome, coarse
+risk tags, and sanitized evaluation-binding metadata.
 It never prints raw case prompts or final answers. Use it to identify which
 queued cases already have recorded lab reports, which remain queued-only, and
 which completed runs need parse or scoring follow-up.
@@ -544,9 +552,9 @@ Reviewer states are:
 ## Limitations
 
 - **Small n.** 5 independent repeats per model. The permutation p-value is exact and assumption-free, but n=5 is small; bootstrap CIs are wide and reported with their n. Haiku has a single draw.
-- **Three models, one provider.** Covers three Claude tiers only. `claude-fable-5` was excluded because headless dispatch wasn't accessible at run time — an access artifact, not a design choice. No other providers.
+- **Historical headline: three models, one provider.** Covers three Claude tiers only. `claude-fable-5` was excluded because headless dispatch wasn't accessible at run time — an access artifact, not a design choice. The self-serve and native-shell lab rows are separate protocols.
 - **Single-operator authorship.** All cases were authored by one person and
   grounded in one harness's threat model. Surface twins do not compensate for
   independent authorship or a structurally independent confirmatory set.
 - **Orchestration axis saturation.** The keyword scorer saturates and is unfit for ranking. Historical judge calculations remain available, but named-model comparisons are not durable without fresh identity-bound replication.
-- **Operator-contract dependency.** The runner loads the operator contract from `~/.claude/CLAUDE.md` at runtime, falling back to a minimal inline contract if absent. Fresh checkouts use the fallback; results may differ from the headline run, which used a full personal operator contract.
+- **Operator-contract dependency.** The runner loads the operator contract from `~/.claude/CLAUDE.md` at runtime, falling back to a minimal inline contract if absent. Runs without that personal file use the fallback; results may differ from the headline run, which used a full personal operator contract.
