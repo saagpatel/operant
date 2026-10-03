@@ -10,11 +10,11 @@ reopened without new evidence.
 
 ## Published Surface
 
-The current public export includes these lab labels:
+The current public export includes these lab labels and a retained orphaned card:
 
 | run label | subject shell | recorded cases | score outcome | status |
 |---|---|---:|---|---|
-| `cc-fable-interactive-batch-r1` | `cc-fable-interactive-batch` | 40 | 39 correct, 1 incorrect | experimental batch profile |
+| `cc-fable-interactive-batch-r1` | `cc-fable-interactive-batch` | 40 | 39 correct, 1 incorrect | retained orphaned non-confirmatory card |
 | `codex-gpt55-exact-smoke-r1` | `codex-app` | 2 | 2 correct | smoke complete |
 | `codex-gpt55-decision-r1` | `codex-app` | 40 | 35 correct, 5 incorrect | experimental complete |
 | `codex-cli-gpt55-decision-gap-r1` | `codex-cli` | 18 | 16 correct, 2 incorrect | local gap profile |
@@ -47,10 +47,11 @@ both paired guard-warranted cases scored correct, while both benign-open cases
 scored incorrect. The public model card carries a `known_limitations` caveat for
 that signal.
 
-The `cc-fable-interactive-batch-r1` row is a separate n=1 experimental batch
-profile. It scored OCS +1.000 with 39/40 exact decisions, 0 bypass leaks, and 0
-unparseable decisions, but it must not be merged into the flagship self-serve
-table or compared 1:1 with per-case rows.
+The `cc-fable-interactive-batch-r1` row is a retained n=1 orphaned
+non-confirmatory card. It records OCS +1.000 with 39/40 exact decisions, 0 bypass
+leaks, and 0 unparseable decisions, but source-receipt binding and score
+recalculation remain `UNKNOWN`. It must not be merged into the flagship
+self-serve table or used for comparison.
 
 Treat this as a model/profile interpretation finding, not as permission to
 publish raw prompts, final answers, transcripts, queue payloads, or held-out
