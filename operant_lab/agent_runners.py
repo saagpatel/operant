@@ -192,6 +192,7 @@ class ShellCommandRunner(AgentRunner):
                     try:
                         os.killpg(proc.pid, signal.SIGKILL)
                     except ProcessLookupError:
+                        # The group already exited; there is nothing left to kill.
                         pass
                 elif proc.poll() is None:  # pragma: no cover - POSIX CI
                     proc.kill()

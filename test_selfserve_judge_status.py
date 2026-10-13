@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 from operant_lab import selfserve
 from operant_lab.agent_runners import RunnerResult
