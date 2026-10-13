@@ -2,14 +2,30 @@ from __future__ import annotations
 
 import os
 import shlex
+import subprocess
 import sys
 import tempfile
 import time
 import unittest
-from pathlib import Path
 import unittest.mock as mock
+from pathlib import Path
 
 from operant_lab.agent_runners import ShellCommandRunner
+
+
+def _process_running(pid: int) -> bool:
+    """True while ``pid`` exists and is not a zombie (a killed child an unreaping PID 1 keeps)."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    stat = Path(f"/proc/{pid}/stat")
+    if stat.exists():
+        return stat.read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0] != "Z"
+    state = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, check=False
+    ).stdout.strip()
+    return bool(state) and not state.startswith("Z")
 
 
 class AgentRunnerInterruptTests(unittest.TestCase):
@@ -34,18 +50,19 @@ class AgentRunnerInterruptTests(unittest.TestCase):
                     raise AssertionError("agent did not start its descendant")
                 raise KeyboardInterrupt
 
-            with mock.patch(
-                "operant_lab.agent_runners.subprocess.Popen.communicate",
-                side_effect=interrupt_after_child,
-            ), self.assertRaises(KeyboardInterrupt):
+            with (
+                mock.patch(
+                    "operant_lab.agent_runners.subprocess.Popen.communicate",
+                    side_effect=interrupt_after_child,
+                ),
+                self.assertRaises(KeyboardInterrupt),
+            ):
                 ShellCommandRunner(command, timeout=10).respond("synthetic")
 
             descendant_pid = int(pid_file.read_text(encoding="utf-8"))
             deadline = time.monotonic() + 3
             while time.monotonic() < deadline:
-                try:
-                    os.kill(descendant_pid, 0)
-                except ProcessLookupError:
+                if not _process_running(descendant_pid):
                     break
                 time.sleep(0.05)
             else:
