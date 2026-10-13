@@ -56,3 +56,13 @@ jobs:
 
       - name: Run full check
         run: make check
+
+  # Branch protection requires a single check named `verify`; it passes only when the
+  # Python matrix and the full check both passed.
+  verify:
+    needs: [python, full-check]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every check to pass
+        run: test "${{ needs.python.result }}" = "success" && test "${{ needs.full-check.result }}" = "success"
