@@ -182,6 +182,8 @@ export function createOperantTools(corpus: OperantCorpus) {
 			decision_labels: Record<string, string> | undefined;
 			scoring: Record<string, string> | undefined;
 			case_count: number;
+			scored_case_count: number;
+			pair_count: number;
 			array_key: "pairs" | "cases";
 		}>;
 		what_it_measures: string;
@@ -194,7 +196,8 @@ export function createOperantTools(corpus: OperantCorpus) {
 		const axesInfo = ALL_AXES.map((axis) => {
 			const f = corpus.axes[axis];
 			const hasPairs = !!f.pairs;
-			const count = hasPairs ? (f.pairs?.length ?? 0) : (f.cases?.length ?? 0);
+			const pairCount = hasPairs ? (f.pairs?.length ?? 0) : 0;
+			const scoredCaseCount = hasPairs ? pairCount * 2 : (f.cases?.length ?? 0);
 			return {
 				axis,
 				subtitle: f.subtitle,
@@ -202,7 +205,9 @@ export function createOperantTools(corpus: OperantCorpus) {
 				notes: f.notes,
 				decision_labels: f.decision_labels,
 				scoring: f.scoring,
-				case_count: count,
+				case_count: hasPairs ? pairCount : scoredCaseCount,
+				scored_case_count: scoredCaseCount,
+				pair_count: pairCount,
 				array_key: (hasPairs ? "pairs" : "cases") as "pairs" | "cases",
 			};
 		});

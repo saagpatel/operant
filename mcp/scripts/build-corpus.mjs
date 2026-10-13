@@ -9,9 +9,10 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Resolve paths: mcp/ is the package root; repo root is one level up.
-const MCP_DIR = new URL("..", import.meta.url).pathname;
+const MCP_DIR = fileURLToPath(new URL("..", import.meta.url));
 const REPO_ROOT = resolve(MCP_DIR, "..");
 
 function read(relFromRepo) {
