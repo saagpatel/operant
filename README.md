@@ -4,6 +4,29 @@
 
 *An open benchmark for whether an LLM agent makes correct operating decisions.*
 
+## Status
+
+### Stack
+
+Python 3.12+ tooling uses `uv`, with a locked Ruff development dependency.
+The read-only MCP package uses Node.js 24 LTS and npm; `make check` runs the
+local Python and MCP verification lanes.
+
+### Known risks
+
+Historical model calculations remain non-durable evidence, and the benchmark's
+public/private split is not a confirmatory holdout. Axis 3 requires an optional
+judge provider for live scoring. The public corpus and scoring protocol remain
+hash-bound; changes to them require separate evidence review. Ruff 0.17.0
+reported 103 baseline findings, including findings in hash-bound files, so the
+project remains pinned to Ruff 0.15.22. The formatter baseline also needs review
+(42 files); `make check` currently skips format checking.
+
+### Next steps
+
+Run `make check` before proposing a release or public artifact update. Keep
+future research claims within the evidence limits in this README and `docs/`.
+
 > **Research-integrity status (2026-07-17):** the 2026-06-18 named-model rows below
 > are historical calculation views, not durable model-performance claims. Their
 > imported bytes are hash-bound, but the receipts predate append-only attempt
@@ -351,6 +374,7 @@ ready for public surfacing:
 
 ```bash
 python3 operant_lab_cli.py export-public \
+  --source-results <your-local-results-path> \
   --include-lab-runs \
   --private-case-overlays <your-private-cases-path> \
   --lab-labels \
