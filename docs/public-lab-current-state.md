@@ -86,6 +86,6 @@ Minimum verification when exporter code or public JSON changes:
 python3 -m py_compile operant_lab/*.py operant_lab_cli.py run_codex_app.py selftest.py
 python3 selftest.py
 ruff check operant_lab operant_lab_cli.py run_codex_app.py selftest.py
-python3 operant_lab_cli.py export-public --include-lab-runs --lab-labels codex-gpt55-exact-smoke-r1
-python3 operant_lab_cli.py export-public --out /tmp/operant-public-historical-check
+python3 operant_lab_cli.py export-public --source-results <your-local-results-path> --include-lab-runs --lab-labels codex-gpt55-exact-smoke-r1
+python3 operant_lab_cli.py export-public --source-results <your-local-results-path> --out /tmp/operant-public-historical-check
 ```

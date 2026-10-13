@@ -4,7 +4,9 @@ import io
 import json
 import math
 import os
+import re
 import shlex
+import subprocess
 import sys
 import tempfile
 import time
@@ -71,8 +73,23 @@ class BenchmarkIntegrityAdversarialTests(unittest.TestCase):
         )
 
     def test_standard_selftest_has_no_machine_specific_result_dependency(self) -> None:
-        source = (ROOT / "selftest.py").read_text(encoding="utf-8")
-        self.assertNotIn("/Users/d/Projects/evals", source)
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True
+        ).stdout.split(b"\0")
+        local_user_path = re.compile(b"/" + b"Users/" + rb"(?!you/|example/)[^/\s]+/")
+        offenders = []
+        for raw_path in tracked:
+            if not raw_path:
+                continue
+            path = ROOT / os.fsdecode(raw_path)
+            try:
+                contents = path.read_bytes()
+                contents.decode("utf-8")
+                if local_user_path.search(contents):
+                    offenders.append(os.fsdecode(raw_path))
+            except (OSError, UnicodeError):
+                continue
+        self.assertEqual(offenders, [])
 
     def test_duplicate_case_ids_fail_instead_of_overwriting(self) -> None:
         def corpus(pair_id: str, case_id: str) -> dict[str, object]:
