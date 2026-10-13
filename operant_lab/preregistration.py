@@ -287,12 +287,7 @@ def write_preregistration(registration: dict[str, Any], path: Path) -> tuple[str
     if path.exists() or digest_path.exists():
         raise FileExistsError("preregistration or digest sidecar already exists")
     _exclusive_write(path, payload)
-    try:
-        _exclusive_write(digest_path, (digest + "  " + path.name + "\n").encode("ascii"))
-    except Exception:
-        # Do not leave a registration that falsely appears fully admitted if its
-        # sidecar could not be created. The registration itself remains recoverable.
-        raise
+    _exclusive_write(digest_path, (digest + "  " + path.name + "\n").encode("ascii"))
     return digest, digest_path
 
 
