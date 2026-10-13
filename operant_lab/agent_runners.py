@@ -27,8 +27,6 @@ native dispatch.
 from __future__ import annotations
 
 import hashlib
-import importlib
-import importlib.util
 import json
 import os
 import shlex
@@ -189,6 +187,16 @@ class ShellCommandRunner(AgentRunner):
                     proc.kill()
                     process_group_terminated = True
                 proc.wait()
+            except BaseException:
+                if os.name == "posix":
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                elif proc.poll() is None:  # pragma: no cover - POSIX CI
+                    proc.kill()
+                proc.wait()
+                raise
 
             def output_metadata(handle) -> tuple[str, int]:  # noqa: ANN001
                 size = handle.tell()
@@ -250,25 +258,6 @@ class PythonEntrypointRunner(AgentRunner):
             "python-entrypoint:sha256:"
             f"{hashlib.sha256(spec.encode('utf-8')).hexdigest()}"
         )
-
-    @staticmethod
-    def _resolve(spec: str) -> Callable[[str], str]:
-        if ":" not in spec:
-            raise ValueError("adapter spec must be 'module:func' or 'path.py:func'")
-        target, func_name = spec.rsplit(":", 1)
-        if target.endswith(".py") or "/" in target:
-            path = Path(target).resolve()
-            mod_spec = importlib.util.spec_from_file_location(path.stem, path)
-            if mod_spec is None or mod_spec.loader is None:
-                raise ImportError(f"cannot load module from {path}")
-            module = importlib.util.module_from_spec(mod_spec)
-            mod_spec.loader.exec_module(module)
-        else:
-            module = importlib.import_module(target)
-        func = getattr(module, func_name, None)
-        if not callable(func):
-            raise AttributeError(f"{spec} is not a callable")
-        return func
 
     def respond(self, prompt: str) -> RunnerResult:
         command = shlex.join(
