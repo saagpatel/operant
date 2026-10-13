@@ -62,7 +62,7 @@ jobs:
   verify:
     needs: [python, full-check]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Require every check to pass
         run: test "${{ needs.python.result }}" = "success" && test "${{ needs.full-check.result }}" = "success"
