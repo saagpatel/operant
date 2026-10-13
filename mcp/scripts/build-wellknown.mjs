@@ -12,8 +12,9 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const PKG_DIR = resolve(new URL("..", import.meta.url).pathname);
+const PKG_DIR = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const read = (rel) => readFileSync(resolve(PKG_DIR, rel), "utf8");
 
 const manifest = read(".well-known/mcp.json");

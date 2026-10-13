@@ -24,7 +24,6 @@ from operant_lab.public_contract import validate_public_artifacts
 from operant_lab.submissions import TEMPLATE, load_submission, validate_submission
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_SOURCE = Path("/Users/d/Projects/evals/agent_eval/operant/results")
 DEFAULT_PUBLIC = HERE / "lab" / "public"
 DEFAULT_LAB_RUNS = HERE / "lab" / "runs"
 DEFAULT_CODEX_APP_QUEUE = HERE / "lab" / "codex-app-queue"
@@ -139,7 +138,7 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     exp = sub.add_parser("export-public", help="export static public lab artifacts")
-    exp.add_argument("--source-results", type=Path, default=DEFAULT_SOURCE)
+    exp.add_argument("--source-results", type=Path, required=True)
     exp.add_argument("--out", type=Path, default=DEFAULT_PUBLIC)
     exp.add_argument("--include-lab-runs", action="store_true")
     exp.add_argument("--lab-runs", type=Path, default=DEFAULT_LAB_RUNS)

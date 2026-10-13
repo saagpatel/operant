@@ -320,6 +320,8 @@ def score_orchestration(
                 ),
                 "judge_model": model,
                 "n": len(cases),
+                "unparseable": 0,
+                "coverage": 0.0,
                 "judge_errors": judge_errors,
                 "missing": missing,
             }
@@ -331,6 +333,22 @@ def score_orchestration(
             ),
             "judge_model": model,
             "n": len(cases),
+            "unparseable": 0,
+            "coverage": 0.0,
+            "judge_errors": judge_errors,
+            "missing": missing,
+        }
+
+    scored_rows = [row for row in rows if row.get("score") is not None]
+    unparseable = len(rows) - len(scored_rows)
+    if not scored_rows:
+        return {
+            "status": "judge_unavailable",
+            "reason": f"judge model '{model}' returned no parseable verdicts",
+            "judge_model": model,
+            "n": 0,
+            "unparseable": unparseable,
+            "coverage": 0.0,
             "judge_errors": judge_errors,
             "missing": missing,
         }
@@ -340,6 +358,8 @@ def score_orchestration(
     agg["judge_model"] = model
     agg["judge_errors"] = judge_errors
     agg["missing"] = missing
+    agg["unparseable"] = unparseable
+    agg["coverage"] = round(len(scored_rows) / len(rows), 3)
     return agg
 
 

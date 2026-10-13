@@ -257,6 +257,10 @@ describe("getMethodology", () => {
 		const ax3 = m.axes.find((a) => a.axis === "orchestration");
 		expect(ax1?.case_count).toBe(1);
 		expect(ax3?.case_count).toBe(1);
+		expect(ax1?.scored_case_count).toBe(2);
+		expect(ax1?.pair_count).toBe(1);
+		expect(ax3?.scored_case_count).toBe(1);
+		expect(ax3?.pair_count).toBe(0);
 		expect(ax1?.array_key).toBe("pairs");
 		expect(ax3?.array_key).toBe("cases");
 	});

@@ -46,7 +46,7 @@ https://operant.saagarpatel.dev/mcp
 | `get_results` | Retained calculation profiles plus freshness, claim status, claims at risk, and the evidence boundary. |
 | `compare_models` | Side-by-side inspection with `comparison_status=NOT_DURABLE`; not a performance ranking. |
 | `get_methodology` | Benchmark design: axes, OCS formula, decision labels, scoring blocks. |
-| `list_cases` | Case metadata (no task prompts): id, axis, tier, grounding. Filter by axis or get all 37. |
+| `list_cases` | Case metadata (no task prompts): id, axis, tier, grounding. Filter by axis or get all 37 case/pair entries (57 scored cases). |
 | `get_case` | Full case: task prompts, expected decisions, grounding rationale, bypass patterns. |
 
 All tools are `readOnlyHint: true`. None takes a URL or filesystem path.

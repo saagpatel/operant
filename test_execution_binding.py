@@ -75,7 +75,10 @@ class ExecutionBindingTests(unittest.TestCase):
         serialized = json.dumps(binding, sort_keys=True)
         self.assertEqual(artifacts.validate_execution_binding(binding), [])
         self.assertEqual(binding["replay_class"], "INPUT_BOUND_NOT_REPLAYABLE")
-        self.assertEqual(binding["dependency_lock"]["status"], "UNKNOWN")
+        self.assertEqual(
+            binding["dependency_lock"]["status"], "LOCKFILE_PRESENT_UNVERIFIED"
+        )
+        self.assertEqual(binding["dependency_lock"]["files"], ["uv.lock"])
         self.assertEqual(
             binding["model_observation"]["served_model_identity"],
             "UNKNOWN",
@@ -972,6 +975,12 @@ class ExecutionBindingTests(unittest.TestCase):
         historical_binding.pop("post_dispatch_harness_python_environment")
         historical_binding.pop("subject_environment_linkage")
         historical_binding["source_state"].pop("reconstruction")
+        historical_binding["dependency_lock"] = {
+            "status": "UNKNOWN",
+            "files": [],
+            "sha256": "UNKNOWN",
+            "reason": "NO_RELEVANT_PYTHON_LOCKFILE",
+        }
         pre_dispatch = {
             **{
                 key: value

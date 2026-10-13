@@ -147,7 +147,7 @@ python3 operant_lab_cli.py check-public-artifacts
 When exporting public artifacts:
 
 ```bash
-python3 operant_lab_cli.py export-public
+python3 operant_lab_cli.py export-public --source-results <your-local-results-path>
 ```
 
 Include local lab runs only when their labels are intentionally ready for public
@@ -155,6 +155,7 @@ surface:
 
 ```bash
 python3 operant_lab_cli.py export-public \
+  --source-results <your-local-results-path> \
   --include-lab-runs \
   --lab-labels codex-gpt55-decision-r1
 ```

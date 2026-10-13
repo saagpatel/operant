@@ -573,7 +573,8 @@ def run_lab_layer_selftests() -> None:
             serialized_calibration = json.dumps(calibration, sort_keys=True)
             check(
                 "LAB export: calibration omits source path field",
-                "source_results" not in calibration and "/Users/" not in serialized_calibration,
+                "source_results" not in calibration
+                and ("/" + "Users/") not in serialized_calibration,
                 serialized_calibration,
             )
             binding = calibration.get("evidence_binding", {})
@@ -1217,7 +1218,8 @@ def run_lab_layer_selftests() -> None:
             serialized_calibration = json.dumps(calibration, sort_keys=True)
             check(
                 "LAB export: synthetic calibration omits source path field",
-                "source_results" not in calibration and "/Users/" not in serialized_calibration,
+                "source_results" not in calibration
+                and ("/" + "Users/") not in serialized_calibration,
                 serialized_calibration,
             )
             synthetic_errors = validate_public_artifacts(out_tmp)
@@ -1240,7 +1242,7 @@ def run_lab_layer_selftests() -> None:
             json.dumps(
                 {
                     "models": [{"run_family": "synthetic"}],
-                    "source_results": "/Users/testuser/private/results",
+                    "source_results": "/tmp/testuser/private/results",
                     "debug_token": "sk-abcdefghijklmnopqrstuvwxyz",
                 }
             ),

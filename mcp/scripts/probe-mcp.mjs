@@ -8,9 +8,10 @@
 //   node scripts/probe-mcp.mjs
 
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { probeStdioServer } from "saagar-mcp-kit/stdio-probe";
 
-const MCP_DIR = new URL("..", import.meta.url).pathname;
+const MCP_DIR = fileURLToPath(new URL("..", import.meta.url));
 const STDIO_BIN = join(resolve(MCP_DIR), "dist/stdio.js");
 
 const EXPECTED_TOOLS = [
