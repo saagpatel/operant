@@ -21,7 +21,11 @@ def _process_running(pid: int) -> bool:
         return False
     stat = Path(f"/proc/{pid}/stat")
     if stat.exists():
-        return stat.read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0] != "Z"
+        try:
+            return stat.read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0] != "Z"
+        except FileNotFoundError:
+            # Reaped between exists() and read_text().
+            return False
     state = subprocess.run(
         ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, check=False
     ).stdout.strip()
