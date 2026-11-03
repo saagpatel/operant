@@ -49,15 +49,15 @@
 		"dist"
 	],
 	"dependencies": {
-		"@modelcontextprotocol/sdk": "1.31.0",
-		"zod": "^3"
+		"@modelcontextprotocol/sdk": "1.32.0",
+		"zod": "^4"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4",
 		"esbuild": "0.28.1",
 		"saagar-mcp-kit": "^0.1.0",
 		"typescript": "^5",
-		"vite": "6.4.3",
+		"vite": "6.4.5",
 		"vitest": "5.0.3",
 		"wrangler": "^4"
 	},
