@@ -407,6 +407,55 @@ class BenchmarkIntegrityAdversarialTests(unittest.TestCase):
             selfserve.incomplete_attempt_reasons(summary),
         )
 
+    def test_no_judge_still_requires_requested_subject_dispatch(self) -> None:
+        axes = selfserve.load_axes()
+        decision_cases = axes["decision"]
+        orch_id, orch_case = next(iter(axes["orchestration"].items()))
+        decision_by_prompt = {
+            case["task_prompt"].strip(): case["expected_decisions"][0]
+            for case in decision_cases.values()
+        }
+
+        class Runner(AgentRunner):
+            descriptor = "synthetic:orchestration-admission"
+            fail_orchestration = False
+
+            def respond(self, prompt: str) -> RunnerResult:
+                task = prompt.rsplit("CASE PROMPT:\n", 1)[1].strip()
+                if task == orch_case["task_prompt"].strip():
+                    if self.fail_orchestration:
+                        return RunnerResult("", False, error="synthetic dispatch timeout")
+                    return RunnerResult("Use the supplied rubric to plan the task.", True)
+                label = decision_by_prompt[task]
+                return RunnerResult(f"DECISION: {label}\nJUSTIFICATION: fixture.", True)
+
+        runner = Runner()
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            unittest.mock.patch.object(score_my_agent, "make_runner", return_value=runner),
+            unittest.mock.patch.object(
+                selfserve,
+                "load_axes",
+                return_value={"decision": decision_cases, "orchestration": {orch_id: orch_case}},
+            ),
+            unittest.mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+        ):
+            args = [
+                "--adapter", "synthetic:respond",
+                "--operator-contract", str(ROOT / "examples/example-operator-contract.md"),
+                "--label", "no-judge-fixture",
+                "--axes", "all",
+                "--no-judge",
+                "--out", tmp,
+            ]
+            paths = selfserve.output_paths(Path(tmp), "no-judge-fixture")
+            self.assertEqual(score_my_agent.main(args), 0)
+            self.assertTrue(all(path.is_file() for path in paths.values()))
+            runner.fail_orchestration = True
+            self.assertEqual(score_my_agent.main(args), 2)
+            self.assertIn("orchestration_dispatch_incomplete", stdout.getvalue())
+            self.assertFalse(any(path.exists() for path in paths.values()))
+
     def test_output_lock_rejects_duplicate_same_label_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
