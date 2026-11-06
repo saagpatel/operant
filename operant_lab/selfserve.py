@@ -289,17 +289,29 @@ def score_orchestration(
     """Score orchestration plans with the LLM-judge. Degrades loudly: if the judge
     model is unreachable, returns status='judge_unavailable' with the reason rather
     than failing the whole run or silently emitting a fake number."""
+    usable, missing = [], []
+    for cid, case in cases.items():
+        res = answers.get(cid)
+        if res is None:
+            missing.append({"case_id": cid, "error": "no_answer"})
+        elif (reason := _result_rejection_reason(res)) is not None:
+            missing.append({"case_id": cid, "error": reason})
+        else:
+            usable.append((cid, case, res))
+
     if not enabled:
-        return {"status": "skipped", "reason": "judge disabled (--no-judge)", "n": len(cases)}
+        # --no-judge skips evaluation; the requested subject dispatch still ran.
+        return {
+            "status": "skipped",
+            "reason": "judge disabled (--no-judge)",
+            "n": len(cases),
+            "missing": missing,
+        }
 
     sjudge = _sibling("score_orchestration_judge")
     model = judge_model or sjudge.DEFAULT_JUDGE_MODEL
-    rows, judge_errors, missing = [], [], []
-    for cid, case in cases.items():
-        res = answers.get(cid)
-        if res is None or not _is_real_answer(res):
-            missing.append({"case_id": cid, "error": (res.error if res else "no_answer")})
-            continue
+    rows, judge_errors = [], []
+    for cid, case, res in usable:
         try:
             row = sjudge.judge_one(case, res.text, judge_model=model)
         except Exception as exc:  # noqa: BLE001 - judge dispatch failure is expected/handled
