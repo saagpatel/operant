@@ -9,7 +9,9 @@ from .verify import verify_receipt
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="Create and verify an operator-signed T1 receipt (CheckSeal DSSE + Ed25519)."
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     keygen = sub.add_parser("keygen")
     keygen.add_argument("--private", required=True)
@@ -36,7 +38,10 @@ def main():
         )
 
     if args.command == "keygen":
-        write(args.pubkeys, export_pubkey_json(generate_key(args.private, args.public)))
+        signer = generate_key(args.private, args.public)
+        write(args.pubkeys, export_pubkey_json(signer))
+        print("OPERANT operator-signed T1 receipt (CheckSeal DSSE + Ed25519)")
+        print(f"Key fingerprint: {signer.keyid}")
     elif args.command == "seal":
         write(args.out, seal_record(read(args.record), load_signer(args.private)))
     else:

@@ -1,4 +1,4 @@
-"""Create T1 local-key sitting receipts."""
+"""Create an operator-signed T1 receipt (CheckSeal DSSE + Ed25519)."""
 
 from __future__ import annotations
 
@@ -11,8 +11,6 @@ from checkseal.dsse import PAYLOAD_TYPE, Envelope, pae
 from checkseal.sign.local import (
     LocalKeySigner,
     load_private_signer,
-    write_private_pem,
-    write_public_pem,
 )
 from cryptography.hazmat.primitives import serialization
 
@@ -42,18 +40,37 @@ def load_signer(path):
 
 def generate_key(out_priv, out_pub):
     signer = LocalKeySigner.generate()
-    fd = os.open(out_priv, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    os.close(fd)
+    private_fd = os.open(Path(out_priv), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        pub_fd = os.open(out_pub, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-        os.close(pub_fd)
+        public_fd = os.open(Path(out_pub), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except Exception:
+        os.close(private_fd)
         Path(out_priv).unlink(missing_ok=True)
         raise
     try:
-        write_private_pem(signer, str(out_priv))
-        write_public_pem(signer, str(out_pub))
+        private_pem = signer._key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        public_pem = signer.public_key.public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        with os.fdopen(private_fd, "wb") as private_stream:
+            private_fd = -1
+            private_stream.write(private_pem)
+            private_stream.flush()
+            os.fsync(private_stream.fileno())
+        with os.fdopen(public_fd, "wb") as public_stream:
+            public_fd = -1
+            public_stream.write(public_pem)
+            public_stream.flush()
+            os.fsync(public_stream.fileno())
     except Exception:
+        for descriptor in (private_fd, public_fd):
+            if descriptor >= 0:
+                os.close(descriptor)
         Path(out_priv).unlink(missing_ok=True)
         Path(out_pub).unlink(missing_ok=True)
         raise
