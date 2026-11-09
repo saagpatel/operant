@@ -1,0 +1,61 @@
+{
+  "format": "operant.model-binding/v1",
+  "binding_fields": [
+    "binds",
+    "claimed_model",
+    "does_not_bind",
+    "evidence",
+    "evidence_sha256",
+    "format",
+    "level",
+    "observed_model"
+  ],
+  "levels": {
+    "unbound": {
+      "binds": [],
+      "does_not_bind": [
+        "Which model produced the answers; the claimed model is the submitter's unverified statement.",
+        "The provider's honesty about what it served; no provider signature or weights are checked.",
+        "That the answer did not come from a lookup of the public corpus, including its public expected decisions.",
+        "Anything about the submitter's setup outside relayed calls."
+      ],
+      "evidence_fields": ["calls", "claim_status"]
+    },
+    "host-relayed": {
+      "binds": [
+        "For every case the host constructed the final request with the case prompt, sitting id and case id and sent it to an operator-allowlisted provider.",
+        "Every recorded answer equals that call's completion text exactly.",
+        "The provider reported one consistent model; the claimed and observed model comparison is recorded."
+      ],
+      "does_not_bind": [
+        "The provider's honesty about what it served; no provider signature or weights are checked.",
+        "That the answer did not come from a lookup of the public corpus, including its public expected decisions.",
+        "Anything about the submitter's setup outside relayed calls."
+      ],
+      "evidence_fields": ["calls", "claim_status"]
+    }
+  },
+  "call_fields": [
+    "call_id",
+    "case_id",
+    "completion_text",
+    "finished_at",
+    "provider",
+    "request_body_b64",
+    "request_sha256",
+    "requested_model",
+    "response_body_b64",
+    "response_header_model",
+    "response_model",
+    "response_sha256",
+    "sitting_id",
+    "started_at",
+    "upstream_base_url"
+  ],
+  "claim_status": {
+    "unknown": "observed_model is null",
+    "match": "claimed_model equals observed_model",
+    "mismatch": "claimed_model differs from observed_model"
+  },
+  "observed_model": "the sole distinct nonempty response_model across calls, otherwise null"
+}
