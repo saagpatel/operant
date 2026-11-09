@@ -10,3 +10,6 @@ lab/runs/
 lab/receipt-lineage/
 lab/codex-app-queue/
 lab/followup/private/
+
+# Open Sittings local runner data
+sittings-data/
