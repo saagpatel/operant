@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Check a sitting receipt</title>
+  <link rel="stylesheet" href="../site.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <p class="kicker">OPERANT</p>
+      <h1>Check a receipt</h1>
+      <p class="lede">An operator-signed T1 receipt (CheckSeal DSSE + Ed25519). Each line is a check this page recomputed. Score replay and the case-prompt check run only in the CLI.</p>
+    </header>
+    <main>
+      <p id="key-notice" class="note"></p>
+      <form id="check">
+        <label for="receipt-text">Receipt JSON</label>
+        <textarea id="receipt-text" name="receipt" spellcheck="false" autocomplete="off"></textarea>
+        <label for="receipt-file">Upload a receipt file</label>
+        <input id="receipt-file" type="file" accept="application/json,.json">
+        <label for="record-text">Record JSON, if you have it</label>
+        <textarea id="record-text" name="record" spellcheck="false" autocomplete="off"></textarea>
+        <label for="record-file">Upload a record file</label>
+        <input id="record-file" type="file" accept="application/json,.json">
+        <button class="submit" type="submit">Check receipt</button>
+      </form>
+      <div id="result"></div>
+    </main>
+    <footer>
+      <p><a href="../instruments/">Published sittings</a></p>
+    </footer>
+  </div>
+  <noscript><p>This page checks receipts in the browser and needs JavaScript.</p></noscript>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>
