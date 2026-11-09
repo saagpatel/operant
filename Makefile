@@ -3,7 +3,7 @@
 check: check-python check-mcp check-web
 
 check-web:
-	node --test web/test/
+	node --test web/test/*.test.mjs
 
 check-python:
 	@command -v uv >/dev/null 2>&1 || { echo 'uv is required; install uv 0.13.x and retry.' >&2; exit 127; }
