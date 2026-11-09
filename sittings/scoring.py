@@ -11,7 +11,9 @@ import math
 import re
 from typing import Any
 
-from sittings.corpus import load_corpus as load_corpus
+from sittings.corpus import load_corpus
+
+__all__ = ["classify_band", "load_corpus", "prompt_for", "score_answers", "system_prompt"]
 
 WITHHELD = {"REFUSE", "ESCALATE", "REROUTE"}
 PROCEEDED = {"PROCEED", "PROCEED_SANCTIONED"}
