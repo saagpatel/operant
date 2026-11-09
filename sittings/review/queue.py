@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import re
 import shutil
 import tempfile
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -17,6 +19,50 @@ from typing import Any, Callable
 from sittings.canonical import canonical_sha256
 
 STATES = ("pending", "approved", "rejected")
+
+
+@contextmanager
+def _publication_lock(web_data: Path):
+    web_data.mkdir(parents=True, exist_ok=True)
+    # Keep the lock file in place: replacing/unlinking it would split concurrent lockers.
+    with (web_data / ".publication.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def _merge_pubkeys(pubkeys: Any) -> dict[str, Any]:
+    documents = pubkeys if isinstance(pubkeys, list) else [pubkeys]
+    merged = {}
+    for document in documents:
+        if (
+            not isinstance(document, dict)
+            or document.get("format") != "operant.sittings-pubkey/v1"
+            or not isinstance(document.get("keys"), list)
+            or not document["keys"]
+        ):
+            raise ValueError("invalid trusted public key document")
+        for entry in document["keys"]:
+            if (
+                not isinstance(entry, dict)
+                or not isinstance(entry.get("keyid"), str)
+                or not re.fullmatch(r"ed25519:[0-9a-f]{16}", entry["keyid"])
+                or entry.get("alg") != "ed25519"
+                or any(not isinstance(entry.get(field), str) or not entry[field]
+                       for field in ("public_key_pem", "spki_der_b64"))
+            ):
+                raise ValueError("invalid trusted public key entry")
+            previous = merged.get(entry["keyid"])
+            if previous is not None and any(
+                previous[field] != entry[field] for field in ("public_key_pem", "spki_der_b64")
+            ):
+                raise ValueError("conflicting trusted public key bytes for keyid")
+            merged[entry["keyid"]] = entry
+    if not merged:
+        raise ValueError("trusted public key document is required for publication")
+    return {"format": "operant.sittings-pubkey/v1", "keys": list(merged.values())}
 
 
 def _now() -> str:
@@ -213,6 +259,7 @@ class ReviewQueue:
             from sittings.receipt.verify import verify_receipt
 
             verifier = verify_receipt
+        pubkeys = _merge_pubkeys(pubkeys)
         report = verifier(
             current.get("receipt"), record=current["record"], pubkeys=pubkeys,
             blob_root=Path(web_data) / "blobs", repo_root=blob_source,
@@ -221,7 +268,14 @@ class ReviewQueue:
             raise ValueError("receipt verification failed")
 
         web_data = Path(web_data)
-        source = Path(blob_source)
+        with _publication_lock(web_data):
+            return self._publish(sitting_id, current, web_data, pubkeys, Path(blob_source))
+
+    def _publish(
+        self, sitting_id: str, current: dict[str, Any], web_data: Path,
+        pubkeys: dict[str, Any], source: Path,
+    ) -> dict[str, Any]:
+        """Publish verified bytes while holding the web directory's publication lock."""
         blob_directory = web_data / "blobs"
         if blob_directory.is_symlink():
             raise ValueError("symlink refused in content-addressed blob directory")
@@ -267,17 +321,6 @@ class ReviewQueue:
         binding = record.get("model_binding", {})
         for field in ("ocs", "tpr", "fpr", "accuracy", "safe_correct_rate"):
             _score_rate(record["score"].get(field))
-        if pubkeys is None:
-            raise ValueError("trusted public key document is required for publication")
-        if isinstance(pubkeys, list):
-            merged_keys = [entry for document in pubkeys for entry in document.get("keys", [])]
-            pubkeys = {"format": "operant.sittings-pubkey/v1", "keys": merged_keys}
-        if (
-            not isinstance(pubkeys, dict)
-            or pubkeys.get("format") != "operant.sittings-pubkey/v1"
-            or not isinstance(pubkeys.get("keys"), list)
-        ):
-            raise ValueError("invalid trusted public key document")
         row = {
             "sitting_id": sitting_id, "agent_label": record["agent_label"],
             "claimed_model": record["claimed_model"], **record["score"],
@@ -292,16 +335,13 @@ class ReviewQueue:
         rows.append(row)
         rows.sort(key=lambda r: (-_score_rate(r["ocs"]), r["sealed_at"]))
 
-        # Stage all replaceable JSON in their target directories; rows.json is the commit marker.
-        _atomic_json(web_data / "receipts" / f"{sitting_id}.receipt.json", receipt)
-        _atomic_json(web_data / "records" / f"{sitting_id}.record.json", record)
         existing_pubkeys = web_data / "sittings-pubkey.json"
         if existing_pubkeys.exists():
             previous_keys = json.loads(existing_pubkeys.read_text(encoding="utf-8"))
-            known = {entry.get("keyid") for entry in previous_keys.get("keys", [])}
-            additions = [entry for entry in pubkeys["keys"] if entry.get("keyid") not in known]
-            previous_keys["keys"].extend(additions)
-            pubkeys = previous_keys
+            pubkeys = _merge_pubkeys([previous_keys, pubkeys])
+        # Stage all replaceable JSON in their target directories; rows.json is the commit marker.
+        _atomic_json(web_data / "receipts" / f"{sitting_id}.receipt.json", receipt)
+        _atomic_json(web_data / "records" / f"{sitting_id}.record.json", record)
         _atomic_json(existing_pubkeys, pubkeys)
         _atomic_json(rows_path, rows_doc | {"rows": rows})
         self._move(sitting_id, "approved", reason=None)
@@ -315,12 +355,13 @@ class ReviewQueue:
     def unpublish(self, sitting_id: str, *, web_data: str | Path) -> None:
         sitting_id = _safe_id(sitting_id)
         web_data = Path(web_data)
-        rows_path = web_data / "rows.json"
-        doc = json.loads(rows_path.read_text()) if rows_path.exists() else {
-            "format": "operant.instruments-rows/v1", "rows": [],
-        }
-        doc["rows"] = [r for r in doc["rows"] if r.get("sitting_id") != sitting_id]
-        _atomic_json(rows_path, doc)
+        with _publication_lock(web_data):
+            rows_path = web_data / "rows.json"
+            doc = json.loads(rows_path.read_text()) if rows_path.exists() else {
+                "format": "operant.instruments-rows/v1", "rows": [],
+            }
+            doc["rows"] = [r for r in doc["rows"] if r.get("sitting_id") != sitting_id]
+            _atomic_json(rows_path, doc)
 
     def _move(self, sitting_id: str, target: str, *, reason: str | None) -> None:
         found = None

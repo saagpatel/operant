@@ -7,11 +7,16 @@ import hashlib
 import json
 import tempfile
 import unittest
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from sittings.canonical import canonical_sha256
 from sittings.review import ReviewQueue
+from sittings.review import queue as queue_module
 
 
 class ReviewQueueTests(unittest.TestCase):
@@ -90,6 +95,124 @@ class ReviewQueueTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "verification failed"):
             self.approve(self.failing)
         self.assertFalse(self.web.exists())
+
+    def test_key_documents_merge_and_deduplicate_before_verification(self) -> None:
+        self.queue.enqueue(self.record, self.receipt)
+        second = json.loads(json.dumps(self.pubkeys))
+        second["keys"][0]["keyid"] = "ed25519:fedcba9876543210"
+        verifier = Mock(return_value=SimpleNamespace(ok=True))
+        self.queue.approve("sit_abc", web_data=self.web, verifier=verifier,
+                           blob_source=self.source, pubkeys=[self.pubkeys, second, self.pubkeys])
+        expected = {"format": self.pubkeys["format"],
+                    "keys": self.pubkeys["keys"] + second["keys"]}
+        self.assertEqual(verifier.call_args.kwargs["pubkeys"], expected)
+        self.assertEqual(json.loads((self.web / "sittings-pubkey.json").read_text()), expected)
+
+    def test_invalid_or_conflicting_key_documents_fail_before_verification(self) -> None:
+        self.queue.enqueue(self.record, self.receipt)
+        conflict = json.loads(json.dumps(self.pubkeys))
+        conflict["keys"][0]["spki_der_b64"] = "AQ=="
+        for invalid in (None, [], {}, {"format": self.pubkeys["format"], "keys": [{}]},
+                        [self.pubkeys, conflict]):
+            with self.subTest(pubkeys=invalid):
+                verifier = Mock()
+                with self.assertRaises(ValueError):
+                    self.queue.approve("sit_abc", web_data=self.web, verifier=verifier,
+                                       blob_source=self.source, pubkeys=invalid)
+                verifier.assert_not_called()
+                self.assertFalse(self.web.exists())
+
+    def test_conflicting_published_key_cannot_overwrite_publication(self) -> None:
+        self.queue.enqueue(self.record, self.receipt)
+        self.approve()
+        rows_before = (self.web / "rows.json").read_bytes()
+        keys_before = (self.web / "sittings-pubkey.json").read_bytes()
+        conflict = json.loads(json.dumps(self.pubkeys))
+        conflict["keys"][0]["public_key_pem"] = "different pem"
+        self.queue.enqueue({**self.record, "sitting_id": "sit_def"}, self.receipt)
+        with self.assertRaisesRegex(ValueError, "conflicting"):
+            self.queue.approve("sit_def", web_data=self.web, verifier=self.passing,
+                               blob_source=self.source, pubkeys=conflict)
+        self.assertEqual((self.web / "rows.json").read_bytes(), rows_before)
+        self.assertEqual((self.web / "sittings-pubkey.json").read_bytes(), keys_before)
+        self.assertFalse((self.web / "receipts/sit_def.receipt.json").exists())
+
+    def test_concurrent_approvals_preserve_all_rows_and_keys(self) -> None:
+        count = 8
+        ready = threading.Barrier(count)
+        for index in range(count):
+            self.queue.enqueue({**self.record, "sitting_id": f"sit_{index}"}, self.receipt)
+
+        def verify(*args, **kwargs):
+            ready.wait(timeout=10)
+            return SimpleNamespace(ok=True)
+
+        def approve(index):
+            keys = json.loads(json.dumps(self.pubkeys))
+            keys["keys"][0]["keyid"] = f"ed25519:{index:016x}"
+            # Separate queue objects model separate CLI invocations sharing publication data.
+            return ReviewQueue(self.root / "data").approve(
+                f"sit_{index}", web_data=self.web, verifier=verify,
+                blob_source=self.source, pubkeys=keys,
+            )
+
+        atomic_json = queue_module._atomic_json
+
+        def delayed_write(path, value):
+            if path.name == "rows.json":
+                # Widen the lost-update window so unlocked read/modify/write regresses reliably.
+                time.sleep(0.02)
+            atomic_json(path, value)
+
+        with (patch.object(queue_module, "_atomic_json", side_effect=delayed_write),
+              ThreadPoolExecutor(max_workers=count) as pool):
+            rows = list(pool.map(approve, range(count)))
+        published = json.loads((self.web / "rows.json").read_text())["rows"]
+        self.assertCountEqual([row["sitting_id"] for row in published],
+                              [row["sitting_id"] for row in rows])
+        keys = json.loads((self.web / "sittings-pubkey.json").read_text())["keys"]
+        self.assertCountEqual([key["keyid"] for key in keys],
+                              [f"ed25519:{index:016x}" for index in range(count)])
+        self.assertEqual(len(self.queue.list("approved")), count)
+
+    def test_unpublish_waits_for_in_progress_publication(self) -> None:
+        self.queue.enqueue(self.record, self.receipt)
+        self.approve()
+        self.queue.enqueue({**self.record, "sitting_id": "sit_def"}, self.receipt)
+        publishing = threading.Event()
+        unpublishing = threading.Event()
+        release = threading.Event()
+        atomic_json = queue_module._atomic_json
+        flock = queue_module.fcntl.flock
+
+        def pause_publication(path, value):
+            if path.name == "rows.json" and len(value["rows"]) == 2:
+                publishing.set()
+                if not release.wait(timeout=10):
+                    raise TimeoutError("publication test was not released")
+            atomic_json(path, value)
+
+        def observe_lock(lock, operation):
+            if publishing.is_set() and operation == queue_module.fcntl.LOCK_EX:
+                unpublishing.set()
+            return flock(lock, operation)
+
+        with (patch.object(queue_module, "_atomic_json", side_effect=pause_publication),
+              patch.object(queue_module.fcntl, "flock", side_effect=observe_lock),
+              ThreadPoolExecutor(max_workers=2) as pool):
+            publish = pool.submit(self.queue.approve, "sit_def", web_data=self.web,
+                                  verifier=self.passing, blob_source=self.source, pubkeys=self.pubkeys)
+            try:
+                self.assertTrue(publishing.wait(timeout=10))
+                unpublish = pool.submit(self.queue.unpublish, "sit_abc", web_data=self.web)
+                self.assertTrue(unpublishing.wait(timeout=10))
+                self.assertFalse(unpublish.done())
+            finally:
+                release.set()
+            publish.result(timeout=10)
+            unpublish.result(timeout=10)
+        rows = json.loads((self.web / "rows.json").read_text())["rows"]
+        self.assertEqual([row["sitting_id"] for row in rows], ["sit_def"])
 
     def test_unsealed_is_rejected_and_cannot_publish(self) -> None:
         self.assertEqual(self.queue.enqueue(self.record, None), "rejected")

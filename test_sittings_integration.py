@@ -9,10 +9,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from checkseal.sign.local import LocalKeySigner
+
 from operant_lab.agent_runners import make_runner
 from sittings import client, manifest
 from sittings.receipt import export_pubkey_json, generate_key, verify_receipt
 from sittings.review import ReviewQueue
+from sittings.review.__main__ import main as review_main
 from sittings.runner.__main__ import main as runner_main
 from sittings.runner.server import RunnerServer
 from test_sittings_model_binding import MemorySocket
@@ -53,7 +56,7 @@ class OfflineIntegrationTests(unittest.TestCase):
                         return server.run_relay(state)
                     if action == "finish":
                         return server.finish(state)
-                    self.fail("unexpected client route")
+                    raise AssertionError("unexpected client route")
 
             finished = []
             for relay in (False, True):
@@ -78,9 +81,28 @@ class OfflineIntegrationTests(unittest.TestCase):
                 self.assertEqual(result["record"]["model_binding"]["level"],
                                  "host-relayed" if relay else "unbound")
                 queue = ReviewQueue(root / "data")
-                row = queue.approve(result["sitting_id"], web_data=root / "web-data",
-                                    pubkeys=keys, blob_source=manifest.REPO_ROOT)
-                self.assertEqual(row["sitting_id"], result["sitting_id"])
+                if relay:
+                    # Real CLI approval with two key files, including a duplicate key ID.
+                    first_keys = root / "first-keys.json"
+                    second_keys = root / "second-keys.json"
+                    first_keys.write_text(json.dumps(keys))
+                    rotated = export_pubkey_json(LocalKeySigner.generate())
+                    second_keys.write_text(json.dumps({**keys, "keys": keys["keys"] + rotated["keys"]}))
+                    with (patch("sys.argv", ["sittings.review", "approve", result["sitting_id"],
+                                            "--data-dir", str(root / "data"),
+                                            "--web-data", str(root / "web-data"),
+                                            "--blob-source", str(manifest.REPO_ROOT),
+                                            "--pubkey", str(first_keys),
+                                            "--pubkey", str(second_keys)]),
+                          patch("sys.stdout", new=io.StringIO()) as output):
+                        review_main()
+                    self.assertEqual(json.loads(output.getvalue())["sitting_id"], result["sitting_id"])
+                    published_keys = json.loads((root / "web-data/sittings-pubkey.json").read_text())
+                    self.assertEqual(published_keys["keys"], keys["keys"] + rotated["keys"])
+                else:
+                    row = queue.approve(result["sitting_id"], web_data=root / "web-data",
+                                        pubkeys=keys, blob_source=manifest.REPO_ROOT)
+                    self.assertEqual(row["sitting_id"], result["sitting_id"])
                 report = verify_receipt(result["receipt"], record=result["record"],
                                         pubkeys=keys, blob_root=root / "web-data" / "blobs")
                 self.assertTrue(report.ok, report.findings)
