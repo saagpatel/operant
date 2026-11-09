@@ -17,8 +17,9 @@ COMMON_LIMITS = [
     "Anything about the submitter's setup outside relayed calls.",
 ]
 POLICY = {
-    "unbound": (["The record includes a submitter-supplied model claim only."],
-                ["Which model produced the answers."] + COMMON_LIMITS),
+    "unbound": ([],
+                ["Which model produced the answers; the claimed model is the submitter's"
+                 " unverified statement."] + COMMON_LIMITS),
     "host-relayed": ([
         "For every case the host constructed the final request with the case prompt, sitting id and case id and sent it to an operator-allowlisted provider.",
         "Every recorded answer equals that call's completion text exactly.",

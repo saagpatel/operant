@@ -426,7 +426,8 @@ class RunnerTests(unittest.TestCase):
         binding = record["model_binding"]
         self.assertEqual(binding["level"], "unbound")
         self.assertEqual(binding["binds"], [])
-        self.assertEqual(binding["does_not_bind"], ["which model produced the answers"])
+        self.assertTrue(binding["does_not_bind"][0].startswith("Which model produced the answers"))
+        self.assertTrue(any("public" in item for item in binding["does_not_bind"]))
         self.assertEqual(binding["evidence_sha256"], canonical_sha256(binding["evidence"]))
         self.assertEqual(list(local.glob("*.receipt.json")), [])
 
