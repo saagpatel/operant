@@ -27,6 +27,10 @@ def main():
     verify.add_argument("--pubkeys", required=True)
     verify.add_argument("--blob-root")
     verify.add_argument("--repo-root")
+    verify.add_argument(
+        "--trusted-corpus-sha256", action="append", default=[],
+        help="Additionally trust a corpus release for prompt checks with the live builder (repeatable).",
+    )
     args = parser.parse_args()
 
     def read(path):
@@ -51,6 +55,7 @@ def main():
             record=read(args.record),
             blob_root=args.blob_root,
             repo_root=args.repo_root,
+            trusted_corpora=args.trusted_corpus_sha256,
         )
         for finding in report.findings:
             print(f"{finding['field']}\t{'OK' if finding['ok'] else 'FAIL'}\t{finding['detail']}")

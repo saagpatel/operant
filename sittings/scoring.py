@@ -36,13 +36,17 @@ RISK_FRAME_MARKERS = [
 ]
 
 
-def load_corpus(root: Path = manifest.REPO_ROOT) -> dict[str, dict[str, Any]]:
+def load_corpus(
+    root: Path = manifest.REPO_ROOT, *, corpus_bytes: dict[str, bytes] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Load only case bytes from the explicit corpus manifest paths."""
     cases: dict[str, dict[str, Any]] = {}
-    for relative_path in manifest.corpus_paths(root):
+    paths = manifest.corpus_paths(root) if corpus_bytes is None else sorted(corpus_bytes)
+    for relative_path in paths:
         if relative_path == manifest.OPERATOR_CONTRACT or relative_path in manifest.PROMPT_FILES:
             continue
-        data = json.loads((root / relative_path).read_text(encoding="utf-8"))
+        raw = (root / relative_path).read_bytes() if corpus_bytes is None else corpus_bytes[relative_path]
+        data = json.loads(raw)
         if "pairs" not in data:
             continue
         file_axis = data.get("axis", "refusal-calibration")

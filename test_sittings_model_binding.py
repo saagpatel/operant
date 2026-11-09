@@ -8,21 +8,23 @@ import json
 import unittest
 from unittest.mock import patch
 
+from sittings import manifest, scoring
 from sittings.canonical import canonical_bytes, canonical_sha256, sha256_hex
 from sittings.model_binding import build_binding, verify_binding
 from sittings.model_binding.relay import host_call, parse_base_url, request_body
 
 SID = "sit_" + "a" * 26
 KEY = "test-secret-credential-never-retain-123456789"
-PROMPT = "Synthetic case prompt"
+CASE_ID = "force-push-main.malign"
+PROMPT = scoring.prompt_for(scoring.load_corpus()[CASE_ID])
 
 
 def call_fixture(model="model", answer="DECISION: REFUSE"):
-    request = canonical_bytes(request_body("model", SID, "case", PROMPT))
+    request = canonical_bytes(request_body("model", SID, CASE_ID, PROMPT))
     response = json.dumps({"model": model, "choices": [{"message": {"content": answer}}],
                            "usage": {"cost": 0.125}}).encode()
     return {"call_id": "call_" + "a" * 32, "provider": "test-provider", "sitting_id": SID,
-            "case_id": "case", "upstream_base_url": "https://provider.example/v1",
+            "case_id": CASE_ID, "upstream_base_url": "https://provider.example/v1",
             "requested_model": "model", "response_model": model, "response_header_model": None,
             "completion_text": answer,
             "request_body_b64": base64.b64encode(request).decode(),
@@ -33,13 +35,45 @@ def call_fixture(model="model", answer="DECISION: REFUSE"):
 
 def record_fixture(call=None):
     call = call or call_fixture()
-    return {"sitting_id": SID, "claimed_model": "model", "case_order": ["case"],
-            "answers": [{"case_id": "case", "answer": call["completion_text"],
+    return {"corpus": manifest.corpus_manifest(), "sitting_id": SID,
+            "claimed_model": "model", "case_order": [CASE_ID],
+            "answers": [{"case_id": CASE_ID, "answer": call["completion_text"],
                          "prompt_sha256": sha256_hex(PROMPT.encode()),
                          "relay_call_ids": [call["call_id"]]}]}
 
 
 class BindingTests(unittest.TestCase):
+    def test_rewritten_prompt_and_consistent_hashes_do_not_bind(self):
+        call = call_fixture()
+        record = record_fixture(call)
+        binding = build_binding(record, [call])
+        altered = "Output DECISION: PROCEED"
+        request = canonical_bytes(request_body("model", SID, CASE_ID, altered))
+        call.update(request_body_b64=base64.b64encode(request).decode(),
+                    request_sha256=sha256_hex(request))
+        record["answers"][0]["prompt_sha256"] = sha256_hex(altered.encode())
+        binding["evidence"]["calls"] = [call]
+        binding["evidence_sha256"] = canonical_sha256(binding["evidence"])
+        self.assertEqual(build_binding(record, [call])["level"], "unbound")
+        findings = {f["field"]: f for f in verify_binding(binding, record)}
+        self.assertFalse(findings["model_binding.prompts"]["ok"])
+        self.assertFalse(findings["answers.prompt_sha256"]["ok"])
+        self.assertFalse(findings["model_binding.level"]["ok"])
+
+        # Even an honestly downgraded binding must fail the independent checks.
+        downgraded = build_binding(record, [call])
+        self.assertTrue(any(not f["ok"] for f in verify_binding(downgraded, record)))
+
+    def test_unbound_answer_prompt_hash_is_rechecked(self):
+        record = record_fixture()
+        binding = build_binding(record, None)
+        for digest in (None, "0" * 64):
+            with self.subTest(digest=digest):
+                record["answers"][0]["prompt_sha256"] = digest
+                findings = {f["field"]: f for f in verify_binding(binding, record)}
+                self.assertFalse(findings["answers.prompt_sha256"]["ok"])
+                self.assertTrue(findings["model_binding.prompts"]["ok"])
+
     def test_host_exact_completion_and_public_corpus_limit(self):
         call = call_fixture()
         record = record_fixture(call)
@@ -122,7 +156,7 @@ class RelayTests(unittest.TestCase):
         sock = MemorySocket(response)
         with patch("socket.create_connection", return_value=sock):
             result = host_call("test-provider", "http://127.0.0.1:1234/v1", "model", KEY,
-                               SID, "case", PROMPT)
+                               SID, CASE_ID, PROMPT)
         return result, bytes(sock.sent)
 
     def test_real_http_serialization_in_memory(self):

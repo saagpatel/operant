@@ -214,8 +214,12 @@ def _runner_reasons(record):
 def verify_receipt(
     receipt, *, pubkeys, record=None, blob_root=None, repo_root=None, rescore=True,
     trusted_scorers=TRUSTED_SCORERS,
+    trusted_corpora=(),
 ):
-    """Verify in amendment A6 order: parse, key agreement, signature, then claims."""
+    """Verify in amendment A6 order: parse, key agreement, signature, then claims.
+
+    trusted_corpora lists additional corpus hashes accepted for live prompt checks.
+    """
     report = Report()
     try:
         envelope = Envelope.from_jsonable(receipt["envelope"])
@@ -311,7 +315,10 @@ def verify_receipt(
         report.add("score", False, "rescore skipped because format, subject, or answers failed")
     try:
         from sittings.model_binding import verify_binding
-        findings = verify_binding(pred["model_binding"], record)
+        findings = verify_binding(
+            pred["model_binding"], record,
+            corpus_bytes=manifests.get("corpus", {}), trusted_corpora=trusted_corpora,
+        )
         if not findings:
             raise ValueError("binding verifier returned no findings")
         report.findings.extend(findings)

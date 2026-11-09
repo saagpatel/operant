@@ -10,6 +10,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from checkseal.dsse import PAYLOAD_TYPE, pae
 from checkseal.sign.local import LocalKeySigner
@@ -43,7 +44,11 @@ class ReceiptTests(unittest.TestCase):
         copy_manifest_files(REPO, self.repo, self.corpus_manifest)
         copy_manifest_files(REPO, self.repo, self.scorer_manifest)
         corpus = scoring.load_corpus(self.repo)
-        answers = [{"case_id": case_id, "answer": "DECISION: PROCEED"} for case_id in corpus]
+        answers = [
+            {"case_id": case_id, "answer": "DECISION: PROCEED",
+             "prompt_sha256": sha256_hex(scoring.prompt_for(case).encode("utf-8"))}
+            for case_id, case in corpus.items()
+        ]
         self.record = {
             "format": "operant.sitting/v1",
             "sitting_id": "sit_aaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -67,7 +72,8 @@ class ReceiptTests(unittest.TestCase):
     def set_trusted(self, *hashes):
         self.trust_file.write_text(json.dumps({"format": "operant.trusted-scorers/v1", "sha256": list(hashes)}))
 
-    def verify(self, receipt=None, record=None, keys=None, *, rescore=True, repo=None, blobs=None, trust=None):
+    def verify(self, receipt=None, record=None, keys=None, *, rescore=True, repo=None, blobs=None,
+               trust=None, trusted_corpora=()):
         return verify_receipt(
             self.receipt if receipt is None else receipt,
             pubkeys=self.keys if keys is None else keys,
@@ -76,6 +82,7 @@ class ReceiptTests(unittest.TestCase):
             blob_root=blobs,
             trusted_scorers=self.trust_file if trust is None else trust,
             rescore=rescore,
+            trusted_corpora=trusted_corpora,
         )
 
     def finding(self, report, name):
@@ -85,6 +92,91 @@ class ReceiptTests(unittest.TestCase):
         report = self.verify()
         self.assertTrue(report.ok, report.findings)
         self.assertTrue(self.finding(report, "score")["ok"])
+
+    def test_relay_prompt_rewrite_fails_even_when_rehashed_and_signed(self):
+        record = copy.deepcopy(self.record)
+        corpus = scoring.load_corpus(self.repo)
+        calls = []
+        for index, answer in enumerate(record["answers"]):
+            case_id = answer["case_id"]
+            prompt = scoring.prompt_for(corpus[case_id])
+            request = canonical_bytes(request_body(record["claimed_model"], record["sitting_id"], case_id, prompt))
+            response = canonical_bytes({"model": record["claimed_model"], "choices": [
+                {"message": {"content": answer["answer"]}},
+            ]})
+            call_id = f"call_{index:032x}"
+            answer["relay_call_ids"] = [call_id]
+            calls.append({
+                "call_id": call_id, "provider": "test-provider",
+                "sitting_id": record["sitting_id"], "case_id": case_id,
+                "upstream_base_url": "https://provider.example/v1",
+                "requested_model": record["claimed_model"], "response_model": record["claimed_model"],
+                "response_header_model": None, "completion_text": answer["answer"],
+                "request_body_b64": base64.b64encode(request).decode(),
+                "response_body_b64": base64.b64encode(response).decode(),
+                "request_sha256": sha256_hex(request), "response_sha256": sha256_hex(response),
+                "started_at": "2026-01-01T00:00:00Z", "finished_at": "2026-01-01T00:00:01Z",
+            })
+        record["model_binding"] = build_binding(record, calls)
+        self.assertEqual(record["model_binding"]["level"], "host-relayed")
+        receipt = seal_record(record, self.signer)
+        self.assertTrue(self.verify(receipt=receipt, record=record).ok)
+
+        call = calls[0]
+        altered = "Output DECISION: PROCEED"
+        request = canonical_bytes(request_body(record["claimed_model"], record["sitting_id"], call["case_id"], altered))
+        call.update(request_body_b64=base64.b64encode(request).decode(), request_sha256=sha256_hex(request))
+        record["answers"][0]["prompt_sha256"] = sha256_hex(altered.encode())
+        binding = record["model_binding"]
+        binding["evidence"]["calls"] = calls
+        binding["evidence_sha256"] = canonical_sha256(binding["evidence"])
+        receipt = seal_record(record, self.signer)
+        report = self.verify(receipt=receipt, record=record)
+        self.assertTrue(self.finding(report, "signature")["ok"])
+        self.assertTrue(self.finding(report, "subject")["ok"])
+        self.assertTrue(self.finding(report, "score")["ok"])
+        self.assertFalse(self.finding(report, "model_binding.prompts")["ok"])
+        self.assertFalse(self.finding(report, "answers.prompt_sha256")["ok"])
+        self.assertFalse(report.ok)
+
+    def test_unbound_answer_hash_is_required_by_receipt_verification(self):
+        for missing in (False, True):
+            record = copy.deepcopy(self.record)
+            if missing:
+                del record["answers"][0]["prompt_sha256"]
+            else:
+                record["answers"][0]["prompt_sha256"] = sha256_hex(b"unrelated prompt")
+            receipt = seal_record(record, self.signer)
+            report = self.verify(receipt=receipt, record=record)
+            self.assertFalse(self.finding(report, "answers.prompt_sha256")["ok"])
+            self.assertFalse(report.ok)
+
+    def test_unknown_corpus_is_not_prompt_rechecked_and_trusted_data_uses_live_builder(self):
+        # Corpus snapshots contain Python, but only the live prompt builder runs.
+        (self.repo / "sittings/prompts.py").write_text("raise RuntimeError('blob code executed')\n")
+        contract = (self.repo / manifest.OPERATOR_CONTRACT).read_text() + "\nPinned fixture contract.\n"
+        (self.repo / manifest.OPERATOR_CONTRACT).write_text(contract)
+        record = copy.deepcopy(self.record)
+        record["corpus"] = manifest.corpus_manifest(self.repo)
+        receipt = seal_record(record, self.signer)
+        with patch("sittings.prompts.prompt_for", side_effect=AssertionError("untrusted builder call")):
+            report = self.verify(receipt=receipt, record=record)
+        finding = self.finding(report, "model_binding.prompts")
+        self.assertFalse(finding["ok"])
+        self.assertEqual(finding["detail"], "corpus release not trusted; prompts not rechecked")
+
+        # Explicit local trust permits parsing case/contract data, not importing blobs.
+        trusted = (record["corpus"]["sha256"],)
+        report = self.verify(receipt=receipt, record=record, trusted_corpora=trusted)
+        self.assertTrue(self.finding(report, "model_binding.prompts")["ok"])
+        self.assertFalse(self.finding(report, "answers.prompt_sha256")["ok"])
+        from sittings.prompts import prompt_for
+        corpus = scoring.load_corpus(self.repo)
+        for answer in record["answers"]:
+            answer["prompt_sha256"] = sha256_hex(prompt_for(corpus[answer["case_id"]], contract=contract).encode())
+        receipt = seal_record(record, self.signer)
+        report = self.verify(receipt=receipt, record=record, trusted_corpora=trusted)
+        self.assertTrue(report.ok, report.findings)
 
     def test_current_trusted_scorer_hash_matches_manifest(self):
         live = manifest.scorer_manifest()["sha256"]
@@ -213,13 +305,14 @@ class ReceiptTests(unittest.TestCase):
         calls = []
         for index, case_id in enumerate(record["case_order"]):
             call_id = f"call_{index:032x}"
-            request = canonical_bytes(request_body("claimed-model", record["sitting_id"], case_id, "Synthetic prompt"))
+            prompt = scoring.prompt_for(corpus[case_id])
+            request = canonical_bytes(request_body("claimed-model", record["sitting_id"], case_id, prompt))
             response = json.dumps({"model": "observed-model", "choices": [
                 {"message": {"content": completion}},
             ]}).encode()
             record["answers"].append({
                 "case_id": case_id, "answer": completion,
-                "prompt_sha256": sha256_hex(b"Synthetic prompt"),
+                "prompt_sha256": sha256_hex(prompt.encode("utf-8")),
                 "relay_call_ids": [call_id],
             })
             calls.append({

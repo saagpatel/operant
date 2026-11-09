@@ -70,22 +70,35 @@ def _validate_call(call, record):
         instants.append(datetime.fromisoformat(call[field][:-1] + "+00:00"))
     if instants[0] > instants[1]:
         raise ValueError("invalid relay time order")
-    return sha256_hex(prompt.encode("utf-8"))
+    return prompt
 
 
 def build_binding(record_without_binding: dict, relay_log: list[dict] | None) -> dict:
+    """Downgrade to unbound if prompts or bound corpus bytes cannot be matched."""
+    from sittings.prompts import expected_prompts
+
+    try:
+        prompts = expected_prompts(record_without_binding["corpus"])
+    except Exception:
+        prompts = None
+    return _build_binding(record_without_binding, relay_log, prompts)
+
+
+def _build_binding(record_without_binding, relay_log, prompts):
     record = record_without_binding
     calls = copy.deepcopy(relay_log or [])
     if not isinstance(calls, list):
         raise ValueError("invalid relay evidence")
     seen = set()
-    linked = len(calls) == len(record.get("case_order", [])) and bool(calls)
+    linked = prompts is not None and len(calls) == len(record.get("case_order", [])) and bool(calls)
     models = set()
     requests = set()
     cases = set()
     for call in calls:
         try:
-            prompt_hash = _validate_call(call, record)
+            prompt = _validate_call(call, record)
+            if prompts is None or prompt != prompts.get(call["case_id"]):
+                linked = False
             if call["call_id"] in seen or call["case_id"] in cases:
                 raise ValueError("duplicate relay call")
             seen.add(call["call_id"])
@@ -101,7 +114,7 @@ def build_binding(record_without_binding: dict, relay_log: list[dict] | None) ->
             answers = [a for a in record["answers"] if a["case_id"] == call["case_id"]]
             linked = linked and len(answers) == 1 and (
                 answers[0]["answer"] == call["completion_text"]
-                and answers[0]["prompt_sha256"] == prompt_hash
+                and answers[0]["prompt_sha256"] == sha256_hex(prompt.encode("utf-8"))
                 and answers[0]["relay_call_ids"] == [call["call_id"]])
         except Exception:
             raise ValueError("invalid relay evidence") from None
@@ -117,10 +130,32 @@ def build_binding(record_without_binding: dict, relay_log: list[dict] | None) ->
             "evidence": evidence, "evidence_sha256": canonical_sha256(evidence)}
 
 
-def verify_binding(binding: dict, record: dict) -> list[dict]:
+def verify_binding(binding: dict, record: dict, *, corpus_bytes=None, trusted_corpora=()) -> list[dict]:
+    """Recheck prompts using live code; extra corpus trust is caller-owned policy."""
+    from sittings.prompts import expected_prompts
+
+    findings = []
+    prompts = None
     try:
-        expected = build_binding(record, binding["evidence"]["calls"])
-        findings = []
+        prompts = expected_prompts(
+            record["corpus"], corpus_bytes=corpus_bytes, trusted_corpora=trusted_corpora,
+        )
+        calls = binding["evidence"]["calls"]
+        prompts_ok = all(_validate_call(call, record) == prompts.get(call["case_id"]) for call in calls)
+        findings.append({"field": "model_binding.prompts", "ok": prompts_ok,
+                         "detail": "relay prompts match bound corpus and contract"})
+        answers_ok = all(
+            answer["case_id"] in prompts
+            and answer.get("prompt_sha256") == sha256_hex(prompts[answer["case_id"]].encode("utf-8"))
+            for answer in record["answers"]
+        )
+        findings.append({"field": "answers.prompt_sha256", "ok": answers_ok,
+                         "detail": "answer prompt hashes match bound corpus and contract"})
+    except Exception as exc:
+        for field in ("model_binding.prompts", "answers.prompt_sha256"):
+            findings.append({"field": field, "ok": False, "detail": str(exc)})
+    try:
+        expected = _build_binding(record, binding["evidence"]["calls"], prompts)
         for field in expected:
             findings.append({"field": "model_binding." + field,
                              "ok": binding.get(field) == expected[field],
@@ -129,4 +164,5 @@ def verify_binding(binding: dict, record: dict) -> list[dict]:
                          "detail": "exact v1 schema"})
         return findings
     except Exception:
-        return [{"field": "model_binding", "ok": False, "detail": "invalid binding evidence"}]
+        findings.append({"field": "model_binding", "ok": False, "detail": "invalid binding evidence"})
+        return findings
