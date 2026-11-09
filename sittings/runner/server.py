@@ -311,6 +311,11 @@ class RunnerServer(ThreadingHTTPServer):
         if state.get("result") is not None:
             return state["result"]
         self.check_bound_state(state)
+        if len(state["answers"]) == len(state["case_order"]):
+            # Every provider answer is already persisted; finalization needs no credential,
+            # so a retry after a transient sealing or review failure must not strand the sitting.
+            self.relay_keys.pop(sid, None)
+            return self.finish(state)
         key = self.relay_keys.get(sid)
         if key is None:
             raise APIError(409, "relay credential is no longer available; create a new sitting")

@@ -314,6 +314,62 @@ class RunnerLogicTests(unittest.TestCase):
                     self.assertNotIn(secret.encode(), path.read_bytes())
 
 
+    def test_relay_retry_after_failed_finalization_needs_no_provider_calls(self):
+        from sittings.model_binding import build_binding
+        from sittings.model_binding.relay import request_body, timestamp
+
+        with tempfile.TemporaryDirectory(prefix=".test-runner-retry-", dir=ROOT) as directory:
+            calls = []
+
+            def transport(provider, base_url, model, api_key, sid, cid, prompt):
+                calls.append(cid)
+                request_raw = canonical_bytes(request_body(model, sid, cid, prompt))
+                completion = "DECISION: ESCALATE"
+                response_raw = canonical_bytes({
+                    "model": "served-model",
+                    "choices": [{"message": {"role": "assistant", "content": completion}}],
+                })
+                return {
+                    "call_id": "call_" + sha256_hex(cid.encode())[:32],
+                    "provider": provider, "sitting_id": sid, "case_id": cid,
+                    "upstream_base_url": base_url, "requested_model": model,
+                    "response_model": "served-model", "response_header_model": "served-model",
+                    "completion_text": completion,
+                    "request_body_b64": base64.b64encode(request_raw).decode("ascii"),
+                    "response_body_b64": base64.b64encode(response_raw).decode("ascii"),
+                    "request_sha256": sha256_hex(request_raw),
+                    "response_sha256": sha256_hex(response_raw),
+                    "started_at": timestamp(), "finished_at": timestamp(),
+                }
+
+            failures = {"left": 1}
+
+            def flaky_receipt(record):
+                if failures["left"]:
+                    failures["left"] -= 1
+                    raise APIError(503, "transient sealing failure")
+                return None
+
+            config = RunnerConfig(
+                data_dir=directory, relay_providers={"fake": "https://provider.example/v1"},
+                relay_transport=transport, binding_hook=build_binding,
+                receipt_hook=flaky_receipt,
+            )
+            with patch("http.server.ThreadingHTTPServer.__init__", return_value=None):
+                server = RunnerServer(("127.0.0.1", 0), config)
+            created = server.create_sitting({
+                **CREATE, "relay": {"provider": "fake", "model": "served-model", "api_key": "retry-test-key-0001"},
+            }, "127.0.0.1")
+            sid = created["sitting_id"]
+            with self.assertRaises(APIError):
+                server.run_relay(server.store.load(sid))
+            first_calls = len(calls)
+            self.assertEqual(first_calls, created["total_cases"])
+            self.assertNotIn(sid, server.relay_keys)
+            result = server.run_relay(server.store.load(sid))
+            self.assertEqual(len(calls), first_calls)
+            self.assertEqual(result["record"]["model_binding"]["level"], "host-relayed")
+
     def test_concurrent_key_cleanup_during_create_keeps_relay_key(self):
         with tempfile.TemporaryDirectory() as directory:
             config = RunnerConfig(
