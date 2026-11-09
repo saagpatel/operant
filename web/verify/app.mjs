@@ -1,8 +1,11 @@
 import { el, clear } from "../lib/dom.mjs";
 import {
+  RECEIPT_WORDING,
   SITTING_ID,
+  displayRate,
   displayScalar,
   fullRecheckCommand,
+  isRateKey,
   parseJson,
   verifyReceipt,
 } from "../lib/verify.mjs";
@@ -71,18 +74,34 @@ function renderHashes(parent, predicate, statement) {
   parent.append(dl);
 }
 
+function scoreText(key, value) {
+  if (isRateKey(key)) return displayRate(value);
+  return displayScalar(value);
+}
+
 function renderScore(parent, score) {
   parent.append(el("h2", { text: "Signed score" }));
-  parent.append(el("p", { className: "note", text: "Not re-executed in the browser." }));
+  parent.append(el("p", { className: "note", text: "Rescoring is not checked in browser." }));
   if (!score || typeof score !== "object") {
     parent.append(el("p", { text: "No score in the signed predicate." }));
     return;
   }
-  const order = ["ocs", "tpr", "fpr", "n_scored", "n_cases", "n_unanswered", "band"];
-  const keys = [...order.filter((key) => key in score), ...Object.keys(score).filter((key) => !order.includes(key)).sort()];
+  const order = [
+    "ocs", "accuracy", "tpr", "fpr", "safe_correct_rate",
+    "n_scored", "n_cases", "n_unanswered", "n_unparseable", "n_bypass_failures",
+    "band", "publishable",
+  ];
+  const keys = [
+    ...order.filter((key) => key in score),
+    ...Object.keys(score).filter((key) => !order.includes(key) && key !== "not_publishable_reasons").sort(),
+  ];
   const dl = el("dl");
-  for (const key of keys) addPair(dl, key, displayScalar(score[key]));
+  for (const key of keys) addPair(dl, key, scoreText(key, score[key]));
   parent.append(dl);
+  const reasons = score.not_publishable_reasons;
+  if (Array.isArray(reasons) && reasons.length > 0) {
+    renderList(parent, "not_publishable_reasons", reasons);
+  }
 }
 
 function renderResult(report) {
@@ -91,19 +110,27 @@ function renderResult(report) {
   const summary = el("p", {
     className: report.ok ? "summary" : "summary bad",
     text: report.ok
-      ? "All browser checks passed. The score was not re-executed here."
+      ? "All browser checks passed. Rescoring is not checked in browser."
       : `${failed} browser check${failed === 1 ? "" : "s"} failed.`,
   });
   result.append(summary);
+  result.append(el("p", { text: RECEIPT_WORDING }));
+
+  result.append(el("h2", { text: "Key fingerprint" }));
+  result.append(el("p", {
+    className: "fingerprint",
+    text: report.fingerprint || "(fingerprint not agreed)",
+  }));
 
   result.append(el("h2", { text: "Checks" }));
   const list = el("ul", { className: "findings" });
   for (const item of report.findings) {
-    const kind = item.field === "not_checked" ? "note-row" : item.ok ? "pass" : "fail";
-    const mark = item.field === "not_checked" ? "note" : item.ok ? "pass" : "fail";
+    const note = item.field === "not_checked";
+    const kind = note ? "note-row" : item.ok ? "pass" : "fail";
+    const mark = note ? "note" : item.ok ? "pass" : "fail";
     const li = el("li", { className: kind });
     li.append(el("span", { className: "mark", text: mark }));
-    li.append(el("span", { className: "field", text: item.field }));
+    li.append(el("span", { className: "field", text: note ? "not checked in browser" : item.field }));
     li.append(el("span", { className: "detail", text: item.detail }));
     list.append(li);
   }
@@ -115,16 +142,23 @@ function renderResult(report) {
 
   result.append(el("h2", { text: "Model binding" }));
   const binding = predicate?.model_binding;
-  result.append(el("p", { text: `Binding level: ${binding && typeof binding.level === "string" ? binding.level : "(missing)"}` }));
+  const level = binding && typeof binding.level === "string" ? binding.level : "(missing)";
+  result.append(el("p", { text: `Binding level: ${level}` }));
+  if (level === "host-relayed") {
+    result.append(el("p", {
+      className: "note",
+      text: "Host-relayed answers were compared in the browser with the recorded completion text of each relay call, and the evidence hashes were recomputed.",
+    }));
+  }
   renderList(result, "Binds", binding?.binds);
   renderList(result, "Does not bind", binding?.does_not_bind);
 
-  result.append(el("h2", { text: "What this seal binds" }));
+  result.append(el("h2", { text: "What this receipt binds" }));
   renderList(result, "Binds", predicate?.seal_binds);
   renderList(result, "Does not bind", predicate?.seal_does_not_bind);
 
   result.append(el("h2", { text: "Full re-check" }));
-  result.append(el("p", { text: "Score re-execution needs Python." }));
+  result.append(el("p", { text: "Rescoring is not checked in browser." }));
   result.append(el("pre", { className: "command", text: fullRecheckCommand(predicate?.sitting_id) }));
 }
 
