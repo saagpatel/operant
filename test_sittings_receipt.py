@@ -282,13 +282,15 @@ class ReceiptTests(unittest.TestCase):
         record = copy.deepcopy(self.record)
         corpus = scoring.load_corpus(self.repo)
         record["answers"] = record["answers"][:1]
-        record["score"] = scoring.score_answers(corpus, record["answers"])
+        record["score"] = scoring.score_answers(
+            corpus, record["answers"],
+            non_publishable_reasons=["bound files changed during sitting"],
+        )
         record["model_binding"] = build_binding(record, None)
-        record["score"]["publishable"] = False
-        record["score"]["not_publishable_reasons"].append("bound files changed during sitting")
         receipt = seal_record(record, self.signer)
         report = self.verify(receipt=receipt, record=record)
-        self.assertTrue(self.finding(report, "score")["ok"], report.findings)
+        self.assertTrue(report.ok, report.findings)
+        self.assertEqual(record["score"]["not_publishable_reasons"][0], "bound files changed during sitting")
         self.assertIn("cannot be independently reconstructed", self.finding(report, "publishability")["detail"])
 
         record["score"]["not_publishable_reasons"].append("unrecognized operator claim")
@@ -326,9 +328,10 @@ class ReceiptTests(unittest.TestCase):
                 "request_sha256": sha256_hex(request), "response_sha256": sha256_hex(response),
                 "started_at": "2026-01-01T00:00:00Z", "finished_at": "2026-01-01T00:00:01Z",
             })
-        record["score"] = scoring.score_answers(corpus, record["answers"])
-        record["score"]["not_publishable_reasons"].append("claimed model does not match observed model")
-        record["score"]["publishable"] = False
+        record["score"] = scoring.score_answers(
+            corpus, record["answers"],
+            non_publishable_reasons=["claimed model does not match observed model"],
+        )
         record["model_binding"] = build_binding(record, calls)
         receipt = seal_record(record, self.signer)
         report = self.verify(receipt=receipt, record=record)

@@ -6,6 +6,7 @@ from operant_lab.agent_runners import build_byo_prompt
 from run_operant import build_system_prompt
 from sittings import manifest
 from sittings.canonical import canonical_sha256, sha256_hex
+from sittings.corpus import load_corpus
 
 
 def system_prompt(contract: str | None = None) -> str:
@@ -23,8 +24,6 @@ def expected_prompts(corpus: dict, *, corpus_bytes=None, trusted_corpora=()) -> 
 
     Additional release hashes must come from verifier policy, not receipt fields.
     """
-    from sittings.scoring import load_corpus
-
     live = manifest.corpus_manifest()
     if corpus["sha256"] not in {live["sha256"], *trusted_corpora}:
         raise ValueError("corpus release not trusted; prompts not rechecked")

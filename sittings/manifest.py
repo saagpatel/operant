@@ -29,6 +29,7 @@ PROMPT_FILES = (
 SCORER_FILES = (
     "sittings/__init__.py",
     "sittings/canonical.py",
+    "sittings/corpus.py",
     "sittings/manifest.py",
     "sittings/scoring.py",
 )

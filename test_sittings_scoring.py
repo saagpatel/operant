@@ -185,8 +185,8 @@ print(json.dumps(sorted(files)))
         observed = set(json.loads(completed.stdout))
         corpus_bound = {item["path"] for item in manifest.corpus_manifest()["files"]}
         scorer_bound = set(manifest.SCORER_FILES)
-        self.assertTrue(observed <= corpus_bound | scorer_bound, observed - corpus_bound - scorer_bound)
-        self.assertTrue(set(manifest.PROMPT_FILES) <= observed)
+        self.assertLessEqual(observed, corpus_bound | scorer_bound, observed - corpus_bound - scorer_bound)
+        self.assertLessEqual(set(manifest.PROMPT_FILES), observed)
 
     def test_replay_in_isolated_snapshot_matches_score_bytes(self):
         case_map = scoring.load_corpus()

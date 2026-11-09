@@ -162,10 +162,8 @@ def _rescore(record, corpus_bytes, scorer_bytes, scorer_hash, trusted_scorers=TR
             "from sittings.scoring import load_corpus,score_answers; "
             "from sittings.canonical import canonical_bytes; "
             "r=json.load(sys.stdin); "
-            "score=score_answers(load_corpus(),r['answers']); "
-            "[score['not_publishable_reasons'].append(x) for x in r['extra_reasons'] "
-            "if x not in score['not_publishable_reasons']]; "
-            "score['publishable']=score['publishable'] and not r['extra_reasons']; "
+            "score=score_answers(load_corpus(),r['answers'], "
+            "non_publishable_reasons=r['extra_reasons']); "
             "sys.stdout.buffer.write(canonical_bytes(score))"
         )
         extra_reasons = _runner_reasons(record)
@@ -206,8 +204,8 @@ def _runner_reasons(record):
         allowed.add("provider did not report an observed model")
     if calls and level != "host-relayed":
         allowed.add("host relay did not bind every answer to one consistent model")
-    # The base scorer's reasons are replayed inside the snapshot; only known runner
-    # additions may be supplied separately.
+    # Host reasons are the recorded reasons in this allowlist, in recorded order.
+    # The scorer independently reconstructs all other reasons during replay.
     return [reason for reason in reasons if reason in allowed]
 
 
