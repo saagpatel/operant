@@ -74,6 +74,11 @@ each receipt; a stranger compares the two.
 
 From any other machine:
 
+Use the HTTPS URL: the client refuses remote HTTP by default. The
+`--allow-insecure-runner` escape hatch is for unbound runs only and exposes bearer
+tokens; it never permits sending relay provider keys over remote HTTP. HTTP is
+allowed locally only for `127.0.0.1`, `::1`, and `localhost`.
+
 ```sh
 uv run python -m sittings.client --runner https://RUNNER_HOST --label NAME \
   --claimed-model MODEL --cmd 'AGENT --stdin' --cmd-stdin

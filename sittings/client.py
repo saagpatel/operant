@@ -20,6 +20,19 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def validate_runner_url(
+    runner_url: str, *, relay: bool, allow_insecure_runner: bool = False
+) -> None:
+    url = urlsplit(runner_url)
+    if url.scheme not in ("http", "https") or not url.hostname:
+        raise ValueError("runner URL must use http or https and include a host")
+    if url.scheme == "http" and url.hostname not in ("127.0.0.1", "::1", "localhost"):
+        if relay:
+            raise ValueError("host relay requires an https runner URL (except literal loopback)")
+        if not allow_insecure_runner:
+            raise ValueError("remote http runner requires --allow-insecure-runner")
+
+
 def request_json(
     base_url: str,
     method: str,
@@ -57,6 +70,7 @@ def run_sitting(
     *,
     relay: dict[str, str] | None = None,
     timeout: float = 1300,
+    allow_insecure_runner: bool = False,
 ) -> dict:
     """Run the same create/next/answer/finish flow used by the CLI.
 
@@ -64,8 +78,9 @@ def run_sitting(
     command or endpoint locally. Relay runs send only provider/model/key to the
     host; the runner builds and sends every case request itself.
     """
-    if urlsplit(runner_url).scheme not in ("http", "https"):
-        raise ValueError("runner URL must use http or https")
+    validate_runner_url(
+        runner_url, relay=relay is not None, allow_insecure_runner=allow_insecure_runner
+    )
     if (agent is None) == (relay is None):
         raise ValueError("select exactly one of local agent or host relay")
     created = request_json(
@@ -137,6 +152,10 @@ def positive_int(value: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runner", required=True, help="hosted runner base URL")
+    parser.add_argument(
+        "--allow-insecure-runner", action="store_true",
+        help="allow remote HTTP for unbound runs, exposing bearer tokens; never allows relay keys",
+    )
     parser.add_argument("--label", required=True)
     parser.add_argument(
         "--claimed-model", required=True, help="display claim; does not establish identity"
@@ -181,6 +200,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("a local agent source is required")
     if args.cmd_stdin and not args.cmd:
         parser.error("--cmd-stdin requires --cmd")
+    try:
+        validate_runner_url(
+            args.runner, relay=relay_selected, allow_insecure_runner=args.allow_insecure_runner
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     headers = {}
     for header in args.http_header:
         name, separator, value = header.partition(":")
@@ -218,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
             agent,
             relay=relay,
             timeout=args.runner_timeout,
+            allow_insecure_runner=args.allow_insecure_runner,
         )
         sid = result["sitting_id"]
         print(json.dumps(result["record"]["score"], sort_keys=True))

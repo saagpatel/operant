@@ -28,6 +28,12 @@ python -m sittings.client --runner http://127.0.0.1:8765 \
 This produces an `unbound` sitting: the claimed model is display text, and no
 provider was observed by the runner.
 
+The client requires HTTPS for remote runners because sitting bearer tokens travel
+with requests. Local HTTP is allowed only for the literal hosts `127.0.0.1`, `::1`,
+and `localhost`. Unbound runs can explicitly opt into remote HTTP with
+`--allow-insecure-runner`; this exposes their bearer tokens. Host-relayed runs
+cannot use that override: provider keys require HTTPS except on those local hosts.
+
 For host-relayed sittings, configure the runner's provider base URL as an operator.
 The URL is selected by the provider name in `--relay-provider`; clients cannot choose
 arbitrary URLs. Start with a key that is not exposed in shell history:
@@ -109,6 +115,10 @@ python -m sittings.review list --data-dir ./sitting-data --web-data ./web-data -
 python -m sittings.review approve ID --data-dir ./sitting-data \
   --web-data ./web-data --pubkey ./sittings-pubkey.json --blob-source .
 ```
+
+Repeat `--pubkey` to trust multiple key documents during key rotation. Entries are
+deduplicated by key ID; conflicting key encodings for the same ID are rejected.
+Concurrent approval and unpublish commands share a file lock in the web data directory.
 
 Publication is sealed-only. The public table shows OCS with accuracy, case coverage,
 bypass failures, binding level, and the claimed model. Review approval does not make
