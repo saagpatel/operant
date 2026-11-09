@@ -11,7 +11,7 @@
     <header>
       <p class="kicker">OPERANT</p>
       <h1>Check a receipt</h1>
-      <p class="lede">Each line is a check this page recomputed. The score is re-executed with the Python command at the bottom.</p>
+      <p class="lede">An operator-signed T1 receipt (CheckSeal DSSE + Ed25519). Each line is a check this page recomputed. Rescoring is not checked in browser.</p>
     </header>
     <main>
       <p id="key-notice" class="note"></p>
@@ -29,10 +29,10 @@
       <div id="result"></div>
     </main>
     <footer>
-      <p><a href="../instruments/">Sealed results</a></p>
+      <p><a href="../instruments/">Published sittings</a></p>
     </footer>
   </div>
-  <noscript><p>This page checks seals in the browser and needs JavaScript.</p></noscript>
+  <noscript><p>This page checks receipts in the browser and needs JavaScript.</p></noscript>
   <script type="module" src="./app.mjs"></script>
 </body>
 </html>

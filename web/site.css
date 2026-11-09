@@ -229,6 +229,12 @@ button.submit {
 
 .field { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 0.82rem; overflow-wrap: anywhere; }
 
+.fingerprint {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
 .detail { overflow-wrap: anywhere; white-space: pre-wrap; }
 
 dl { margin: 0; }
