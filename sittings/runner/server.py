@@ -423,37 +423,31 @@ class RunnerServer(ThreadingHTTPServer):
                     "answers",
                 )
             }
-            record.update(
-                format="operant.sitting/v1",
-                finished_at=timestamp(self.config.clock()),
-                score=scoring.score_answers(self.case_map, record["answers"]),
-            )
-            if self.stale_bound_files():
-                reasons = record["score"].setdefault("not_publishable_reasons", [])
-                if "bound files changed during sitting" not in reasons:
-                    reasons.append("bound files changed during sitting")
-                record["score"]["publishable"] = False
+            record.update(format="operant.sitting/v1", finished_at=timestamp(self.config.clock()))
             record["model_binding"] = self.config.binding_hook(
                 copy.deepcopy(record), copy.deepcopy(state["relay_log"])
             )
+            # Host admission reasons go through score_answers so their order matches what the
+            # receipt verifier reproduces on replay (host reasons first, then scorer reasons).
+            host_reasons: list[str] = []
+            if self.stale_bound_files():
+                host_reasons.append("bound files changed during sitting")
             if state["mode"] == "host-relayed" and state["relay_log"]:
-                reasons = record["score"].setdefault("not_publishable_reasons", [])
                 binding = record["model_binding"]
                 observed = binding.get("observed_model")
                 if observed != record["claimed_model"]:
-                    reason = (
+                    host_reasons.append(
                         "claimed model does not match observed model"
                         if observed is not None
                         else "provider did not report an observed model"
                     )
-                    if reason not in reasons:
-                        reasons.append(reason)
-                    record["score"]["publishable"] = False
                 if binding.get("level") != "host-relayed":
-                    reason = "host relay did not bind every answer to one consistent model"
-                    if reason not in reasons:
-                        reasons.append(reason)
-                    record["score"]["publishable"] = False
+                    host_reasons.append(
+                        "host relay did not bind every answer to one consistent model"
+                    )
+            record["score"] = scoring.score_answers(
+                self.case_map, record["answers"], non_publishable_reasons=host_reasons
+            )
             with self.store.lock:
                 if self.store.stored_bytes() + len(canonical_bytes(record)) > self.config.max_stored_bytes:
                     raise APIError(503, "maximum stored sitting data reached")

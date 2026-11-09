@@ -118,6 +118,54 @@ class OfflineIntegrationTests(unittest.TestCase):
                 if path.is_file():
                     self.assertNotIn(b"integration-secret-never-save", path.read_bytes())
 
+    def test_nonpublishable_relay_receipt_with_host_and_scorer_reasons_verifies(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            signer = generate_key(root / "key.pem", root / "public.pem")
+            keys = export_pubkey_json(signer)
+            with patch("sittings.runner.__main__.RunnerServer") as constructor:
+                constructor.return_value.__enter__.return_value.server_port = 0
+                with patch("sys.stdout", new=io.StringIO()):
+                    self.assertEqual(runner_main([
+                        "--data-dir", str(root / "data"), "--key", str(root / "key.pem"),
+                        "--port", "0", "--relay-provider", "test=http://127.0.0.1:1234/v1",
+                    ]), 0)
+                config = constructor.call_args.args[1]
+            with patch("http.server.ThreadingHTTPServer.__init__", return_value=None):
+                server = RunnerServer(("127.0.0.1", 0), config)
+
+            def request(_url, method, path, *, token=None, body=None, timeout=30):
+                if path == "/api/sittings":
+                    return server.create_sitting(body, "127.0.0.1")
+                sid, action = path.split("/")[-2:]
+                with server.sitting_lock(sid):
+                    state = server.authenticate(sid, "Bearer " + token)
+                    if action == "run":
+                        return server.run_relay(state)
+                    raise AssertionError("unexpected client route")
+
+            # The provider reports a different model than claimed, and every answer is
+            # unparseable: both host and scorer admission reasons apply.
+            response = json.dumps({"model": "other-model", "choices": [
+                {"message": {"content": "no decision here"}}]}).encode()
+            wire = (f"HTTP/1.1 200 OK\r\nContent-Length: {len(response)}\r\n\r\n".encode()
+                    + response)
+            relay_config = {"provider": "test", "model": "model",
+                            "api_key": "integration-secret-reasons"}
+            with (patch.object(client, "request_json", side_effect=request),
+                  patch("socket.create_connection",
+                        side_effect=lambda *a, **k: MemorySocket(wire))):
+                result = client.run_sitting("http://127.0.0.1:1234", "reasons", "model", None,
+                                            relay=relay_config)
+            score = result["record"]["score"]
+            self.assertFalse(score["publishable"])
+            self.assertEqual(score["not_publishable_reasons"][0],
+                             "claimed model does not match observed model")
+            self.assertIn("one or more answers are unparseable", score["not_publishable_reasons"])
+            report = verify_receipt(result["receipt"], record=result["record"], pubkeys=keys,
+                                    repo_root=Path(__file__).resolve().parent)
+            self.assertTrue(report.ok, report.findings)
+
 
 if __name__ == "__main__":
     unittest.main()
