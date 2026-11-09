@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -576,8 +577,21 @@ const REAL_IDS = [
   "sit_s575y45wfsfmeaci76n7u4746i",
 ];
 
+const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+
+// Large fixtures are stored gzipped so they stay out of text diffs.
 function readParsed(path) {
-  return parseJson(readFileSync(path, "utf8"));
+  const gz = `${path}.gz`;
+  const text = existsSync(gz) ? gunzipSync(readFileSync(gz)).toString("utf8") : readFileSync(path, "utf8");
+  return parseJson(text);
+}
+
+// Bound files are read from the repository; verifyReceipt re-hashes them, so a file that
+// changed since the fixture was sealed fails loudly. Add its old bytes under
+// fixtures/web-data/blobs/<sha256> when that happens.
+function readBoundBlob(file) {
+  const kept = join(FIXTURE_ROOT, "blobs", file.sha256);
+  return new Uint8Array(readFileSync(existsSync(kept) ? kept : join(REPO_ROOT, file.path)));
 }
 
 function loadReal(id) {
@@ -590,7 +604,7 @@ function loadReal(id) {
   for (const group of [record.corpus, record.scorer]) {
     for (const file of group.files) {
       if (!blobs.has(file.sha256)) {
-        blobs.set(file.sha256, new Uint8Array(readFileSync(join(FIXTURE_ROOT, "blobs", file.sha256))));
+        blobs.set(file.sha256, readBoundBlob(file));
       }
     }
   }
