@@ -80,3 +80,13 @@ returns the same record); global caps on open sittings, stored bytes, and reques
 concurrency; slow-body read timeout. TLS is the host's job (documented in the hosting
 step); the runner refuses to bind a non-loopback address unless `--behind-tls-proxy`
 is passed.
+
+## A9. Binding levels for v1 (decided)
+Exactly two levels. `host-relayed`: for every case the runner itself sent the
+host-constructed request to an operator-allowlisted provider using the submitter's key,
+the provider reported a single consistent model, and each recorded answer equals that
+completion text exactly. `unbound`: everything else (agents answering on their own
+machine). Agent-routed relay (the agent sending its own calls through the runner) is cut
+from v1. A host-relayed sitting is an endpoint sitting: the submitter supplies provider,
+model, and key; no client-side agent is involved. Claimed model ≠ observed model is shown
+on the row and makes the sitting non-publishable at `host-relayed`.
