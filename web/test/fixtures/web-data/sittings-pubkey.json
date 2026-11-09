@@ -1,0 +1,11 @@
+{
+  "format": "operant.sittings-pubkey/v1",
+  "keys": [
+    {
+      "keyid": "ed25519:2231e4bfed51cfd5",
+      "alg": "ed25519",
+      "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAKB4xlsMPgByIyq1k+RlhF0kylfjJPDLO9RvETNtF+fQ=\n-----END PUBLIC KEY-----\n",
+      "spki_der_b64": "MCowBQYDK2VwAyEAKB4xlsMPgByIyq1k+RlhF0kylfjJPDLO9RvETNtF+fQ="
+    }
+  ]
+}
