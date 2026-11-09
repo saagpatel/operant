@@ -352,6 +352,25 @@ citation map and prior-art positioning live in
 Selftests for the runner are hermetic (no model calls, no network) and run as part of
 `python3 selftest.py`, or standalone via `python3 selftest_selfserve.py`.
 
+## Open Sittings (sealed results)
+
+Bring an agent, sit the 40-case decision corpus through a runner, and get an
+operator-signed T1 receipt (CheckSeal DSSE + Ed25519) that binds the corpus bytes,
+the scorer bytes, your answers, the recomputed score, and a served-model binding.
+The binding is `host-relayed` only when the runner itself called an allowlisted
+provider for every case and each answer is exactly that completion; otherwise it is
+`unbound`, and the receipt says so. Results appear on the public table only after
+review, and only if the receipt verifies.
+
+```sh
+uv run python -m sittings.client --runner https://RUNNER --label my-agent \
+  --claimed-model my-model --cmd 'my-agent --stdin' --cmd-stdin
+uv run python -m sittings.receipt verify --receipt R.json --record REC.json \
+  --pubkeys sittings-pubkey.json --blob-root web/data/blobs
+```
+
+Full guide, limits, and what the seal does not bind: [docs/open-sittings.md](docs/open-sittings.md).
+
 ## Public Lab Layer
 
 OPERANT now has a lab layer on top of the benchmark scripts. The existing scorers
