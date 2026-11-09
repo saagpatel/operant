@@ -72,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     except ValueError as exc:
         parser.error(str(exc))
+        return 2  # parser.error exits; keep config unreachable on this path for static analysis.
     with RunnerServer((args.host, args.port), config) as server:
         print(
             f"OPERANT sitting runner listening on {args.host}:{server.server_port}",
@@ -80,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             server.serve_forever()
         except KeyboardInterrupt:
+            # Ctrl-C ends serving normally; the context manager closes the listening socket.
             pass
     return 0
 

@@ -506,6 +506,8 @@ class RunnerHandler(BaseHTTPRequestHandler):
         try:
             super().handle()
         except (ConnectionError, TimeoutError):
+            # A disconnected or idle peer needs no response; base setup/finish closes its streams.
+            # Do not log exception text, which could include submitter data or credentials.
             pass
 
     def send_json(self, status: int, body: dict, allow: str | None = None):

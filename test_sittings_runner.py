@@ -23,6 +23,7 @@ from run_operant import build_system_prompt
 from sittings import client, manifest, scoring
 from sittings.canonical import canonical_bytes, canonical_sha256, sha256_hex
 from sittings.runner.server import APIError, RunnerConfig, RunnerHandler, RunnerServer, unbound_binding
+from sittings.runner.__main__ import main as runner_main
 from sittings.runner.store import atomic_json
 
 ROOT = Path(__file__).resolve().parent
@@ -54,7 +55,7 @@ class ScoringTests(unittest.TestCase):
             manifest, "corpus_paths", return_value=[bound_file, manifest.OPERATOR_CONTRACT]
         ):
             subset = scoring.load_corpus()
-        self.assertTrue(set(subset) < set(expected))
+        self.assertLess(set(subset), set(expected))
         with patch.dict(os.environ, {"OPERANT_CASES": str(ROOT / manifest.CORPUS_GLOB)}):
             self.assertEqual(expected, score_operant.load_cases())
 
@@ -84,6 +85,35 @@ class RunnerLogicTests(unittest.TestCase):
     def server_without_socket(self, config):
         with patch("http.server.ThreadingHTTPServer.__init__", return_value=None):
             return RunnerServer(("127.0.0.1", 0), config)
+
+    def test_cli_invalid_config_exits_before_server_construction(self):
+        with (patch("sittings.receipt.sign.load_signer"),
+              patch("sittings.runner.__main__.RunnerServer") as server,
+              contextlib.redirect_stderr(io.StringIO())):
+            with self.assertRaises(SystemExit) as error:
+                runner_main(["--data-dir", "unused", "--key", "unused", "--ttl-seconds", "0"])
+        self.assertEqual(error.exception.code, 2)
+        server.assert_not_called()
+
+    def test_cli_keyboard_interrupt_closes_server_normally(self):
+        with (patch("sittings.receipt.sign.load_signer"),
+              patch("sittings.runner.__main__.RunnerServer") as constructor,
+              contextlib.redirect_stdout(io.StringIO())):
+            server = constructor.return_value.__enter__.return_value
+            server.serve_forever.side_effect = KeyboardInterrupt
+            self.assertEqual(runner_main(["--data-dir", "unused", "--key", "unused"]), 0)
+        constructor.return_value.__exit__.assert_called_once_with(None, None, None)
+
+    def test_disconnected_or_idle_peer_is_safely_silent(self):
+        handler = object.__new__(RunnerHandler)
+        for error in (ConnectionError("fixture-token"), TimeoutError("fixture-token")):
+            with (patch("http.server.BaseHTTPRequestHandler.handle", side_effect=error),
+                  contextlib.redirect_stderr(io.StringIO()) as logs):
+                handler.handle()
+            self.assertEqual(logs.getvalue(), "")
+        with patch("http.server.BaseHTTPRequestHandler.handle", side_effect=ValueError("fixture")):
+            with self.assertRaises(ValueError):
+                handler.handle()
 
     def test_stale_files_mark_finished_record_nonpublishable(self):
         with tempfile.TemporaryDirectory(prefix=".test-stale-runner-", dir=ROOT) as directory:
