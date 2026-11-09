@@ -62,6 +62,7 @@ function encodeString(s) {
   let out = '"';
   for (let i = 0; i < s.length; ) {
     const cp = s.codePointAt(i);
+    if (cp >= 0xd800 && cp <= 0xdfff) throw new TypeError("unpaired surrogate in string");
     if (cp === 0x22) out += '\\"';
     else if (cp === 0x5c) out += "\\\\";
     else if (cp === 0x08) out += "\\b";
@@ -147,7 +148,7 @@ export function canonicalJSON(value) {
   throw new TypeError(`cannot canonicalize ${typeof value}`);
 }
 
-export function parseJson(text) {
+export function parseJson(text, { rejectDuplicateKeys = false } = {}) {
   if (typeof text !== "string") throw new SyntaxError("JSON text must be a string");
   let i = text.charCodeAt(0) === 0xfeff ? 1 : 0;
 
@@ -265,6 +266,7 @@ export function parseJson(text) {
       skipWs();
       if (text[i] !== '"') throw new SyntaxError("expected object key");
       const key = parseString();
+      if (rejectDuplicateKeys && Object.hasOwn(obj, key)) throw new SyntaxError("duplicate JSON key");
       skipWs();
       if (text[i] !== ":") throw new SyntaxError("expected colon");
       i += 1;
@@ -642,6 +644,26 @@ async function checkRelay(binding, record) {
       if (got !== expected) {
         return { field: "model_binding.relay", ok: false, detail: `relay call ${call.call_id} ${kind} hash does not match` };
       }
+      if (kind === "response") {
+        try {
+          const response = parseJson(new TextDecoder("utf-8", { fatal: true }).decode(raw), { rejectDuplicateKeys: true });
+          const choices = response?.choices;
+          const content = choices?.[0]?.message?.content;
+          const model = response?.model ?? null;
+          if (!response || typeof response !== "object" || Array.isArray(response)
+              || !Array.isArray(choices) || choices.length !== 1
+              || !choices[0] || typeof choices[0] !== "object" || Array.isArray(choices[0])
+              || !choices[0].message || typeof choices[0].message !== "object" || Array.isArray(choices[0].message)
+              || typeof content !== "string" || content !== call.completion_text || content !== answer.answer
+              || (model !== null && typeof model !== "string")
+              || (call.response_model !== null && typeof call.response_model !== "string")
+              || model !== call.response_model) {
+            throw new Error("completion or model mismatch");
+          }
+        } catch {
+          return { field: "model_binding.relay", ok: false, detail: `relay call ${call.call_id} response completion or model is invalid` };
+        }
+      }
     }
   }
   if (used.size !== calls.length) {
@@ -678,7 +700,7 @@ async function checkBinding(binding, record) {
     levelKnown ? `binding level: ${binding.level}` : `unknown binding level ${JSON.stringify(binding.level)}`,
   );
   let evidenceOk = false;
-  let evidenceDetail = "evidence could not be hashed";
+  let evidenceDetail;
   try {
     const got = await canonicalSha256(binding.evidence);
     evidenceOk = got === binding.evidence_sha256;

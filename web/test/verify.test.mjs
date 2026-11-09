@@ -256,6 +256,10 @@ test("canonicalJSON matches the shared vectors and rejects non-portable values",
   assert.throws(() => canonicalJSON(parseJson('{"x":0.0}')), /floats/);
   assert.throws(() => canonicalJSON(parseJson("-0.0")), /floats/);
   assert.throws(() => canonicalJSON({ "é": "non-ASCII key" }), /ASCII/);
+  assert.throws(() => canonicalJSON({ "\ud800": "key" }), /ASCII|surrogate/);
+  assert.throws(() => canonicalJSON("\ud800"), /surrogate/);
+  assert.throws(() => canonicalJSON("\udc00"), /surrogate/);
+  assert.equal(canonicalJSON("😀"), '"😀"');
   assert.throws(() => canonicalJSON({ nested: [0, { float: 2.5 }] }), /floats/);
   assert.throws(() => canonicalJSON({ x: 9007199254740992 }), /safe range/);
   assert.throws(() => canonicalJSON({ x: -9007199254740992 }), /safe range/);
@@ -498,11 +502,12 @@ async function resign(world, record) {
 async function relayWorld() {
   const world = await buildWorld();
   const requestBody = new TextEncoder().encode('{"messages":[{"content":"prompt"}]}');
-  const responseBody = new TextEncoder().encode('{"choices":[{"message":{"content":"hold"}}]}');
+  const responseBody = new TextEncoder().encode('{"model":"example-model","choices":[{"message":{"content":"hold"}}]}');
   const call = {
     call_id: `call_${"ab".repeat(16)}`,
     case_id: "case-1",
     completion_text: "hold",
+    response_model: "example-model",
     request_body_b64: bytesToB64(requestBody),
     response_body_b64: bytesToB64(responseBody),
     request_sha256: await sha256Hex(requestBody),
@@ -569,6 +574,43 @@ test("host-relayed rechecks completion text and evidence hashes", async () => {
   assert.match(finding(hashResult, "model_binding.relay").detail, /response hash does not match/);
   assert.equal(finding(hashResult, "model_binding.evidence").ok, true);
   assert.equal(finding(hashResult, "signature").ok, true);
+});
+
+test("signed replacement character cannot be substituted with an escaped lone surrogate", async () => {
+  const world = await buildWorld();
+  const record = structuredClone(world.record);
+  record.answers[0].answer = "\ufffd";
+  const signed = await resign(world, record);
+  const tampered = parseJson(canonicalJSON(record).replace("\ufffd", "\\ud800"));
+  const result = await verifyReceipt(signed.receipt, optionsFor(signed, { record: tampered }));
+  assert.equal(result.ok, false);
+  assert.equal(finding(result, "record").ok, false);
+  assert.equal(finding(result, "answers").ok, false);
+  assert.equal(finding(result, "signature").ok, true);
+});
+
+test("host-relayed response must contain the signed completion and model", async () => {
+  const world = await relayWorld();
+  const bodies = [
+    '{"model":"example-model","choices":[{"message":{"content":"other"}}]}',
+    '{"model":"other-model","choices":[{"message":{"content":"hold"}}]}',
+    '{"model":"example-model","choices":[{"message":{"content":"hold"}},{"message":{"content":"hold"}}]}',
+    '{"model":"example-model","choices":[{"message":{"content":null}}]}',
+    '{"model":"example-model","model":"example-model","choices":[{"message":{"content":"hold"}}]}',
+  ];
+  for (const body of bodies) {
+    const record = structuredClone(world.record);
+    const call = record.model_binding.evidence.calls[0];
+    const bytes = new TextEncoder().encode(body);
+    call.response_body_b64 = bytesToB64(bytes);
+    call.response_sha256 = await sha256Hex(bytes);
+    record.model_binding.evidence_sha256 = await sha256Hex(new TextEncoder().encode(canonicalJSON(record.model_binding.evidence)));
+    const signed = await resign(world, record);
+    const result = await verifyReceipt(signed.receipt, optionsFor(signed));
+    assert.equal(finding(result, "signature").ok, true);
+    assert.equal(finding(result, "model_binding.evidence").ok, true);
+    assert.equal(finding(result, "model_binding.relay").ok, false, body);
+  }
 });
 
 const FIXTURE_ROOT = fileURLToPath(new URL("./fixtures/web-data/", import.meta.url));
@@ -705,7 +747,7 @@ test("published receipts verify and tampered copies are refused field by field",
       const blobResult = await verifyReceipt(sitting.receipt, realOptions(sitting, { fetchBlob: blobFetcher(blobs) }));
       assert.equal(blobResult.ok, false);
       assert.equal(finding(blobResult, field).ok, false);
-      assert.match(finding(blobResult, field).detail, new RegExp(file.path.replace(/[.]/g, "\\.")));
+      assert.ok(finding(blobResult, field).detail.includes(file.path));
       assert.equal(finding(blobResult, field === "corpus" ? "scorer" : "corpus").ok, true);
       assert.equal(finding(blobResult, "signature").ok, true);
     }
