@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import tempfile
@@ -37,9 +38,17 @@ class SittingStore:
     """
 
     def __init__(self, data_dir: str | Path):
-        self.root = Path(data_dir) / "sittings"
+        self.data_dir = Path(data_dir)
+        self.root = self.data_dir / "sittings"
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.lock = threading.RLock()
+        self._locks = tuple(threading.RLock() for _ in range(256))
+
+    def lock_for(self, sitting_id: str):
+        if not SITTING_ID.fullmatch(sitting_id):
+            raise ValueError("invalid sitting id")
+        stripe = int.from_bytes(hashlib.sha256(sitting_id.encode("ascii")).digest()[:4], "big")
+        return self._locks[stripe % len(self._locks)]
 
     def directory(self, sitting_id: str) -> Path:
         if not SITTING_ID.fullmatch(sitting_id):
@@ -61,8 +70,16 @@ class SittingStore:
         for directory in self.root.iterdir():
             if directory.is_dir() and SITTING_ID.fullmatch(directory.name):
                 state = self.load(directory.name)
-                count += state["expires_at"] > now and "result" not in state
+                count += state["expires_at_ms"] > int(now * 1000) and "result" not in state
         return count
+
+    def stored_bytes(self) -> int:
+        """Total current bytes owned by sitting state, records and receipts."""
+        total = 0
+        for path in self.data_dir.rglob("*"):
+            if path.is_file() and not path.is_symlink():
+                total += path.stat().st_size
+        return total
 
     def write_record(self, sitting_id: str, record: dict) -> None:
         atomic_json(self.directory(sitting_id) / "record.json", record)
@@ -73,3 +90,7 @@ class SittingStore:
 
     def write_receipt(self, sitting_id: str, receipt: dict) -> None:
         atomic_json(self.directory(sitting_id) / f"{sitting_id}.receipt.json", receipt)
+
+    def read_receipt(self, sitting_id: str) -> dict | None:
+        path = self.directory(sitting_id) / f"{sitting_id}.receipt.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
