@@ -501,13 +501,21 @@ async function resign(world, record) {
 
 async function relayWorld() {
   const world = await buildWorld();
-  const requestBody = new TextEncoder().encode('{"messages":[{"content":"prompt"}]}');
+  const requestBody = new TextEncoder().encode(canonicalJSON({
+    model: "example-model", messages: [{ role: "user", content: "prompt" }],
+    metadata: { sitting_id: world.record.sitting_id, case_id: "case-1" }, stream: false,
+  }));
   const responseBody = new TextEncoder().encode('{"model":"example-model","choices":[{"message":{"content":"hold"}}]}');
   const call = {
     call_id: `call_${"ab".repeat(16)}`,
     case_id: "case-1",
+    sitting_id: world.record.sitting_id,
+    provider: "example",
+    upstream_base_url: "https://example.com",
+    requested_model: "example-model",
     completion_text: "hold",
     response_model: "example-model",
+    response_header_model: null,
     request_body_b64: bytesToB64(requestBody),
     response_body_b64: bytesToB64(responseBody),
     request_sha256: await sha256Hex(requestBody),
@@ -531,6 +539,7 @@ async function relayWorld() {
   const record = parseJson(canonicalJSON(world.record));
   record.model_binding = binding;
   record.answers[0].answer = "hold";
+  record.answers[0].prompt_sha256 = await sha256Hex(new TextEncoder().encode("prompt"));
   record.answers[0].relay_call_ids = [call.call_id];
   return resign(world, record);
 }
@@ -610,6 +619,64 @@ test("host-relayed response must contain the signed completion and model", async
     assert.equal(finding(result, "signature").ok, true);
     assert.equal(finding(result, "model_binding.evidence").ok, true);
     assert.equal(finding(result, "model_binding.relay").ok, false, body);
+  }
+});
+
+test("host-relayed model and derived evidence must be consistent", async () => {
+  const world = await relayWorld();
+  const mismatch = structuredClone(world.record);
+  mismatch.claimed_model = "different-claim";
+  mismatch.model_binding.claimed_model = mismatch.claimed_model;
+  mismatch.model_binding.evidence.claim_status = "mismatch";
+  mismatch.model_binding.evidence.calls[0].response_header_model = "example-model";
+  mismatch.model_binding.evidence_sha256 = await sha256Hex(new TextEncoder().encode(canonicalJSON(mismatch.model_binding.evidence)));
+  const mismatchSigned = await resign(world, mismatch);
+  const mismatchResult = await verifyReceipt(mismatchSigned.receipt, optionsFor(mismatchSigned));
+  assert.equal(finding(mismatchResult, "model_binding.relay").ok, true);
+
+  const cases = [
+    ["mixed models", async (record) => {
+      const call = structuredClone(record.model_binding.evidence.calls[0]);
+      call.call_id = `call_${"cd".repeat(16)}`;
+      call.case_id = "case-2";
+      const request = new TextEncoder().encode(canonicalJSON({
+        model: call.requested_model, messages: [{ role: "user", content: "prompt" }],
+        metadata: { sitting_id: record.sitting_id, case_id: call.case_id }, stream: false,
+      }));
+      call.request_body_b64 = bytesToB64(request);
+      call.request_sha256 = await sha256Hex(request);
+      call.response_model = "other-model";
+      const body = new TextEncoder().encode('{"model":"other-model","choices":[{"message":{"content":"hold"}}]}');
+      call.response_body_b64 = bytesToB64(body);
+      call.response_sha256 = await sha256Hex(body);
+      record.model_binding.evidence.calls.push(call);
+      record.case_order.push(call.case_id);
+      record.answers.push({ ...structuredClone(record.answers[0]), case_id: call.case_id, relay_call_ids: [call.call_id] });
+    }],
+    ["observed model", (record) => { record.model_binding.observed_model = "other-model"; }],
+    ["claim status", (record) => { record.model_binding.evidence.claim_status = "mismatch"; }],
+    ["header model", (record) => { record.model_binding.evidence.calls[0].response_header_model = "other-model"; }],
+    ["empty model", async (record) => {
+      const call = record.model_binding.evidence.calls[0];
+      call.response_model = "";
+      const body = new TextEncoder().encode('{"model":"","choices":[{"message":{"content":"hold"}}]}');
+      call.response_body_b64 = bytesToB64(body);
+      call.response_sha256 = await sha256Hex(body);
+    }],
+    ["claimed model", (record) => { record.model_binding.claimed_model = "other-model"; }],
+    ["case coverage", (record) => { record.case_order.push("case-2"); }],
+    ["prompt hash", (record) => { record.answers[0].prompt_sha256 = "ab".repeat(32); }],
+    ["request tuple", (record) => { record.model_binding.evidence.calls[0].provider = ""; }],
+  ];
+  for (const [label, mutate] of cases) {
+    const record = structuredClone(world.record);
+    await mutate(record);
+    record.model_binding.evidence_sha256 = await sha256Hex(new TextEncoder().encode(canonicalJSON(record.model_binding.evidence)));
+    const signed = await resign(world, record);
+    const result = await verifyReceipt(signed.receipt, optionsFor(signed));
+    assert.equal(finding(result, "signature").ok, true, label);
+    assert.equal(finding(result, "model_binding.evidence").ok, true, label);
+    assert.equal(finding(result, "model_binding.relay").ok, false, label);
   }
 });
 

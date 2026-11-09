@@ -583,6 +583,8 @@ async function checkRelay(binding, record) {
     };
   }
   const byId = new Map();
+  const cases = new Set();
+  const requests = new Set();
   for (const call of calls) {
     if (!call || typeof call.call_id !== "string" || typeof call.completion_text !== "string" || typeof call.case_id !== "string") {
       return { field: "model_binding.relay", ok: false, detail: "a relay call is missing completion text" };
@@ -590,7 +592,17 @@ async function checkRelay(binding, record) {
     if (byId.has(call.call_id)) {
       return { field: "model_binding.relay", ok: false, detail: `duplicate relay call ${call.call_id}` };
     }
+    if (cases.has(call.case_id) || ![call.provider, call.upstream_base_url, call.requested_model].every((v) => typeof v === "string" && v.length > 0)) {
+      return { field: "model_binding.relay", ok: false, detail: "duplicate case or missing relay request metadata" };
+    }
+    cases.add(call.case_id);
+    requests.add(JSON.stringify([call.provider, call.upstream_base_url, call.requested_model]));
     byId.set(call.call_id, call);
+  }
+  if (!Array.isArray(record.case_order) || record.case_order.length !== cases.size
+      || new Set(record.case_order).size !== cases.size || !record.case_order.every((id) => cases.has(id))
+      || requests.size !== 1 || binding.claimed_model !== record.claimed_model) {
+    return { field: "model_binding.relay", ok: false, detail: "relay cases, request metadata, or claimed model do not match" };
   }
   const answers = record.answers;
   if (answers.length !== calls.length) {
@@ -601,6 +613,7 @@ async function checkRelay(binding, record) {
     };
   }
   const used = new Set();
+  const models = new Set();
   for (const answer of answers) {
     if (!answer || typeof answer.answer !== "string" || typeof answer.case_id !== "string") {
       return { field: "model_binding.relay", ok: false, detail: "an answer is missing text" };
@@ -644,6 +657,25 @@ async function checkRelay(binding, record) {
       if (got !== expected) {
         return { field: "model_binding.relay", ok: false, detail: `relay call ${call.call_id} ${kind} hash does not match` };
       }
+      if (kind === "request") {
+        try {
+          const request = parseJson(new TextDecoder("utf-8", { fatal: true }).decode(raw), { rejectDuplicateKeys: true });
+          const prompt = request?.messages?.[0]?.content;
+          const expectedRequest = {
+            model: call.requested_model,
+            messages: [{ role: "user", content: prompt }],
+            metadata: { sitting_id: record.sitting_id, case_id: call.case_id },
+            stream: false,
+          };
+          if (call.sitting_id !== record.sitting_id || typeof prompt !== "string"
+              || canonicalJSON(request) !== canonicalJSON(expectedRequest)
+              || await sha256Hex(new TextEncoder().encode(prompt)) !== answer.prompt_sha256) {
+            throw new Error("request mismatch");
+          }
+        } catch {
+          return { field: "model_binding.relay", ok: false, detail: `relay call ${call.call_id} request or prompt hash is invalid` };
+        }
+      }
       if (kind === "response") {
         try {
           const response = parseJson(new TextDecoder("utf-8", { fatal: true }).decode(raw), { rejectDuplicateKeys: true });
@@ -657,9 +689,11 @@ async function checkRelay(binding, record) {
               || typeof content !== "string" || content !== call.completion_text || content !== answer.answer
               || (model !== null && typeof model !== "string")
               || (call.response_model !== null && typeof call.response_model !== "string")
-              || model !== call.response_model) {
+              || typeof model !== "string" || !model || model !== call.response_model
+              || (call.response_header_model !== null && call.response_header_model !== model)) {
             throw new Error("completion or model mismatch");
           }
+          models.add(model);
         } catch {
           return { field: "model_binding.relay", ok: false, detail: `relay call ${call.call_id} response completion or model is invalid` };
         }
@@ -668,6 +702,11 @@ async function checkRelay(binding, record) {
   }
   if (used.size !== calls.length) {
     return { field: "model_binding.relay", ok: false, detail: "a relay call is not tied to an answer" };
+  }
+  const observed = models.size === 1 ? models.values().next().value : null;
+  const claimStatus = observed === null ? "unknown" : record.claimed_model === observed ? "match" : "mismatch";
+  if (observed === null || binding.observed_model !== observed || binding.evidence.claim_status !== claimStatus) {
+    return { field: "model_binding.relay", ok: false, detail: "relay models, observed model, or claim status do not match" };
   }
   return {
     field: "model_binding.relay",
