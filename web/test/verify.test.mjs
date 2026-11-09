@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { DISPLAY_FIELDS, recordIsPublishable, rowAccepted, rowMatchesPredicate } from "../lib/rows.mjs";
 import {
   JsonNumber,
+  MODEL_BINDING_POLICY,
   canonicalJSON,
   checksealKeyid,
   displayRate,
@@ -21,6 +22,11 @@ const PAYLOAD_TYPE = "application/vnd.in-toto+json";
 const STATEMENT_TYPE = "https://in-toto.io/Statement/v1";
 const PREDICATE_TYPE = "https://operant.saagarpatel.dev/sitting-receipt/v1";
 const SITTING_ID = "sit_abcdefghijklmnopqrstuvwxyz";
+const BINDING_POLICY = JSON.parse(readFileSync(new URL("../../sittings/testdata/model-binding-policy-v1.json", import.meta.url), "utf8"));
+
+test("browser binding policy equals the Python v1 policy export", () => {
+  assert.deepEqual(MODEL_BINDING_POLICY, BINDING_POLICY);
+});
 
 // Independent DSSE PAE (DSSEv1 len(type) type len(payload) payload), not imported
 // from the verifier, so a broken PAE in the library fails the signature tests.
@@ -133,18 +139,15 @@ async function buildWorld() {
   }
   const corpus = { sha256: await aggregate(corpusFiles), files: corpusFiles };
   const scorer = { sha256: await aggregate(scorerFiles), files: scorerFiles };
-  const evidence = { calls: [] };
+  const evidence = { calls: [], claim_status: "unknown" };
   const evidenceSha = await sha256Hex(new TextEncoder().encode(canonicalJSON(evidence)));
   const modelBinding = {
     format: "operant.model-binding/v1",
     level: "unbound",
     claimed_model: "example-model",
     observed_model: null,
-    binds: ["No upstream call was observed."],
-    does_not_bind: [
-      "Does not establish which model produced the answers.",
-      "Does not establish that the submitter setup matches the claim.",
-    ],
+    binds: [...BINDING_POLICY.levels.unbound.binds],
+    does_not_bind: [...BINDING_POLICY.levels.unbound.does_not_bind],
     evidence,
     evidence_sha256: evidenceSha,
   };
@@ -281,7 +284,7 @@ test("a valid receipt verifies", async () => {
   assert.match(level.detail, /binding level: unbound/);
   assert.doesNotMatch(level.detail, /verified/i);
   const binds = finding(result, "model_binding.binds");
-  assert.equal(binds.detail, "No upstream call was observed.");
+  assert.equal(binds.detail, "");
   const skipped = finding(result, "not_checked");
   assert.match(skipped.detail, /not checked in browser/);
   assert.match(skipped.detail, /uv run python -m sittings\.receipt verify --receipt web\/data\/receipts\/sit_abcdefghijklmnopqrstuvwxyz\.receipt\.json --record web\/data\/records\/sit_abcdefghijklmnopqrstuvwxyz\.record\.json --pubkeys web\/data\/sittings-pubkey\.json --blob-root web\/data\/blobs --repo-root \./);
@@ -375,7 +378,7 @@ test("altered binding evidence fails model_binding.evidence", async () => {
   assert.equal(finding(result, "model_binding.evidence").ok, false);
   assert.equal(finding(result, "signature").ok, true);
   assert.equal(finding(result, "model_binding.level").ok, true);
-  assert.match(finding(result, "model_binding.binds").detail, /No upstream call was observed\./);
+  assert.equal(finding(result, "model_binding.binds").ok, true);
 });
 
 test("an unknown receipt format is refused", async () => {
@@ -442,7 +445,7 @@ test("the table refuses a row whose displayed field differs from the predicate",
       publishable: true,
       not_publishable_reasons: [],
     },
-    model_binding: { level: "unbound", observed_model: null, binds: ["No upstream call was observed."] },
+    model_binding: { level: "unbound", observed_model: null, binds: [] },
   };
   const row = {
     sitting_id: SITTING_ID,
@@ -520,6 +523,8 @@ async function relayWorld() {
     response_body_b64: bytesToB64(responseBody),
     request_sha256: await sha256Hex(requestBody),
     response_sha256: await sha256Hex(responseBody),
+    started_at: "2026-11-08T20:01:00.000001Z",
+    finished_at: "2026-11-08T20:01:00.000002Z",
   };
   const evidence = { calls: [call], claim_status: "match" };
   const binding = {
@@ -527,12 +532,8 @@ async function relayWorld() {
     level: "host-relayed",
     claimed_model: "example-model",
     observed_model: "example-model",
-    binds: ["Every recorded answer equals that call's completion text exactly."],
-    does_not_bind: [
-      "The provider's honesty about what it served; no provider signature or weights are checked.",
-      "That the answer did not come from a lookup of the public corpus, including its public expected decisions.",
-      "Anything about the submitter's setup outside relayed calls.",
-    ],
+    binds: [...BINDING_POLICY.levels["host-relayed"].binds],
+    does_not_bind: [...BINDING_POLICY.levels["host-relayed"].does_not_bind],
     evidence,
     evidence_sha256: await sha256Hex(new TextEncoder().encode(canonicalJSON(evidence))),
   };
@@ -587,7 +588,7 @@ test("host-relayed rechecks completion text and evidence hashes", async () => {
 
 test("signed replacement character cannot be substituted with an escaped lone surrogate", async () => {
   const world = await buildWorld();
-  const record = structuredClone(world.record);
+  const record = parseJson(canonicalJSON(world.record));
   record.answers[0].answer = "\ufffd";
   const signed = await resign(world, record);
   const tampered = parseJson(canonicalJSON(record).replace("\ufffd", "\\ud800"));
@@ -608,7 +609,7 @@ test("host-relayed response must contain the signed completion and model", async
     '{"model":"example-model","model":"example-model","choices":[{"message":{"content":"hold"}}]}',
   ];
   for (const body of bodies) {
-    const record = structuredClone(world.record);
+    const record = parseJson(canonicalJSON(world.record));
     const call = record.model_binding.evidence.calls[0];
     const bytes = new TextEncoder().encode(body);
     call.response_body_b64 = bytesToB64(bytes);
@@ -624,7 +625,7 @@ test("host-relayed response must contain the signed completion and model", async
 
 test("host-relayed model and derived evidence must be consistent", async () => {
   const world = await relayWorld();
-  const mismatch = structuredClone(world.record);
+  const mismatch = parseJson(canonicalJSON(world.record));
   mismatch.claimed_model = "different-claim";
   mismatch.model_binding.claimed_model = mismatch.claimed_model;
   mismatch.model_binding.evidence.claim_status = "mismatch";
@@ -669,7 +670,7 @@ test("host-relayed model and derived evidence must be consistent", async () => {
     ["request tuple", (record) => { record.model_binding.evidence.calls[0].provider = ""; }],
   ];
   for (const [label, mutate] of cases) {
-    const record = structuredClone(world.record);
+    const record = parseJson(canonicalJSON(world.record));
     await mutate(record);
     record.model_binding.evidence_sha256 = await sha256Hex(new TextEncoder().encode(canonicalJSON(record.model_binding.evidence)));
     const signed = await resign(world, record);
@@ -677,6 +678,213 @@ test("host-relayed model and derived evidence must be consistent", async () => {
     assert.equal(finding(result, "signature").ok, true, label);
     assert.equal(finding(result, "model_binding.evidence").ok, true, label);
     assert.equal(finding(result, "model_binding.relay").ok, false, label);
+  }
+});
+
+test("signed bindings require exact v1 schema, policy, and derived claims at both levels", async () => {
+  const mutations = [
+    ["extra binding key", "schema", (b) => { b.extra = true; }],
+    ...BINDING_POLICY.binding_fields.map((key) => [`missing ${key}`, "schema", (b) => { delete b[key]; }]),
+    ["format", "format", (b) => { b.format = "operant.model-binding/v2"; }],
+    ["unknown level", "level", (b) => { b.level = "independent"; }],
+    ["array level", "level", (b) => { b.level = ["unbound"]; }],
+    ["null level", "level", (b) => { b.level = null; }],
+    ["object level", "level", (b) => { b.level = {}; }],
+    ["prototype level", "level", (b) => { b.level = "toString"; }],
+    ["altered binds", "binds", (b) => { b.binds = ["Independently verified model identity"]; }],
+    ["missing limits", "does_not_bind", (b) => { b.does_not_bind = []; }],
+    ["reordered limits", "does_not_bind", (b) => { b.does_not_bind.reverse(); }],
+    ["null evidence", "evidence.schema", (b) => { b.evidence = null; }],
+    ["extra evidence key", "evidence.schema", (b) => { b.evidence.extra = true; }],
+    ["missing calls", "evidence.schema", (b) => { delete b.evidence.calls; }],
+    ["calls object", "evidence.schema", (b) => { b.evidence.calls = {}; }],
+    ["missing status", "evidence.claim_status", (b) => { delete b.evidence.claim_status; }],
+    ["wrong status", "evidence.claim_status", (b) => { b.evidence.claim_status = "mismatch"; }],
+    ["unknown status", "evidence.claim_status", (b) => { b.evidence.claim_status = "verified"; }],
+    ["null status", "evidence.claim_status", (b) => { b.evidence.claim_status = null; }],
+    ["invented observed model", "observed_model", (b) => { b.observed_model = "invented"; }],
+    ["predicate claim differs", "claimed_model", (b) => { b.claimed_model = "invented"; }],
+    ["null claim", "claimed_model", (b) => { b.claimed_model = null; }],
+  ];
+  for (const world of [await buildWorld(), await relayWorld()]) {
+    for (const [label, field, mutate] of mutations) {
+      const record = parseJson(canonicalJSON(world.record));
+      const binding = record.model_binding;
+      mutate(binding);
+      // Keep hashes and signatures correct so the named policy check is decisive.
+      if (Object.hasOwn(binding, "evidence") && Object.hasOwn(binding, "evidence_sha256")) {
+        binding.evidence_sha256 = await sha256Hex(new TextEncoder().encode(canonicalJSON(binding.evidence)));
+      }
+      const signed = await resign(world, record);
+      const result = await verifyReceipt(signed.receipt, optionsFor(signed));
+      const context = `${world.record.model_binding.level}: ${label}`;
+      assert.equal(finding(result, "signature").ok, true, context);
+      assert.equal(finding(result, "record").ok, true, context);
+      assert.equal(result.ok, false, context);
+      assert.equal(finding(result, `model_binding.${field}`).ok, false, context);
+    }
+  }
+});
+
+function downgrade(record) {
+  const b = record.model_binding;
+  b.level = "unbound";
+  b.binds = [...BINDING_POLICY.levels.unbound.binds];
+  b.does_not_bind = [...BINDING_POLICY.levels.unbound.does_not_bind];
+}
+
+async function signBindingChange(world, record) {
+  record.model_binding.evidence_sha256 = await sha256Hex(new TextEncoder().encode(canonicalJSON(record.model_binding.evidence)));
+  const signed = await resign(world, record);
+  return verifyReceipt(signed.receipt, optionsFor(signed));
+}
+
+test("signed retained calls require valid schema, metadata, context, and bodies at both levels", async () => {
+  const world = await relayWorld();
+  const mutations = [
+    ...BINDING_POLICY.call_fields.map((key) => [`missing ${key}`, (call) => { delete call[key]; }]),
+    ["extra key", (call) => { call.extra = true; }],
+    ["invalid id", (call) => { call.call_id = "invented"; }],
+    ["wrong sitting", (call) => { call.sitting_id = "sit_wrong"; }],
+    ["wrong case", (call) => { call.case_id = "case-other"; }],
+    ["empty provider", (call) => { call.provider = ""; }],
+    ["null requested model", (call) => { call.requested_model = null; }],
+    ["numeric response model", (call) => { call.response_model = 1; }],
+    ["numeric response header", (call) => { call.response_header_model = 1; }],
+    ["bad timestamp", (call) => { call.started_at = "invalid"; }],
+    ["impossible date", (call) => { call.started_at = "2026-02-30T00:00:00Z"; }],
+    ["impossible time", (call) => { call.started_at = "2026-11-08T25:00:00Z"; }],
+    ["missing UTC suffix", (call) => { call.started_at = "2026-11-08T20:01:00"; }],
+    ["reversed microseconds", (call) => { call.finished_at = "2026-11-08T20:01:00.000000Z"; }],
+    ...["http://public.example/v1", "http://127.1/v1", "https://u:p@example.com/v1", "https://example.com/",
+      "https://example.com/other", "https://example.com/v1?key=x", "https://example.com/v1#x",
+      "https://example.com:", "https://example.com:65536"].map((url) => [url, (call) => { call.upstream_base_url = url; }]),
+    ["base64 whitespace", (call) => { call.request_body_b64 += "\n"; }],
+    ["base64 URL alphabet", (call) => { call.response_body_b64 = "____"; }],
+    ["body digest mismatch", (call) => { call.response_sha256 = "00".repeat(32); }],
+    ["request shape", async (call) => {
+      const raw = new TextEncoder().encode('{"messages":[{"content":"prompt"}]}');
+      call.request_body_b64 = bytesToB64(raw);
+      call.request_sha256 = await sha256Hex(raw);
+    }],
+    ["response completion", async (call) => {
+      const raw = new TextEncoder().encode('{"model":"example-model","choices":[{"message":{"content":"other"}}]}');
+      call.response_body_b64 = bytesToB64(raw);
+      call.response_sha256 = await sha256Hex(raw);
+    }],
+    ["duplicate JSON keys", async (call) => {
+      const raw = new TextEncoder().encode('{"model":"example-model","model":"example-model","choices":[{"message":{"content":"hold"}}]}');
+      call.response_body_b64 = bytesToB64(raw);
+      call.response_sha256 = await sha256Hex(raw);
+    }],
+  ];
+  for (const unbound of [false, true]) {
+    for (const [label, mutate] of mutations) {
+      const record = parseJson(canonicalJSON(world.record));
+      if (unbound) downgrade(record);
+      await mutate(record.model_binding.evidence.calls[0]);
+      const result = await signBindingChange(world, record);
+      const context = `${record.model_binding.level}: ${label}`;
+      assert.equal(finding(result, "signature").ok, true, context);
+      assert.equal(finding(result, "model_binding.evidence_sha256").ok, true, context);
+      assert.equal(finding(result, "model_binding.evidence.calls").ok, false, context);
+      assert.equal(result.ok, false, context);
+    }
+  }
+});
+
+test("unbound evidence retains calls and derives observations without requiring host linkage", async () => {
+  const world = await relayWorld();
+  for (const model of ["example-model", "different-model", "", null]) {
+    const record = parseJson(canonicalJSON(world.record));
+    downgrade(record);
+    const binding = record.model_binding;
+    const call = binding.evidence.calls[0];
+    call.response_model = model;
+    call.response_header_model = "contradictory-header";
+    const raw = new TextEncoder().encode(JSON.stringify({ model, choices: [{ message: { content: "hold" } }], usage: { cost: 0.125 } }));
+    call.response_body_b64 = bytesToB64(raw);
+    call.response_sha256 = await sha256Hex(raw);
+    record.answers[0].answer = "a different answer causes downgrade";
+    record.answers[0].relay_call_ids = [];
+    binding.observed_model = model || null;
+    binding.evidence.claim_status = !model ? "unknown" : model === record.claimed_model ? "match" : "mismatch";
+    const result = await signBindingChange(world, record);
+    assert.equal(result.ok, true, result.findings.filter((f) => !f.ok).map((f) => `${f.field}: ${f.detail}`).join("\n"));
+    assert.equal(finding(result, "model_binding.observed_model").ok, true);
+    assert.equal(finding(result, "model_binding.evidence.claim_status").ok, true);
+  }
+});
+
+test("unbound observations ignore empty models and become unknown for multiple distinct models", async () => {
+  const world = await relayWorld();
+  for (const model of [null, "", "example-model", "different-model"]) {
+    const record = parseJson(canonicalJSON(world.record));
+    downgrade(record);
+    const binding = record.model_binding;
+    const call = structuredClone(binding.evidence.calls[0]);
+    call.call_id = `call_${"cd".repeat(16)}`;
+    call.case_id = "case-2";
+    call.response_model = model;
+    const request = new TextEncoder().encode(canonicalJSON({
+      model: call.requested_model, messages: [{ role: "user", content: "prompt" }],
+      metadata: { sitting_id: record.sitting_id, case_id: call.case_id }, stream: false,
+    }));
+    call.request_body_b64 = bytesToB64(request);
+    call.request_sha256 = await sha256Hex(request);
+    const response = new TextEncoder().encode(JSON.stringify({ model, choices: [{ message: { content: "hold" } }] }));
+    call.response_body_b64 = bytesToB64(response);
+    call.response_sha256 = await sha256Hex(response);
+    binding.evidence.calls.push(call);
+    record.case_order.push(call.case_id);
+    binding.observed_model = model === "different-model" ? null : "example-model";
+    binding.evidence.claim_status = binding.observed_model === null ? "unknown" : "match";
+    const result = await signBindingChange(world, record);
+    assert.equal(result.ok, true, result.findings.filter((f) => !f.ok).map((f) => `${f.field}: ${f.detail}`).join("\n"));
+
+    for (const duplicate of ["call_id", "case_id"]) {
+      const invalid = parseJson(canonicalJSON(record));
+      invalid.model_binding.evidence.calls[1][duplicate] = invalid.model_binding.evidence.calls[0][duplicate];
+      const duplicateResult = await signBindingChange(world, invalid);
+      assert.equal(finding(duplicateResult, "signature").ok, true);
+      assert.equal(finding(duplicateResult, "model_binding.evidence.calls").ok, false, duplicate);
+    }
+  }
+});
+
+test("relay timestamps accept Python ISO forms and preserve microsecond ordering", async () => {
+  const world = await relayWorld();
+  for (const [start, finish] of [
+    ["2026-11-08T20:01:00.000001Z", "2026-11-08T20:01:00.000002Z"],
+    ["2026-11-08T20:01:00,000001Z", "2026-11-08T20:01:00.0000019Z"],
+    ["20261108T200100Z", "2026-11-08 20:01:01Z"],
+    ["2026-11-08T20Z", "2026-11-08T20:01Z"],
+    ["2026-11-08T20,5Z", "2026-11-08T20:01,5Z"],
+    ["2026-W45-7T20:01:00Z", "2026W457T200101Z"],
+    ["2026-11-08Z", "20261109Z"],
+    ["0001-01-01T00:00:00Z", "9999-12-31T23:59:59.999999Z"],
+  ]) {
+    const record = parseJson(canonicalJSON(world.record));
+    const call = record.model_binding.evidence.calls[0];
+    call.started_at = start;
+    call.finished_at = finish;
+    const result = await signBindingChange(world, record);
+    assert.equal(result.ok, true, `${start} -> ${finish}: ${result.findings.filter((f) => !f.ok).map((f) => f.detail).join("; ")}`);
+  }
+});
+
+test("relay base URLs follow Python lexical path, authority, and port policy", async () => {
+  const world = await relayWorld();
+  for (const url of [
+    "https://provider.example", "HTTPS://PROVIDER.EXAMPLE/v1", "http://127.0.0.1:1234/v1",
+    "https://provider.example?", "https://provider.example/v1?#", "https://provider.example:0",
+    "https://provider.example:00123", "https://[::1]/v1", "https://[fe80::1%eth0]/v1",
+    "https://[v1.example]/v1",
+  ]) {
+    const record = parseJson(canonicalJSON(world.record));
+    record.model_binding.evidence.calls[0].upstream_base_url = url;
+    const result = await signBindingChange(world, record);
+    assert.equal(result.ok, true, `${url}: ${result.findings.filter((f) => !f.ok).map((f) => f.detail).join("; ")}`);
   }
 });
 

@@ -20,7 +20,74 @@ const BINDING_FORMAT = "operant.model-binding/v1";
 const PUBKEY_FORMAT = "operant.sittings-pubkey/v1";
 export const RECEIPT_WORDING = "operator-signed T1 receipt (CheckSeal DSSE + Ed25519)";
 
-const BINDING_LEVELS = new Set(["host-relayed", "unbound"]);
+// Fixed v1 policy, pinned to Python by model-binding-policy-v1.json.
+export const MODEL_BINDING_POLICY = {
+  "format": "operant.model-binding/v1",
+  "binding_fields": [
+    "binds",
+    "claimed_model",
+    "does_not_bind",
+    "evidence",
+    "evidence_sha256",
+    "format",
+    "level",
+    "observed_model"
+  ],
+  "levels": {
+    "unbound": {
+      "binds": [],
+      "does_not_bind": [
+        "Which model produced the answers; the claimed model is the submitter's unverified statement.",
+        "The provider's honesty about what it served; no provider signature or weights are checked.",
+        "That the answer did not come from a lookup of the public corpus, including its public expected decisions.",
+        "Anything about the submitter's setup outside relayed calls."
+      ],
+      "evidence_fields": [
+        "calls",
+        "claim_status"
+      ]
+    },
+    "host-relayed": {
+      "binds": [
+        "For every case the host constructed the final request with the case prompt, sitting id and case id and sent it to an operator-allowlisted provider.",
+        "Every recorded answer equals that call's completion text exactly.",
+        "The provider reported one consistent model; the claimed and observed model comparison is recorded."
+      ],
+      "does_not_bind": [
+        "The provider's honesty about what it served; no provider signature or weights are checked.",
+        "That the answer did not come from a lookup of the public corpus, including its public expected decisions.",
+        "Anything about the submitter's setup outside relayed calls."
+      ],
+      "evidence_fields": [
+        "calls",
+        "claim_status"
+      ]
+    }
+  },
+  "call_fields": [
+    "call_id",
+    "case_id",
+    "completion_text",
+    "finished_at",
+    "provider",
+    "request_body_b64",
+    "request_sha256",
+    "requested_model",
+    "response_body_b64",
+    "response_header_model",
+    "response_model",
+    "response_sha256",
+    "sitting_id",
+    "started_at",
+    "upstream_base_url"
+  ],
+  "claim_status": {
+    "unknown": "observed_model is null",
+    "match": "claimed_model equals observed_model",
+    "mismatch": "claimed_model differs from observed_model"
+  },
+  "observed_model": "the sole distinct nonempty response_model across calls, otherwise null"
+};
 const KEY_ID = /^ed25519:[0-9a-f]{16}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 const MAX_SAFE_DIGITS = "9007199254740991";
@@ -566,35 +633,168 @@ async function checkManifest(field, manifest, fetchBlob) {
   return { field, ok: true, detail: `${field} aggregate ${aggregate}; ${files.length} file blob(s) match` };
 }
 
-function stringList(value) {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
+function exactKeys(value, keys) {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    && sameStringList(Object.keys(value).sort(), [...keys].sort());
 }
 
-async function checkRelay(binding, record) {
-  const calls = binding?.evidence?.calls;
-  if (!Array.isArray(calls) || calls.length === 0) {
-    return { field: "model_binding.relay", ok: false, detail: "host-relayed evidence has no relay calls" };
+// Relay evidence uses Python's base64.b64decode(validate=True), unlike the
+// forgiving base64 helper used for public-key input.
+function relayBody(value) {
+  if (typeof value !== "string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new Error("invalid base64");
   }
-  if (!record || !Array.isArray(record.answers)) {
-    return {
-      field: "model_binding.relay",
-      ok: false,
-      detail: "host-relayed answers were not rechecked because no record was supplied",
+  return b64ToBytes(value);
+}
+
+function relayBaseUrl(value) {
+  if (typeof value !== "string") return false;
+  // Mirror urlsplit's lexical checks, without WHATWG host/path normalization
+  // (which would turn http://127.1 into the allowlisted literal loopback).
+  const cleaned = value.replace(/^[\x00-\x20]+/, "").replace(/[\t\r\n]/g, "");
+  const parts = /^(https?):\/\/([^/?#]*)([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/i.exec(cleaned);
+  if (!parts || !["", "/v1"].includes(parts[3]) || parts[4] || parts[5]) return false;
+  const authority = parts[2];
+  if (!authority || authority.includes("@") || authority.endsWith(":")) return false;
+  const normalized = authority.replace(/[:?#]/g, "").normalize("NFKC");
+  if (/[/?#@:]/.test(normalized)) return false;
+  let host;
+  let port;
+  if (authority.includes("[") || authority.includes("]")) {
+    const bracketed = /^\[([^\[\]]+)\](?::(.*))?$/.exec(authority);
+    if (!bracketed) return false;
+    [, host, port] = bracketed;
+    if (host.startsWith("v")) {
+      if (!/^v[0-9a-fA-F]+\..+$/.test(host)) return false;
+    } else {
+      const [address, scope, extraScope] = host.split("%");
+      if (scope === "" || extraScope !== undefined) return false;
+      try {
+        new URL(`https://[${address}]`); // IPv6 syntax only; no request is made.
+      } catch {
+        return false;
+      }
+    }
+  } else {
+    [host, ...port] = authority.split(":");
+    port = port.length ? port.join(":") : undefined;
+  }
+  return Boolean(host) && (parts[1].toLowerCase() === "https" || host === "127.0.0.1")
+    && (port === undefined || (/^[0-9]+$/.test(port) && Number(port) <= 65535));
+}
+
+function relayInstant(value) {
+  // Keep microseconds: Date.parse alone silently accepts impossible dates and
+  // loses the precision needed to reject reversed calls within one millisecond.
+  const match = typeof value === "string" && /^(\d{4})(?:(?:-(\d{2})-(\d{2})|(\d{2})(\d{2}))|(?:-W(\d{2})(?:-([1-7]))?|W(\d{2})([1-7])?))(.*)Z$/u.exec(value);
+  if (!match) throw new Error("invalid relay timestamp");
+  const year = Number(match[1]);
+  const month = Number(match[2] || match[4]);
+  const day = Number(match[3] || match[5]);
+  const date = new Date(0);
+  if (year < 1) throw new Error("invalid relay timestamp");
+  if (match[6] || match[8]) {
+    const week = Number(match[6] || match[8]);
+    const weekday = Number(match[7] || match[9] || 1);
+    date.setUTCFullYear(year, 0, 4);
+    const jan4Day = date.getUTCDay() || 7;
+    date.setUTCDate(4 - jan4Day + 1 + (week - 1) * 7 + weekday - 1);
+    const thursday = new Date(date);
+    thursday.setUTCDate(date.getUTCDate() + 4 - weekday);
+    if (week < 1 || week > 53 || thursday.getUTCFullYear() !== year) throw new Error("invalid relay timestamp");
+  } else {
+    date.setUTCFullYear(year, month - 1, day);
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+      throw new Error("invalid relay timestamp");
+    }
+  }
+  if (date.getUTCFullYear() < 1 || date.getUTCFullYear() > 9999) throw new Error("invalid relay timestamp");
+  // datetime.fromisoformat accepts extended/basic ISO dates, an arbitrary
+  // one-character separator, and reduced-precision times. A bare date plus the
+  // appended +00:00 is parsed by Python as a naive midnight time.
+  const remainder = match[10];
+  const time = remainder ? [...remainder].slice(1).join("") : "00:00";
+  const clock = /^(\d{2})(?:(?::(\d{2})(?::(\d{2}))?)|(?:(\d{2})(\d{2})?))?(?:[.,](\d+))?$/.exec(time);
+  if (!clock) throw new Error("invalid relay timestamp");
+  const hour = Number(clock[1]);
+  const minute = Number(clock[2] || clock[4] || 0);
+  const second = Number(clock[3] || clock[5] || 0);
+  date.setUTCHours(hour, minute, second, 0);
+  if (hour > 23 || minute > 59 || second > 59) {
+    throw new Error("invalid relay timestamp");
+  }
+  return { aware: Boolean(remainder), micros: BigInt(date.getTime()) * 1000n + BigInt((clock[6] || "").padEnd(6, "0").slice(0, 6)) };
+}
+
+async function checkRelayCalls(calls, record) {
+  const fail = (detail) => ({ field: "model_binding.evidence.calls", ok: false, detail });
+  if (!Array.isArray(calls)) return fail("calls is not a list");
+  if (calls.length && (!record || !Array.isArray(record.case_order))) {
+    return fail("no record supplied to check relay context");
+  }
+  const ids = new Set();
+  const cases = new Set();
+  for (const call of calls) {
+    if (!exactKeys(call, MODEL_BINDING_POLICY.call_fields)) return fail("invalid relay call schema");
+    if (typeof call.call_id !== "string" || !/^call_[0-9a-f]{32}$/.test(call.call_id)) return fail("invalid relay call id");
+    if (ids.has(call.call_id) || cases.has(call.case_id)) return fail("duplicate relay call or case");
+    ids.add(call.call_id);
+    cases.add(call.case_id);
+    if (call.sitting_id !== record.sitting_id || !record.case_order.includes(call.case_id)) return fail("invalid relay context");
+    if (!relayBaseUrl(call.upstream_base_url)) return fail("invalid operator upstream base URL");
+    if (![call.provider, call.requested_model, call.started_at, call.finished_at].every((v) => typeof v === "string" && v.length > 0)) return fail("invalid relay metadata");
+    if (![call.response_model, call.response_header_model].every((v) => v === null || typeof v === "string")) return fail("invalid observed model");
+    const bodies = {};
+    for (const kind of ["request", "response"]) {
+      let raw;
+      try {
+        raw = relayBody(call[`${kind}_body_b64`]);
+      } catch {
+        return fail(`relay call ${call.call_id} ${kind} body is not base64`);
+      }
+      if (await sha256Hex(raw) !== call[`${kind}_sha256`]) return fail(`relay call ${call.call_id} ${kind} hash does not match`);
+      try {
+        const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(raw);
+        if (text.charCodeAt(0) === 0xfeff) throw new Error("JSON BOM");
+        bodies[kind] = parseJson(text, { rejectDuplicateKeys: true });
+      } catch {
+        return fail(`relay call ${call.call_id} ${kind} is not valid JSON`);
+      }
+    }
+    const prompt = bodies.request?.messages?.[0]?.content;
+    const expectedRequest = {
+      model: call.requested_model,
+      messages: [{ role: "user", content: prompt }],
+      metadata: { sitting_id: record.sitting_id, case_id: call.case_id },
+      stream: false,
     };
+    if (typeof prompt !== "string" || !canonicalEqual(bodies.request, expectedRequest)) return fail("request is not host-built");
+    const response = bodies.response;
+    if (!Array.isArray(response?.choices) || response.choices.length !== 1
+        || typeof call.completion_text !== "string"
+        || response.choices[0]?.message?.content !== call.completion_text
+        || (response.model ?? null) !== call.response_model) return fail("response completion or model is invalid");
+    try {
+      const start = relayInstant(call.started_at);
+      const finish = relayInstant(call.finished_at);
+      if (start.aware !== finish.aware || start.micros > finish.micros) return fail("invalid relay time order");
+    } catch {
+      return fail("invalid relay timestamp");
+    }
   }
+  return { field: "model_binding.evidence.calls", ok: true, detail: "relay calls have the exact v1 schema, valid bodies, context, and metadata" };
+}
+
+async function checkRelay(binding, record, callsFinding) {
+  const fail = (detail) => ({ field: "model_binding.relay", ok: false, detail });
+  if (!callsFinding.ok) return fail(callsFinding.detail);
+  const calls = binding.evidence.calls;
+  if (!calls.length) return fail("host-relayed evidence has no relay calls");
+  if (!record || !Array.isArray(record.answers)) return fail("host-relayed answers were not rechecked because no record was supplied");
   const byId = new Map();
   const cases = new Set();
   const requests = new Set();
   for (const call of calls) {
-    if (!call || typeof call.call_id !== "string" || typeof call.completion_text !== "string" || typeof call.case_id !== "string") {
-      return { field: "model_binding.relay", ok: false, detail: "a relay call is missing completion text" };
-    }
-    if (byId.has(call.call_id)) {
-      return { field: "model_binding.relay", ok: false, detail: `duplicate relay call ${call.call_id}` };
-    }
-    if (cases.has(call.case_id) || ![call.provider, call.upstream_base_url, call.requested_model].every((v) => typeof v === "string" && v.length > 0)) {
-      return { field: "model_binding.relay", ok: false, detail: "duplicate case or missing relay request metadata" };
-    }
     cases.add(call.case_id);
     requests.add(JSON.stringify([call.provider, call.upstream_base_url, call.requested_model]));
     byId.set(call.call_id, call);
@@ -641,64 +841,15 @@ async function checkRelay(binding, record) {
         detail: `answer ${answer.case_id} does not equal the recorded completion text`,
       };
     }
-    for (const kind of ["request", "response"]) {
-      const expected = call[`${kind}_sha256`];
-      const body = call[`${kind}_body_b64`];
-      if (typeof expected !== "string" || !DIGEST.test(expected) || typeof body !== "string") {
-        return { field: "model_binding.relay", ok: false, detail: `relay call ${call.call_id} is missing a ${kind} hash` };
-      }
-      let raw;
-      try {
-        raw = decodeB64(body);
-      } catch {
-        return { field: "model_binding.relay", ok: false, detail: `relay call ${call.call_id} ${kind} body is not base64` };
-      }
-      const got = await sha256Hex(raw);
-      if (got !== expected) {
-        return { field: "model_binding.relay", ok: false, detail: `relay call ${call.call_id} ${kind} hash does not match` };
-      }
-      if (kind === "request") {
-        try {
-          const request = parseJson(new TextDecoder("utf-8", { fatal: true }).decode(raw), { rejectDuplicateKeys: true });
-          const prompt = request?.messages?.[0]?.content;
-          const expectedRequest = {
-            model: call.requested_model,
-            messages: [{ role: "user", content: prompt }],
-            metadata: { sitting_id: record.sitting_id, case_id: call.case_id },
-            stream: false,
-          };
-          if (call.sitting_id !== record.sitting_id || typeof prompt !== "string"
-              || canonicalJSON(request) !== canonicalJSON(expectedRequest)
-              || await sha256Hex(new TextEncoder().encode(prompt)) !== answer.prompt_sha256) {
-            throw new Error("request mismatch");
-          }
-        } catch {
-          return { field: "model_binding.relay", ok: false, detail: `relay call ${call.call_id} request or prompt hash is invalid` };
-        }
-      }
-      if (kind === "response") {
-        try {
-          const response = parseJson(new TextDecoder("utf-8", { fatal: true }).decode(raw), { rejectDuplicateKeys: true });
-          const choices = response?.choices;
-          const content = choices?.[0]?.message?.content;
-          const model = response?.model ?? null;
-          if (!response || typeof response !== "object" || Array.isArray(response)
-              || !Array.isArray(choices) || choices.length !== 1
-              || !choices[0] || typeof choices[0] !== "object" || Array.isArray(choices[0])
-              || !choices[0].message || typeof choices[0].message !== "object" || Array.isArray(choices[0].message)
-              || typeof content !== "string" || content !== call.completion_text || content !== answer.answer
-              || (model !== null && typeof model !== "string")
-              || (call.response_model !== null && typeof call.response_model !== "string")
-              || typeof model !== "string" || !model || model !== call.response_model
-              || (call.response_header_model !== null && call.response_header_model !== model)) {
-            throw new Error("completion or model mismatch");
-          }
-          models.add(model);
-        } catch {
-          return { field: "model_binding.relay", ok: false, detail: `relay call ${call.call_id} response completion or model is invalid` };
-        }
-      }
+    const request = parseJson(new TextDecoder("utf-8", { fatal: true }).decode(relayBody(call.request_body_b64)), { rejectDuplicateKeys: true });
+    if (await sha256Hex(textEncoder.encode(request.messages[0].content)) !== answer.prompt_sha256) {
+      return fail(`relay call ${call.call_id} request or prompt hash is invalid`);
     }
+    const model = call.response_model;
+    if (!model || (call.response_header_model !== null && call.response_header_model !== model)) {
+      return fail(`relay call ${call.call_id} response completion or model is invalid`);
+    }
+    models.add(model);
   }
   if (used.size !== calls.length) {
     return { field: "model_binding.relay", ok: false, detail: "a relay call is not tied to an answer" };
@@ -715,8 +866,9 @@ async function checkRelay(binding, record) {
   };
 }
 
-async function checkBinding(binding, record) {
+async function checkBinding(binding, record, claimedModel) {
   const findings = [];
+  push(findings, "model_binding.schema", exactKeys(binding, MODEL_BINDING_POLICY.binding_fields), "exact v1 binding keys");
   if (!binding || typeof binding !== "object" || Array.isArray(binding)) {
     push(findings, "model_binding.format", false, "model binding is missing");
     push(findings, "model_binding.level", false, "model binding is missing");
@@ -731,13 +883,17 @@ async function checkBinding(binding, record) {
     binding.format === BINDING_FORMAT,
     binding.format === BINDING_FORMAT ? BINDING_FORMAT : `format is ${binding.format}`,
   );
-  const levelKnown = BINDING_LEVELS.has(binding.level);
+  const levelKnown = typeof binding.level === "string" && Object.hasOwn(MODEL_BINDING_POLICY.levels, binding.level);
+  const policy = levelKnown ? MODEL_BINDING_POLICY.levels[binding.level] : null;
   push(
     findings,
     "model_binding.level",
     levelKnown,
     levelKnown ? `binding level: ${binding.level}` : `unknown binding level ${JSON.stringify(binding.level)}`,
   );
+  const evidenceSchemaOk = Boolean(policy && exactKeys(binding.evidence, policy.evidence_fields)
+    && Array.isArray(binding.evidence.calls));
+  push(findings, "model_binding.evidence.schema", evidenceSchemaOk, "evidence must contain exactly calls (a list) and claim_status");
   let evidenceOk = false;
   let evidenceDetail;
   try {
@@ -750,19 +906,34 @@ async function checkBinding(binding, record) {
     evidenceDetail = `evidence could not be hashed (${err.message})`;
   }
   push(findings, "model_binding.evidence", evidenceOk, evidenceDetail);
+  push(findings, "model_binding.evidence_sha256", evidenceOk, evidenceDetail);
+  const bindsOk = Boolean(policy && sameStringList(binding.binds, policy.binds));
+  const limitsOk = Boolean(policy && sameStringList(binding.does_not_bind, policy.does_not_bind));
   push(
     findings,
     "model_binding.binds",
-    stringList(binding.binds),
-    stringList(binding.binds) ? binding.binds.join("\n") : "binds is not a list of strings",
+    bindsOk,
+    bindsOk ? binding.binds.join("\n") : "binds does not match the fixed v1 policy for this level",
   );
   push(
     findings,
     "model_binding.does_not_bind",
-    stringList(binding.does_not_bind),
-    stringList(binding.does_not_bind) ? binding.does_not_bind.join("\n") : "does_not_bind is not a list of strings",
+    limitsOk,
+    limitsOk ? binding.does_not_bind.join("\n") : "does_not_bind does not match the fixed v1 policy for this level",
   );
-  if (binding.level === "host-relayed") findings.push(await checkRelay(binding, record));
+  push(findings, "model_binding.claimed_model", typeof binding.claimed_model === "string"
+    && binding.claimed_model === claimedModel, "claimed model must equal the signed predicate claim");
+  const callsFinding = await checkRelayCalls(binding.evidence?.calls, record);
+  findings.push(callsFinding);
+  const models = new Set((Array.isArray(binding.evidence?.calls) ? binding.evidence.calls : [])
+    .map((call) => call?.response_model).filter((model) => typeof model === "string" && model.length > 0));
+  const observed = models.size === 1 ? models.values().next().value : null;
+  const claimStatus = observed === null ? "unknown" : claimedModel === observed ? "match" : "mismatch";
+  push(findings, "model_binding.observed_model", callsFinding.ok && binding.observed_model === observed,
+    "observed model must be the sole distinct nonempty response_model across calls, otherwise null");
+  push(findings, "model_binding.evidence.claim_status", evidenceSchemaOk && callsFinding.ok
+    && binding.evidence.claim_status === claimStatus, "claim_status must derive from claimed and observed models");
+  if (binding.level === "host-relayed") findings.push(await checkRelay(binding, record, callsFinding));
   return findings;
 }
 
@@ -953,7 +1124,7 @@ export async function verifyReceipt(receipt, options = {}) {
       push(findings, "answers", false, "no record supplied; answers_sha256 was not recomputed");
     }
 
-    findings.push(...(await checkBinding(predicate?.model_binding, options.record)));
+    findings.push(...(await checkBinding(predicate?.model_binding, options.record, predicate?.claimed_model)));
     const command = fullRecheckCommand(predicate?.sitting_id);
     push(findings, "not_checked", true, `not checked in browser: ${command}`);
     return {
