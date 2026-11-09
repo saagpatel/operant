@@ -1,539 +1,157 @@
-"""Offline relay and binding checks; all HTTP stays on literal loopback."""
-
+"""Host relay evidence: exact linkage, fixed limits, and credential containment."""
 from __future__ import annotations
 
 import base64
-import contextlib
 import copy
-import http.client
 import io
 import json
-import logging
-import re
-import threading
-import types
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
 from sittings.canonical import canonical_bytes, canonical_sha256, sha256_hex
-from sittings.model_binding import RelayConfig, build_binding, make_relay_routes, verify_binding
+from sittings.model_binding import build_binding, verify_binding
+from sittings.model_binding.relay import host_call, parse_base_url, request_body
 
-SITTING = "sit_" + "a" * 26
+SID = "sit_" + "a" * 26
 KEY = "test-secret-credential-never-retain-123456789"
+PROMPT = "Synthetic case prompt"
 
 
-class Upstream(BaseHTTPRequestHandler):
-    def log_message(self, *_args):
-        pass
-
-    def do_POST(self):
-        raw = self.rfile.read(int(self.headers["Content-Length"]))
-        body = json.loads(raw)
-        self.server.requests.append((self.path, dict(self.headers), raw))
-        mode = body.get("test_mode")
-        if mode == "redirect":
-            self.send_response(307)
-            self.send_header("Location", self.server.redirect_url)
-            self.end_headers()
-            return
-        if mode == "error":
-            data, status = KEY.encode(), 400
-        elif mode == "large":
-            data, status = b"x" * 2048, 200
-        elif mode == "invalid":
-            data, status = b'{"error":"' + KEY.encode(), 200
-        else:
-            answer = (
-                KEY
-                if mode in {"echo", "escaped-echo"}
-                else body.get("test_answer", "DECISION: REFUSE")
-            )
-            data = json.dumps(
-                {
-                    "id": "provider-response-1",
-                    "model": body.get("test_model", "served-model-v1"),
-                    "choices": [{"message": {"role": "assistant", "content": answer}}],
-                    "usage": {"prompt_tokens": 9, "completion_tokens": 3},
-                }
-            ).encode()
-            if mode == "escaped-echo":
-                data = data.replace(
-                    KEY.encode(), b"".join(f"\\u{ord(c):04x}".encode() for c in KEY)
-                )
-            status = 200
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data) + (10 if mode == "truncated" else 0)))
-        self.send_header("x-request-id", KEY if mode == "header-echo" else "request-1")
-        self.send_header(
-            "openai-model", body.get("test_header_model", body.get("test_model", "served-model-v1"))
-        )
-        self.send_header("Set-Cookie", "identifying-cookie")
-        self.send_header("X-Identifying-Header", "private-value")
-        self.end_headers()
-        self.wfile.write(data)
+def call_fixture(model="model", answer="DECISION: REFUSE"):
+    request = canonical_bytes(request_body("model", SID, "case", PROMPT))
+    response = json.dumps({"model": model, "choices": [{"message": {"content": answer}}],
+                           "usage": {"cost": 0.125}}).encode()
+    return {"call_id": "call_" + "a" * 32, "provider": "test-provider", "sitting_id": SID,
+            "case_id": "case", "upstream_base_url": "https://provider.example/v1",
+            "requested_model": "model", "response_model": model, "response_header_model": None,
+            "completion_text": answer,
+            "request_body_b64": base64.b64encode(request).decode(),
+            "response_body_b64": base64.b64encode(response).decode(),
+            "request_sha256": sha256_hex(request), "response_sha256": sha256_hex(response),
+            "started_at": "2026-01-01T00:00:00Z", "finished_at": "2026-01-01T00:00:01Z"}
 
 
-class StandInRunner(BaseHTTPRequestHandler):
-    """Only exercises the documented extra-route adapter, not packet 01 auth."""
-
-    def log_message(self, *_args):
-        pass
-
-    def do_POST(self):
-        method, pattern, handler = self.server.route
-        match = re.fullmatch(pattern, self.path)
-        if not match or self.headers.get("Authorization") != "Bearer sitting-token":
-            self.send_error(401)
-            return
-        assert method == "POST"
-        request = {
-            "sitting_id": match["sitting_id"],
-            "case_id": "case-a",
-            "headers": dict(self.headers),
-            "body": json.loads(self.rfile.read(int(self.headers["Content-Length"]))),
-        }
-        response = handler(request)
-        data = canonical_bytes(response["body"])
-        self.send_response(response["status"])
-        for key, value in response["headers"].items():
-            self.send_header(key, value)
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+def record_fixture(call=None):
+    call = call or call_fixture()
+    return {"sitting_id": SID, "claimed_model": "model", "case_order": ["case"],
+            "answers": [{"case_id": "case", "answer": call["completion_text"],
+                         "prompt_sha256": sha256_hex(PROMPT.encode()),
+                         "relay_call_ids": [call["call_id"]]}]}
 
 
-@contextlib.contextmanager
-def server(handler):
-    instance = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    instance.requests = []
-    thread = threading.Thread(target=instance.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield instance
-    finally:
-        instance.shutdown()
-        instance.server_close()
-        thread.join()
+class BindingTests(unittest.TestCase):
+    def test_host_exact_completion_and_public_corpus_limit(self):
+        call = call_fixture()
+        record = record_fixture(call)
+        binding = build_binding(record, [call])
+        self.assertEqual(binding["level"], "host-relayed")
+        self.assertTrue(all(f["ok"] for f in verify_binding(binding, record)))
+        self.assertIn("lookup of the public corpus", " ".join(binding["does_not_bind"]))
+        self.assertNotIn(KEY, canonical_bytes(binding).decode())
+        record["answers"][0]["answer"] += " suffix"
+        self.assertEqual(build_binding(record, [call])["level"], "unbound")
+        self.assertFalse(all(f["ok"] for f in verify_binding(binding, record)))
 
+    def test_unbound_and_mismatch_are_honest(self):
+        record = record_fixture()
+        unbound = build_binding(record, None)
+        self.assertEqual(unbound["level"], "unbound")
+        self.assertIsNone(unbound["observed_model"])
+        self.assertTrue(all(f["ok"] for f in verify_binding(unbound, record)))
+        call = call_fixture(model="different-model")
+        binding = build_binding(record, [call])
+        self.assertEqual(binding["level"], "host-relayed")
+        self.assertEqual(binding["evidence"]["claim_status"], "mismatch")
+        call["response_header_model"] = "contradictory-model"
+        self.assertEqual(build_binding(record, [call])["level"], "unbound")
 
-class BindingFixture:
-    def request(self, case="case-a", **completion):
-        return {
-            "sitting_id": SITTING,
-            "case_id": case,
-            "headers": {
-                "X-Provider-Key": KEY,
-                "Authorization": "Bearer sitting-token",
-                "Cookie": "do-not-forward",
-                "X-Forwarded-For": "do-not-forward",
-            },
-            "body": {
-                "base_url": self.base,
-                "completion": {
-                    "model": "requested-alias",
-                    "messages": [{"role": "user", "content": "Synthetic case prompt"}],
-                    **completion,
-                },
-            },
-        }
-
-    def call(self, case="case-a", **completion):
-        result = self.handler(self.request(case, **completion))
-        self.assertEqual(result["status"], 200, result)
-        return result["body"]["call_id"]
-
-    def record(self, ids=(), answer="DECISION: REFUSE", claimed="served-model-v1"):
-        return {
-            "format": "operant.sitting/v1",
-            "sitting_id": SITTING,
-            "created_at": "2020-01-01T00:00:00Z",
-            "finished_at": "2100-01-01T00:00:00Z",
-            "claimed_model": claimed,
-            "case_order": ["case-a"],
-            "answers": [
-                {
-                    "case_id": "case-a",
-                    "answer": answer,
-                    "relay_call_ids": list(ids),
-                    "prompt_sha256": "0" * 64,
-                    "received_at": "2100-01-01T00:00:00Z",
-                }
-            ],
-        }
-
-    def assertVerified(self, binding, record):
-        findings = verify_binding(binding, record)
-        self.assertTrue(findings)
-        self.assertEqual([f for f in findings if not f["ok"]], [])
-
-    def check_result(self, result):
-        record = self.record([result["call_id"]])
-        binding = build_binding(record, self.config.relay_log)
-        self.assertEqual(binding["level"], "relay-linked")
-        self.assertEqual(binding["evidence"]["claim_status"], "match")
-        self.assertEqual(
-            binding["evidence"]["answer_links"][0]["matched_call_ids"], [result["call_id"]]
-        )
-        record["model_binding"] = binding
-        self.assertVerified(binding, record)
-        path, headers, raw = self.upstream.requests[0]
-        self.assertEqual(path, "/v1/chat/completions")
-        self.assertEqual(headers["Authorization"], "Bearer " + KEY)
-        self.assertNotIn("Cookie", headers)
-        self.assertNotIn("X-Forwarded-For", headers)
-        self.assertNotIn("X-Provider-Key", headers)
-        self.assertNotIn(KEY.encode(), raw)
-        entry = self.config.relay_log[0]
-        self.assertEqual(
-            entry["provider_headers"],
-            {"openai-model": "served-model-v1", "x-request-id": "request-1"},
-        )
-        self.assertEqual(entry["request_sha256"], sha256_hex(raw))
-        self.assertEqual(
-            entry["response_sha256"], sha256_hex(base64.b64decode(entry["response_body_b64"]))
-        )
-        self.assertEqual(result["completion"]["usage"]["prompt_tokens"], 9)
-        self.assertNotIn(KEY, repr([binding, record, result, entry]))
+    def test_schema_policy_body_context_and_digest_tampering(self):
+        call = call_fixture()
+        record = record_fixture(call)
+        binding = build_binding(record, [call])
+        for field, value in (("level", "relay-attested"), ("binds", []),
+                             ("does_not_bind", []), ("claimed_model", "other"),
+                             ("observed_model", "other"), ("evidence_sha256", "0" * 64)):
+            with self.subTest(field=field):
+                modified = copy.deepcopy(binding)
+                modified[field] = value
+                self.assertTrue(any(not f["ok"] for f in verify_binding(modified, record)))
+        for field, value in (("sitting_id", "other"), ("case_id", "other"),
+                             ("completion_text", "fake"), ("request_sha256", "0" * 64),
+                             ("response_sha256", "0" * 64), ("started_at", "bad")):
+            with self.subTest(field=field):
+                modified = copy.deepcopy(binding)
+                modified["evidence"]["calls"][0][field] = value
+                modified["evidence_sha256"] = canonical_sha256(modified["evidence"])
+                self.assertTrue(any(not f["ok"] for f in verify_binding(modified, record)))
+        with self.assertRaises(ValueError):
+            build_binding(record, [call, call])
+        call["request_body_b64"] = base64.b64encode(canonical_bytes(
+            {"model": "model", "messages": [{"role": "user", "content": PROMPT}]})).decode()
+        call["request_sha256"] = sha256_hex(base64.b64decode(call["request_body_b64"]))
+        with self.assertRaises(ValueError):
+            build_binding(record, [call])
 
 
 class MemorySocket:
-    """Wire-format HTTP through the same fake upstream, without kernel sockets.
-
-    The real HTTPConnection/HTTPResponse serialize and parse all bytes. This is
-    separate evidence from the real loopback integration test below.
-    """
-
-    def __init__(self, upstream):
-        self.upstream = upstream
+    """Exercise real HTTPConnection and HTTPResponse without kernel sockets."""
+    def __init__(self, response):
+        self.response = response
         self.sent = bytearray()
 
     def sendall(self, data):
         self.sent.extend(data)
 
+    def makefile(self, *_args):
+        return io.BytesIO(self.response)
+
     def settimeout(self, _timeout):
+        pass
+
+    def setsockopt(self, *_args):
         pass
 
     def close(self):
         pass
 
-    def makefile(self, _mode):
-        class Incoming:
-            def __init__(self, data):
-                self.request = io.BytesIO(data)
-                self.response = io.BytesIO()
 
-            def makefile(self, _mode, *_args):
-                return self.request
+class RelayTests(unittest.TestCase):
+    def invoke(self, body, status=200, headers=b""):
+        response = (f"HTTP/1.1 {status} Test\r\nContent-Length: {len(body)}\r\n".encode()
+                    + headers + b"\r\n" + body)
+        sock = MemorySocket(response)
+        with patch("socket.create_connection", return_value=sock):
+            result = host_call("test-provider", "http://127.0.0.1:1234/v1", "model", KEY,
+                               SID, "case", PROMPT)
+        return result, bytes(sock.sent)
 
-            def sendall(self, data):
-                self.response.write(data)
-
-        incoming = Incoming(self.sent)
-        Upstream(incoming, ("127.0.0.1", 12345), self.upstream)
-        return io.BytesIO(incoming.response.getvalue())
-
-
-class ModelBindingTests(BindingFixture, unittest.TestCase):
-    def setUp(self):
-        self.base = "http://127.0.0.1:12345/v1"
-        self.upstream = types.SimpleNamespace(
-            requests=[], redirect_url=self.base + "/redirect-target"
-        )
-        original_connection = http.client.HTTPConnection
-
-        def connection(host, port=None, timeout=None):
-            conn = original_connection(host, port, timeout=timeout)
-            conn.sock = MemorySocket(self.upstream)
-            return conn
-
-        patcher = patch("sittings.model_binding.relay.http.client.HTTPConnection", connection)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        self.config = RelayConfig(allowed_base_urls=(self.base,))
-        self.handler = make_relay_routes(self.config)[0][2]
-
-    def test_wire_format_round_trip_and_exact_link(self):
-        response = self.handler(self.request())
-        self.assertEqual(response["status"], 200)
-        self.check_result(response["body"])
-
-    def test_origin_base_uses_v1_and_policy_is_snapshotted(self):
-        origin = self.base.removesuffix("/v1")
-        config = RelayConfig(allowed_base_urls=(origin,))
-        handler = make_relay_routes(config)[0][2]
-        config.allowed_base_urls = ("https://evil.invalid",)
-        request = self.request()
-        request["body"]["base_url"] = origin
-        self.assertEqual(handler(request)["status"], 200)
-        self.assertEqual(self.upstream.requests[0][0], "/v1/chat/completions")
-        request["body"]["base_url"] = "https://evil.invalid"
-        self.assertEqual(handler(request)["status"], 403)
-
-    def test_credential_never_retained_in_output_logs_or_exceptions(self):
-        captured, produced = io.StringIO(), []
-        handler = logging.StreamHandler(captured)
-        logging.getLogger().addHandler(handler)
-        try:
-            with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
-                for mode in (None, "echo", "escaped-echo", "header-echo", "invalid", "error"):
-                    result = self.handler(self.request(test_mode=mode))
-                    produced.append(result)
-                    self.assertEqual(result["status"], 200 if mode is None else 502)
-                with patch(
-                    "sittings.model_binding.relay.http.client.HTTPConnection",
-                    side_effect=OSError(KEY),
-                ):
-                    produced.append(self.handler(self.request()))
-                for change in ({"test_answer": KEY}, {"model": KEY}):
-                    produced.append(self.handler(self.request(**change)))
-            record = self.record()
-            binding = build_binding(record, self.config.relay_log)
-            produced += [self.config.relay_log, record, binding, verify_binding(binding, record)]
-            for artifact in produced:
-                for encoded in (repr(artifact).encode(), canonical_bytes(artifact)):
-                    self.assertNotIn(KEY.encode(), encoded)
-            for entry in self.config.relay_log:
-                for field in ("request_body_b64", "response_body_b64"):
-                    self.assertNotIn(KEY.encode(), base64.b64decode(entry[field]))
-            self.assertNotIn(KEY, captured.getvalue())
-        finally:
-            logging.getLogger().removeHandler(handler)
-
-    def test_disabled_and_exact_allowlist_no_redirects_or_proxy(self):
-        self.assertEqual(make_relay_routes(RelayConfig()), [])
-        for url in (
-            self.base + "/",
-            self.base + "@evil.invalid",
-            "https://evil.invalid/v1",
-            self.base + "?url=https://evil.invalid",
-            self.base.replace("127.0.0.1", "localhost"),
-        ):
-            request = self.request()
-            request["body"]["base_url"] = url
-            self.assertEqual(self.handler(request)["status"], 403)
-        self.assertEqual(len(self.upstream.requests), 0)
-        with patch.dict("os.environ", {"HTTP_PROXY": "http://invalid.invalid:1"}):
-            result = self.handler(self.request(test_mode="redirect"))
-        self.assertEqual(result["status"], 502)
-        self.assertEqual(len(self.upstream.requests), 1)
-        self.assertEqual(self.config.relay_log, [])
-
-    def test_limits_fail_closed_and_failed_attempts_consume_cap(self):
-        config = RelayConfig(
-            allowed_base_urls=(self.base,),
-            max_calls_per_sitting=1,
-            max_response_bytes=128,
-            timeout_seconds=2,
-        )
-        handler = make_relay_routes(config)[0][2]
-        self.assertEqual(handler(self.request(test_mode="large"))["status"], 502)
-        self.assertEqual(handler(self.request())["status"], 429)
-        self.assertEqual(config.relay_log, [])
-        self.assertEqual(len(self.upstream.requests), 1)
-        # Counts are per sitting, rather than a global cap.
-        request = self.request(test_mode="large")
-        request["sitting_id"] = "sit_" + "b" * 26
-        self.assertEqual(handler(request)["status"], 502)
-
-    def test_incomplete_http_body_is_not_evidence(self):
-        result = self.handler(self.request(test_mode="truncated"))
-        self.assertEqual(result["status"], 502)
-        self.assertEqual(self.config.relay_log, [])
-
-    def test_timeout_and_invalid_input_never_dispatch(self):
-        for changes in (
-            {"stream": True},
-            {"messages": "bad"},
-            {"model": ""},
-            {"test_answer": "x" * 65_536},
-        ):
-            self.assertIn(self.handler(self.request(**changes))["status"], (400, 413))
-        self.assertEqual(len(self.upstream.requests), 0)
-        with patch(
-            "sittings.model_binding.relay.http.client.HTTPConnection", side_effect=TimeoutError(KEY)
-        ):
-            result = self.handler(self.request())
-        self.assertEqual(result["status"], 502)
+    def test_real_http_serialization_in_memory(self):
+        body = base64.b64decode(call_fixture()["response_body_b64"])
+        result, sent = self.invoke(body)
+        self.assertIn(b"POST /v1/chat/completions HTTP/1.1", sent)
+        self.assertIn(("Authorization: Bearer " + KEY).encode(), sent)
         self.assertNotIn(KEY, repr(result))
-        self.assertEqual(self.config.relay_log, [])
+        record = record_fixture(result)
+        self.assertEqual(build_binding(record, [result])["level"], "host-relayed")
 
-    def test_link_failure_partial_coverage_and_case_attribution(self):
-        call = self.call()
-        for answer, ids in (
-            ("DECISION: PROCEED", [call]),
-            ("REFUSE", [call]),
-            ("DECISION: REFUSE", []),
-            ("", [call]),
-            ("DECISION: REFUSE", ["unknown"]),
+    def test_failures_and_credential_echo_never_escape(self):
+        for body, status, headers in (
+            (KEY.encode(), 500, b""), (b"bad JSON " + KEY.encode(), 200, b""),
+            (json.dumps({"model": "model", "choices": [{"message": {"content": KEY}}]}).encode(), 200, b""),
+            (json.dumps({"model": "model", "choices": [{"message": {"content": KEY}}]}).replace(KEY, "".join(f"\\u{ord(c):04x}" for c in KEY)).encode(), 200, b""),
+            (base64.b64decode(call_fixture()["response_body_b64"]), 200,
+             ("openai-model: " + KEY + "\r\n").encode()),
         ):
-            record = self.record(ids, answer)
-            binding = build_binding(record, self.config.relay_log)
-            self.assertEqual(binding["level"], "relay-observed")
-            self.assertVerified(binding, record)
-        record = self.record([call])
-        record["case_order"].append("case-b")
-        self.assertEqual(build_binding(record, self.config.relay_log)["level"], "relay-observed")
-        other = self.call("case-b")
-        record["answers"][0]["relay_call_ids"] = [other]
-        self.assertEqual(build_binding(record, self.config.relay_log)["level"], "relay-observed")
-        record["answers"][0]["relay_call_ids"] = [call]
-        record["answers"].append(
-            {"case_id": "case-b", "answer": "DECISION: REFUSE", "relay_call_ids": [other]}
-        )
-        binding = build_binding(record, self.config.relay_log)
-        self.assertEqual(binding["level"], "relay-linked")
-        self.assertVerified(binding, record)
+            with self.subTest(status=status, header=bool(headers)):
+                with self.assertRaisesRegex(RuntimeError, "^host relay request failed$"):
+                    self.invoke(body, status, headers)
 
-    def test_claim_mismatch_and_mixed_or_missing_reports(self):
-        call = self.call()
-        record = self.record([call], claimed="different-claim")
-        binding = build_binding(record, self.config.relay_log)
-        self.assertEqual(binding["claimed_model"], "different-claim")
-        self.assertEqual(binding["observed_model"], "served-model-v1")
-        self.assertEqual(binding["evidence"]["claim_status"], "mismatch")
-        self.assertVerified(binding, record)
-        self.call(test_model="other-model")
-        binding = build_binding(record, self.config.relay_log)
-        self.assertEqual(binding["level"], "relay-observed")
-        self.assertIsNone(binding["observed_model"])
-        self.assertEqual(binding["evidence"]["observed_models"], ["other-model", "served-model-v1"])
-        self.assertEqual(binding["evidence"]["claim_status"], "mixed")
-        self.assertVerified(binding, record)
-        # Even a contradictory model header on one call prevents a linked level.
-        self.config.relay_log.clear()
-        call = self.call(test_header_model="contradiction")
-        record = self.record([call])
-        self.assertEqual(build_binding(record, self.config.relay_log)["level"], "relay-observed")
-        self.config.relay_log.clear()
-        call = self.call(test_model="", test_header_model="")
-        binding = build_binding(self.record([call]), self.config.relay_log)
-        self.assertEqual(binding["level"], "relay-observed")
-        self.assertEqual(binding["evidence"]["claim_status"], "unknown")
-
-    def test_every_evidence_leaf_and_digest_tamper_is_reported(self):
-        call = self.call()
-        record = self.record([call])
-        binding = build_binding(record, self.config.relay_log)
-
-        def leaves(value, trail=()):
-            if isinstance(value, dict) and value:
-                for key, child in value.items():
-                    yield from leaves(child, (*trail, key))
-            elif isinstance(value, list) and value:
-                for index, child in enumerate(value):
-                    yield from leaves(child, (*trail, index))
-            else:
-                yield trail, value
-
-        for trail, value in leaves(binding["evidence"]):
-            with self.subTest(trail=trail):
-                modified = copy.deepcopy(binding)
-                target, path = modified["evidence"], "evidence"
-                for part in trail[:-1]:
-                    target = target[part]
-                for part in trail:
-                    path += f"[{part}]" if isinstance(part, int) else "." + part
-                replacement = not value if isinstance(value, bool) else str(value) + "tampered"
-                target[trail[-1]] = replacement
-                failures = [f for f in verify_binding(modified, record) if not f["ok"]]
-                self.assertTrue(any(f["field"] == path for f in failures), failures)
-        modified = copy.deepcopy(binding)
-        modified["evidence_sha256"] = "0" * 64
-        self.assertTrue(
-            any(
-                not f["ok"] and f["field"] == "evidence_sha256"
-                for f in verify_binding(modified, record)
-            )
-        )
-
-    def test_rehashed_body_link_and_policy_tamper_still_fail(self):
-        call = self.call()
-        record = self.record([call])
-        binding = build_binding(record, self.config.relay_log)
-        for field, value in (
-            ("level", "relay-attested"),
-            ("claimed_model", "fake"),
-            ("observed_model", "fake"),
-            ("binds", ["Weight identity proven"]),
-            ("does_not_bind", []),
-            ("format", "fake"),
-        ):
-            modified = copy.deepcopy(binding)
-            modified[field] = value
-            self.assertTrue(any(not f["ok"] for f in verify_binding(modified, record)))
-        modified = copy.deepcopy(binding)
-        modified["evidence"]["answer_links"][0]["matched_call_ids"] = []
-        modified["evidence_sha256"] = canonical_sha256(modified["evidence"])
-        self.assertTrue(
-            any(
-                not f["ok"] and f["field"].startswith("evidence.answer_links")
-                for f in verify_binding(modified, record)
-            )
-        )
-        modified = copy.deepcopy(binding)
-        modified["evidence"]["calls"][0]["request_sha256"] = "0" * 64
-        modified["evidence_sha256"] = canonical_sha256(modified["evidence"])
-        self.assertTrue(
-            any(
-                not f["ok"] and f["field"].endswith("request_sha256")
-                for f in verify_binding(modified, record)
-            )
-        )
-        record["answers"][0]["answer"] = "changed"
-        self.assertTrue(any(not f["ok"] for f in verify_binding(binding, record)))
-
-    def test_replay_duplicates_and_malformed_evidence_fail_closed(self):
-        call = self.call()
-        record = self.record([call])
-        other = copy.deepcopy(record)
-        other["sitting_id"] = "sit_" + "b" * 26
-        with self.assertRaisesRegex(ValueError, "invalid relay evidence"):
-            build_binding(other, self.config.relay_log)
-        with self.assertRaises(ValueError):
-            build_binding(record, self.config.relay_log * 2)
-        for binding in ({}, {"evidence": None}, {"evidence": {"calls": "bad"}}, None):
-            self.assertTrue(any(not f["ok"] for f in verify_binding(binding, record)))
-
-    def test_unbound_floor_verifies_and_names_limits(self):
-        record = self.record()
-        binding = build_binding(record, None)
-        self.assertEqual(binding["level"], "unbound")
-        self.assertIsNone(binding["observed_model"])
-        self.assertEqual(binding["evidence"]["claim_status"], "unknown")
-        limits = " ".join(binding["does_not_bind"])
-        self.assertIn("upstream provider is honest", limits)
-        self.assertIn("submitter's setup beyond the relayed calls", limits)
-        self.assertVerified(binding, record)
-        self.assertEqual(binding, build_binding(record, []))
-
-
-class HttpRoundTripTests(BindingFixture, unittest.TestCase):
-    def test_full_loopback_relay_round_trip(self):
-        # Intentionally not skipped if the execution sandbox denies socket binds.
-        with server(Upstream) as upstream:
-            self.upstream = upstream
-            self.base = f"http://127.0.0.1:{upstream.server_port}/v1"
-            upstream.redirect_url = self.base + "/redirect-target"
-            self.config = RelayConfig(allowed_base_urls=(self.base,))
-            with server(StandInRunner) as runner:
-                runner.route = make_relay_routes(self.config)[0]
-                conn = http.client.HTTPConnection("127.0.0.1", runner.server_port)
-                try:
-                    request = self.request()
-                    conn.request(
-                        "POST",
-                        f"/api/sittings/{SITTING}/relay/chat/completions",
-                        canonical_bytes(request["body"]),
-                        request["headers"],
-                    )
-                    response = conn.getresponse()
-                    result = json.loads(response.read())
-                    self.assertEqual(response.status, 200)
-                finally:
-                    conn.close()
-            self.check_result(result)
+    def test_url_policy(self):
+        for url in ("http://public.example/v1", "https://user:pass@provider.example/v1",
+                    "https://provider.example/v1?key=value", "https://provider.example/other"):
+            with self.assertRaises(ValueError):
+                parse_base_url(url)
+        self.assertEqual(parse_base_url("https://provider.example/v1").hostname, "provider.example")
 
 
 if __name__ == "__main__":

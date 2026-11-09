@@ -1,9 +1,4 @@
-"""Which bytes a sitting binds: the decision corpus and the scorer.
-
-A file manifest is {"sha256": <aggregate>, "files": [{"path", "sha256", "bytes"}, ...]},
-files sorted by repo-relative POSIX path. The aggregate is the canonical sha256 of the
-list of {"path", "sha256"} pairs (byte counts are informative, not hashed).
-"""
+"""Hash the source bytes that define a sitting's corpus and scoring protocol."""
 
 from __future__ import annotations
 
@@ -13,23 +8,28 @@ from typing import Any
 from sittings.canonical import canonical_sha256, sha256_hex
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
-# The decision corpus: every matched-pair file the OCS scorer loads by default.
 CORPUS_GLOB = "operant*_cases.json"
-# Files outside the decision schema share the glob; score_operant.load_cases skips them.
 CORPUS_EXCLUDE = frozenset({"operant_axis3_cases.json"})
-# The pinned operator contract every sitting is examined under. A hosted runner never
-# falls back to a local ~/.claude/CLAUDE.md: that would leak the host's private file.
 OPERATOR_CONTRACT = "examples/example-operator-contract.md"
 
-# The exact bytes that build the prompts and turn answers into a score.
-# Changing any of them changes scorer.sha256.
-SCORER_FILES = (
+# Imports used when the host builds subject prompts. run_operant and these modules
+# are included even though most of their runtime helpers are unrelated to prompt text.
+PROMPT_FILES = (
     "run_operant.py",
+    "operant_lab/__init__.py",
     "operant_lab/agent_runners.py",
-    "score_operant.py",
-    "operant_lab/selfserve.py",
     "operant_lab/artifacts.py",
+    "operant_lab/lineage.py",
+    "operant_lab/subjects.py",
+    "sittings/prompts.py",
+)
+# Minimal repo-local replay closure for sittings.scoring.score_answers. This scorer
+# contains a documented local copy of score_operant's deterministic scoring core,
+# avoiding its environment- and filesystem-oriented CLI imports.
+SCORER_FILES = (
+    "sittings/__init__.py",
+    "sittings/canonical.py",
+    "sittings/manifest.py",
     "sittings/scoring.py",
 )
 
@@ -38,7 +38,7 @@ def corpus_paths(root: Path = REPO_ROOT) -> list[str]:
     cases = [
         p.name for p in root.glob(CORPUS_GLOB) if p.is_file() and p.name not in CORPUS_EXCLUDE
     ]
-    return sorted([*cases, OPERATOR_CONTRACT])
+    return sorted([*cases, OPERATOR_CONTRACT, *PROMPT_FILES])
 
 
 def files_manifest(paths: list[str] | tuple[str, ...], root: Path = REPO_ROOT) -> dict[str, Any]:

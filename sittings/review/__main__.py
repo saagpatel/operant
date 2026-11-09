@@ -16,10 +16,12 @@ def main() -> None:
     parser.add_argument("--state", default="pending", choices=("pending", "approved", "rejected"))
     parser.add_argument("--reason")
     parser.add_argument("--data-dir", required=True)
-    parser.add_argument("--web-data", required=True)
+    parser.add_argument("--web-data")
     parser.add_argument("--pubkey", action="append", default=[])
     parser.add_argument("--blob-source", default=".")
     args = parser.parse_args()
+    if args.action in ("approve", "unpublish") and not args.web_data:
+        parser.error(f"{args.action} requires --web-data")
     queue = ReviewQueue(args.data_dir)
     if args.action == "list":
         result = queue.list(args.state)

@@ -11,6 +11,7 @@ import os
 import tempfile
 import threading
 import unittest
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
@@ -20,8 +21,8 @@ from examples.heuristic_agent import respond
 from operant_lab.agent_runners import RunnerResult
 from run_operant import build_system_prompt
 from sittings import client, manifest, scoring
-from sittings.canonical import canonical_sha256, sha256_hex
-from sittings.runner.server import RunnerConfig, RunnerServer, unbound_binding
+from sittings.canonical import canonical_bytes, canonical_sha256, sha256_hex
+from sittings.runner.server import APIError, RunnerConfig, RunnerHandler, RunnerServer, unbound_binding
 from sittings.runner.store import atomic_json
 
 ROOT = Path(__file__).resolve().parent
@@ -77,6 +78,210 @@ class ScoringTests(unittest.TestCase):
         for invalid in (answers + answers[:1], [{"case_id": "unknown", "answer": ""}]):
             with self.assertRaises(ValueError):
                 scoring.score_answers(cases, invalid)
+
+
+class RunnerLogicTests(unittest.TestCase):
+    def server_without_socket(self, config):
+        with patch("http.server.ThreadingHTTPServer.__init__", return_value=None):
+            return RunnerServer(("127.0.0.1", 0), config)
+
+    def test_stale_files_mark_finished_record_nonpublishable(self):
+        with tempfile.TemporaryDirectory(prefix=".test-stale-runner-", dir=ROOT) as directory:
+            server = self.server_without_socket(RunnerConfig(data_dir=directory, allow_partial=True))
+            created = server.create_sitting(CREATE, "127.0.0.1")
+            state = server.store.load(created["sitting_id"])
+            changed = copy.deepcopy(server.corpus)
+            changed["sha256"] = "0" * 64
+            with patch.object(manifest, "corpus_manifest", return_value=changed):
+                result = server.finish(state)
+            score = result["record"]["score"]
+            self.assertFalse(score["publishable"])
+            self.assertIn("bound files changed during sitting", score["not_publishable_reasons"])
+
+    def test_startup_rejects_mixed_manifest_snapshot(self):
+        with tempfile.TemporaryDirectory(prefix=".test-startup-drift-", dir=ROOT) as directory:
+            actual = manifest.corpus_manifest()
+            changed = copy.deepcopy(actual)
+            changed["sha256"] = "0" * 64
+            with patch.object(manifest, "corpus_manifest", side_effect=[actual, changed]):
+                with self.assertRaisesRegex(RuntimeError, "changed during runner startup"):
+                    self.server_without_socket(RunnerConfig(data_dir=directory))
+
+    def test_storage_cap_refuses_answer_and_finish_growth(self):
+        with tempfile.TemporaryDirectory(prefix=".test-storage-cap-", dir=ROOT) as directory:
+            config = RunnerConfig(data_dir=directory, allow_partial=True)
+            server = self.server_without_socket(config)
+            created = server.create_sitting(CREATE, "127.0.0.1")
+            state = server.store.load(created["sitting_id"])
+            case = server.next_case(state)
+            state = server.store.load(created["sitting_id"])
+            config.max_stored_bytes = server.store.stored_bytes() + 100
+            with self.assertRaisesRegex(APIError, "maximum stored sitting data"):
+                server.accept_answer(state, {"case_id": case["case_id"], "answer": "x" * 20000})
+            self.assertEqual(server.store.load(created["sitting_id"])["answers"], [])
+            with self.assertRaisesRegex(APIError, "maximum stored sitting data"):
+                server.finish(server.store.load(created["sitting_id"]))
+            self.assertIsNone(server.store.read_record(created["sitting_id"]))
+
+    def test_request_limit_rejects_before_thread_creation_and_body_timeout_is_bounded(self):
+        with tempfile.TemporaryDirectory(prefix=".test-request-cap-", dir=ROOT) as directory:
+            server = self.server_without_socket(RunnerConfig(data_dir=directory, max_request_concurrency=1))
+            server.request_slots.acquire()
+
+            class FakeSocket:
+                def __init__(self):
+                    self.sent = b""
+
+                def sendall(self, value):
+                    self.sent += value
+
+            fake_socket = FakeSocket()
+            with patch.object(server, "shutdown_request") as shutdown:
+                server.process_request(fake_socket, ("127.0.0.1", 1234))
+            self.assertIn(b"503 Service Unavailable", fake_socket.sent)
+            shutdown.assert_called_once_with(fake_socket)
+
+            class FakeConnection:
+                timeout = None
+
+                def settimeout(self, value):
+                    self.timeout = value
+
+            handler = object.__new__(RunnerHandler)
+            handler.connection = FakeConnection()
+            with patch("http.server.BaseHTTPRequestHandler.setup"):
+                RunnerHandler.setup(handler)
+            self.assertEqual(handler.connection.timeout, 30)
+
+    def test_lock_table_is_bounded_and_expired_credentials_are_cleared(self):
+        with tempfile.TemporaryDirectory(prefix=".test-locks-", dir=ROOT) as directory:
+            server = self.server_without_socket(RunnerConfig(
+                data_dir=directory, relay_providers={"fake": "https://provider.example/v1"},
+            ))
+            for index in range(5000):
+                sid = "sit_" + base64.b32encode(index.to_bytes(16, "big")).decode().lower().rstrip("=")
+                server.store.lock_for(sid)
+            self.assertEqual(len(server.store._locks), 256)
+            secret = "expiring-key-fixture"
+            created = server.create_sitting({
+                **CREATE, "relay": {"provider": "fake", "model": "model", "api_key": secret},
+            }, "127.0.0.1")
+            state = server.store.load(created["sitting_id"])
+            state["expires_at_ms"] = int(server.config.clock() * 1000) - 1
+            server.store.save(state)
+            server.cleanup_expired_keys()
+            self.assertNotIn(created["sitting_id"], server.relay_keys)
+
+    def test_provider_key_cannot_be_reused_as_public_metadata(self):
+        with tempfile.TemporaryDirectory(prefix=".test-key-metadata-", dir=ROOT) as directory:
+            server = self.server_without_socket(RunnerConfig(
+                data_dir=directory, relay_providers={"fixture": "https://provider.example/v1"},
+            ))
+            secret = "sensitive-model-claim"
+            body = {
+                **CREATE, "claimed_model": secret,
+                "relay": {"provider": "fixture", "model": "requested", "api_key": secret},
+            }
+            with self.assertRaisesRegex(APIError, "credential appears in public metadata"):
+                server.create_sitting(body, "127.0.0.1")
+            self.assertEqual(server.relay_keys, {})
+
+    def test_finish_retry_reuses_saved_receipt(self):
+        with tempfile.TemporaryDirectory(prefix=".test-finish-retry-", dir=ROOT) as directory:
+            receipt_calls = []
+            review_calls = []
+
+            def seal(record):
+                receipt_calls.append(record["sitting_id"])
+                return {"receipt": len(receipt_calls)}
+
+            def review(record, receipt):
+                review_calls.append(receipt)
+                if len(review_calls) == 1:
+                    raise OSError("temporary review write failure")
+                return "pending"
+
+            server = self.server_without_socket(RunnerConfig(
+                data_dir=directory, allow_partial=True,
+                receipt_hook=seal, review_hook=review,
+            ))
+            created = server.create_sitting(CREATE, "127.0.0.1")
+            state = server.store.load(created["sitting_id"])
+            with self.assertRaises(OSError):
+                server.finish(state)
+            saved_receipt = server.store.read_receipt(created["sitting_id"])
+            result = server.finish(server.store.load(created["sitting_id"]))
+            self.assertEqual(receipt_calls, [created["sitting_id"]])
+            self.assertEqual(saved_receipt, result["receipt"])
+            self.assertEqual(review_calls, [saved_receipt, saved_receipt])
+
+    def test_partial_host_relay_without_calls_has_no_unverifiable_relay_reason(self):
+        with tempfile.TemporaryDirectory(prefix=".test-empty-relay-", dir=ROOT) as directory:
+            server = self.server_without_socket(RunnerConfig(
+                data_dir=directory, allow_partial=True,
+                relay_providers={"fixture": "https://provider.example/v1"},
+            ))
+            created = server.create_sitting({
+                **CREATE, "relay": {
+                    "provider": "fixture", "model": "requested", "api_key": "secret-key",
+                },
+            }, "127.0.0.1")
+            result = server.finish(server.store.load(created["sitting_id"]))
+            reasons = result["record"]["score"]["not_publishable_reasons"]
+            self.assertTrue(reasons)
+            self.assertNotIn("provider did not report an observed model", reasons)
+            self.assertNotIn("host relay did not bind every answer to one consistent model", reasons)
+
+    def test_host_relay_logic_without_socket_binding(self):
+        from sittings.model_binding import build_binding
+        from sittings.model_binding.relay import request_body, timestamp
+
+        with tempfile.TemporaryDirectory(prefix=".test-runner-logic-", dir=ROOT) as directory:
+            secret = "logic-test-key"
+
+            def transport(provider, base_url, model, api_key, sid, cid, prompt):
+                if api_key != secret:
+                    raise AssertionError("runner did not retain its in-memory key")
+                request_raw = canonical_bytes(request_body(model, sid, cid, prompt))
+                completion = "DECISION: ESCALATE"
+                response_raw = canonical_bytes({
+                    "model": "served-model",
+                    "choices": [{"message": {"role": "assistant", "content": completion}}],
+                })
+                return {
+                    "call_id": "call_" + sha256_hex(cid.encode())[:32],
+                    "provider": provider, "sitting_id": sid, "case_id": cid,
+                    "upstream_base_url": base_url, "requested_model": model,
+                    "response_model": "served-model", "response_header_model": "served-model",
+                    "completion_text": completion,
+                    "request_body_b64": base64.b64encode(request_raw).decode("ascii"),
+                    "response_body_b64": base64.b64encode(response_raw).decode("ascii"),
+                    "request_sha256": sha256_hex(request_raw),
+                    "response_sha256": sha256_hex(response_raw),
+                    "started_at": timestamp(), "finished_at": timestamp(),
+                }
+
+            config = RunnerConfig(
+                data_dir=directory, relay_providers={"fake": "https://provider.example/v1"},
+                relay_transport=transport, binding_hook=build_binding,
+            )
+            with patch("http.server.ThreadingHTTPServer.__init__", return_value=None):
+                server = RunnerServer(("127.0.0.1", 0), config)
+            created = server.create_sitting({
+                **CREATE, "relay": {"provider": "fake", "model": "requested-model", "api_key": secret},
+            }, "127.0.0.1")
+            state = server.store.load(created["sitting_id"])
+            self.assertIsNot(server.store.lock_for("sit_" + "a" * 26),
+                             server.store.lock_for("sit_" + "b" * 26))
+            result = server.run_relay(state)
+            self.assertEqual(result["record"]["model_binding"]["level"], "host-relayed")
+            self.assertFalse(result["record"]["score"]["publishable"])
+            self.assertNotIn(secret, json.dumps(result))
+            self.assertNotIn(created["sitting_id"], server.relay_keys)
+            self.assertEqual(server.run_relay(server.store.load(created["sitting_id"])), result)
+            for path in Path(directory).rglob("*"):
+                if path.is_file():
+                    self.assertNotIn(secret.encode(), path.read_bytes())
 
 
 class RunnerTests(unittest.TestCase):
@@ -221,7 +426,8 @@ class RunnerTests(unittest.TestCase):
         binding = record["model_binding"]
         self.assertEqual(binding["level"], "unbound")
         self.assertEqual(binding["binds"], [])
-        self.assertEqual(binding["does_not_bind"], ["which model produced the answers"])
+        self.assertTrue(binding["does_not_bind"][0].startswith("Which model produced the answers"))
+        self.assertTrue(any("public" in item for item in binding["does_not_bind"]))
         self.assertEqual(binding["evidence_sha256"], canonical_sha256(binding["evidence"]))
         self.assertEqual(list(local.glob("*.receipt.json")), [])
 
@@ -252,6 +458,73 @@ class RunnerTests(unittest.TestCase):
             self.assertIn("Allow", headers)
         missing = "/api/sittings/sit_" + "a" * 26 + "/next"
         self.assertEqual(self.request("GET", missing, token="unknown")[0], 404)
+
+    def test_runner_owned_run_route_is_only_for_relay_sittings(self):
+        created, path = self.create()
+        self.assertEqual(self.request("POST", path + "/run", {}, token="bad")[0], 401)
+        self.assertEqual(self.request("GET", path + "/run", token=created["token"])[0], 405)
+        self.assertEqual(self.request("POST", path + "/run", {}, token=created["token"])[0], 409)
+
+    def test_host_relay_runs_and_marks_claim_mismatch_nonpublishable(self):
+        from sittings.model_binding import build_binding
+        from sittings.model_binding.relay import request_body, timestamp
+
+        secret = "test-provider-key"
+        calls = []
+
+        def transport(provider, base_url, model, api_key, sid, cid, prompt):
+            self.assertEqual(api_key, secret)
+            request = request_body(model, sid, cid, prompt)
+            answer = "DECISION: ESCALATE"
+            response = {
+                "id": "resp-fixture", "model": "observed-model",
+                "choices": [{"message": {"role": "assistant", "content": answer}}],
+            }
+            request_raw = canonical_bytes(request)
+            response_raw = canonical_bytes(response)
+            call = {
+                "call_id": "call_" + ("a" * 32), "provider": provider,
+                "sitting_id": sid, "case_id": cid, "upstream_base_url": base_url,
+                "requested_model": model, "response_model": "observed-model",
+                "response_header_model": "observed-model", "completion_text": answer,
+                "request_body_b64": base64.b64encode(request_raw).decode("ascii"),
+                "response_body_b64": base64.b64encode(response_raw).decode("ascii"),
+                "request_sha256": sha256_hex(request_raw), "response_sha256": sha256_hex(response_raw),
+                "started_at": timestamp(), "finished_at": timestamp(),
+            }
+            # Use distinct ids for each case while keeping a deterministic shape.
+            call["call_id"] = "call_" + f"{len(calls):032x}"
+            calls.append(call)
+            return call
+
+        self.restart(
+            relay_providers={"fixture": "https://provider.example/v1"},
+            relay_transport=transport,
+            binding_hook=build_binding,
+        )
+        create_body = {**CREATE, "relay": {
+            "provider": "fixture", "model": "requested-model", "api_key": secret,
+        }}
+        created = self.request("POST", "/api/sittings", create_body)[1]
+        sid = created["sitting_id"]
+        path = f"/api/sittings/{sid}"
+        status, result, _ = self.request("POST", path + "/run", {}, token=created["token"])
+        self.assertEqual(status, 200)
+        record = result["record"]
+        self.assertEqual(len(calls), 40)
+        self.assertEqual(record["model_binding"]["level"], "host-relayed")
+        self.assertEqual(record["model_binding"]["observed_model"], "observed-model")
+        self.assertFalse(record["score"]["publishable"])
+        self.assertIn("claimed model does not match observed model", record["score"]["not_publishable_reasons"])
+        self.assertEqual(record["answers"][0]["answer"], "DECISION: ESCALATE")
+        self.assertNotIn(sid, self.server.relay_keys)
+        for file in self.data_dir.rglob("*"):
+            if file.is_file():
+                self.assertNotIn(secret.encode(), file.read_bytes())
+
+    def test_non_loopback_bind_requires_tls_proxy_flag(self):
+        with self.assertRaisesRegex(ValueError, "--behind-tls-proxy"):
+            RunnerServer(("0.0.0.0", 0), RunnerConfig(data_dir=self.data_dir))
 
     def test_bad_tokens_for_all_sitting_routes(self):
         created, path = self.create()
@@ -457,23 +730,13 @@ class RunnerTests(unittest.TestCase):
         self.assertCountEqual(results, [200, 409])
         self.assertEqual(len(self.server.store.load(created["sitting_id"])["answers"]), 1)
 
-    def test_hooks_extra_routes_receipt_and_client_output(self):
+    def test_hooks_receipt_and_client_output(self):
         seen = []
-
-        def relay(request):
-            self.assertEqual(request["body"], {"message": "fixture"})
-            self.assertEqual(request["method"], "POST")
-            request["sitting"]["relay_log"].append(
-                {
-                    "case_id": request["sitting"]["last_served"],
-                    "call_id": "call_fixture",
-                }
-            )
-            return {"status": 201, "body": {"ok": True}}
 
         def bind(record, relay_log):
             seen.append(("binding", copy.deepcopy(record), relay_log))
             self.assertNotIn("model_binding", record)
+            self.assertEqual(relay_log, [])
             return unbound_binding(record, relay_log)
 
         def receipt(record):
@@ -489,23 +752,13 @@ class RunnerTests(unittest.TestCase):
             binding_hook=bind,
             receipt_hook=receipt,
             review_hook=review,
-            extra_routes=[("POST", r"/api/sittings/sit_[a-z2-7]{26}/relay", relay)],
         )
         created, path = self.create()
-        self.assertEqual(self.request("POST", path + "/relay", {}, token="bad")[0], 401)
-        self.assertEqual(self.request("GET", path + "/relay", token=created["token"])[0], 405)
-        case = self.next_case(created, path)
-        self.assertEqual(
-            self.request("POST", path + "/relay", {"message": "fixture"}, token=created["token"])[
-                0
-            ],
-            201,
-        )
-        self.assertEqual(self.answer(created, path, case)[0], 200)
+        self.config.allow_partial = True
         status, result, _ = self.request("POST", path + "/finish", {}, token=created["token"])
         self.assertEqual(status, 200)
         self.assertEqual([entry[0] for entry in seen], ["binding", "receipt", "review"])
-        self.assertEqual(result["record"]["answers"][0]["relay_call_ids"], ["call_fixture"])
+        self.assertEqual(result["record"]["answers"], [])
         self.assertEqual(result["review_status"], "pending")
         receipt_file = (
             self.data_dir
