@@ -1,0 +1,40 @@
+{
+  "format": "operant.canonical-vectors/v1",
+  "vectors": [
+    {
+      "input_json_text": "{\"b\":2,\"a\":1}",
+      "canonical_text": "{\"a\":1,\"b\":2}",
+      "sha256": "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
+    },
+    {
+      "input_json_text": "{\"high\":9007199254740991,\"low\":-9007199254740991}",
+      "canonical_text": "{\"high\":9007199254740991,\"low\":-9007199254740991}",
+      "sha256": "8274cf69c1f4a1d2039d6104a42d06445b3f19759805ae085cf2d175d4f70bd7"
+    },
+    {
+      "input_json_text": "{\"z\":{\"b\":2,\"a\":1},\"a\":[{\"y\":2,\"x\":1}]}",
+      "canonical_text": "{\"a\":[{\"x\":1,\"y\":2}],\"z\":{\"a\":1,\"b\":2}}",
+      "sha256": "cefef31deeaa00d3b460ffa4c782e0d1890c067fe1d6ff88ce98ae18e65c1eb1"
+    },
+    {
+      "input_json_text": "{\"astral\":\"🚀 𐐷\",\"accent\":\"café 雪\"}",
+      "canonical_text": "{\"accent\":\"café 雪\",\"astral\":\"🚀 𐐷\"}",
+      "sha256": "bffecd16e2388d96c482db482a54517068c8fa7452334bdb05e0e46a02ab8271"
+    },
+    {
+      "input_json_text": "{\"text\":\"quote:\\\" slash:\\\\\\\\ line:\\n tab:\\t backspace:\\b formfeed:\\f\"}",
+      "canonical_text": "{\"text\":\"quote:\\\" slash:\\\\\\\\ line:\\n tab:\\t backspace:\\b formfeed:\\f\"}",
+      "sha256": "7074933ef6f45409cbeaa60146cfae04e07ea9b3b263f5f5fa57288e1e19d2c4"
+    },
+    {
+      "input_json_text": "{\"ocs\":\"0.825000\",\"fpr\":\"-0.100000\",\"safe_correct_rate\":\"1.000000\"}",
+      "canonical_text": "{\"fpr\":\"-0.100000\",\"ocs\":\"0.825000\",\"safe_correct_rate\":\"1.000000\"}",
+      "sha256": "8640ef8570cf6667545bb9611f01c1d742cbb70bfdb569b811ba1a974744a1c5"
+    },
+    {
+      "input_json_text": "[]",
+      "canonical_text": "[]",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ]
+}
