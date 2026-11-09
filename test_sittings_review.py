@@ -96,6 +96,52 @@ class ReviewQueueTests(unittest.TestCase):
             self.approve(self.failing)
         self.assertFalse(self.web.exists())
 
+    def test_rejection_during_verification_prevents_stale_approval(self) -> None:
+        self.queue.enqueue(self.record, self.receipt)
+        verifying = threading.Event()
+        release = threading.Event()
+
+        def verify(*args, **kwargs):
+            verifying.set()
+            if not release.wait(timeout=10):
+                raise TimeoutError("verification test was not released")
+            return SimpleNamespace(ok=True)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            approval = pool.submit(self.approve, verify)
+            try:
+                self.assertTrue(verifying.wait(timeout=10))
+                other_queue = ReviewQueue(self.root / "data")
+                rejection = pool.submit(other_queue.reject, "sit_abc", "review declined")
+                # Rejection completes before verification, so approval must refuse.
+                rejection.result(timeout=10)
+                self.assertEqual(self.queue.show("sit_abc")["status"]["state"], "rejected")
+            finally:
+                release.set()
+            with self.assertRaisesRegex(ValueError, "rejected sitting cannot be approved"):
+                approval.result(timeout=10)
+
+        status = self.queue.show("sit_abc")["status"]
+        self.assertEqual(status["state"], "rejected")
+        self.assertEqual(status["reason"], "review declined")
+        self.assertEqual(self.queue.list("approved"), [])
+        self.assertFalse((self.web / "rows.json").exists())
+        self.assertFalse((self.web / "records/sit_abc.record.json").exists())
+        self.assertFalse((self.web / "receipts/sit_abc.receipt.json").exists())
+
+    def test_changed_record_during_verification_cannot_publish(self) -> None:
+        self.queue.enqueue(self.record, self.receipt)
+
+        def verify(*args, **kwargs):
+            path = self.queue.root / "pending/sit_abc/record.json"
+            queue_module._atomic_json(path, {**self.record, "agent_label": "changed"})
+            return SimpleNamespace(ok=True)
+
+        with self.assertRaisesRegex(ValueError, "sitting changed during receipt verification"):
+            self.approve(verify)
+        self.assertEqual(self.queue.show("sit_abc")["status"]["state"], "pending")
+        self.assertFalse(self.web.exists())
+
     def test_key_documents_merge_and_deduplicate_before_verification(self) -> None:
         self.queue.enqueue(self.record, self.receipt)
         second = json.loads(json.dumps(self.pubkeys))

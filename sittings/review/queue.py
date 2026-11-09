@@ -22,6 +22,19 @@ STATES = ("pending", "approved", "rejected")
 
 
 @contextmanager
+def _sitting_lock(queue_root: Path, sitting_id: str):
+    locks = queue_root / ".locks"
+    locks.mkdir(parents=True, exist_ok=True)
+    # Never remove these files: all processes must keep locking the same inode.
+    with (locks / f"{_safe_id(sitting_id)}.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+@contextmanager
 def _publication_lock(web_data: Path):
     web_data.mkdir(parents=True, exist_ok=True)
     # Keep the lock file in place: replacing/unlinking it would split concurrent lockers.
@@ -247,9 +260,10 @@ class ReviewQueue:
         blob_source: str | Path,
     ) -> dict[str, Any]:
         sitting_id = _safe_id(sitting_id)
-        current = self.show(sitting_id)
-        if current["status"]["state"] == "rejected":
-            raise ValueError("rejected sitting cannot be approved")
+        with _sitting_lock(self.root, sitting_id):
+            current = self.show(sitting_id)
+        if current["status"]["state"] not in ("pending", "approved"):
+            raise ValueError(f"{current['status']['state']} sitting cannot be approved")
         score = current["record"].get("score")
         if not isinstance(score, dict) or score.get("publishable") is not True:
             reasons = score.get("not_publishable_reasons", []) if isinstance(score, dict) else []
@@ -268,14 +282,22 @@ class ReviewQueue:
             raise ValueError("receipt verification failed")
 
         web_data = Path(web_data)
-        with _publication_lock(web_data):
-            return self._publish(sitting_id, current, web_data, pubkeys, Path(blob_source))
+        # Always take the sitting lock before the shared web-data lock.
+        with _sitting_lock(self.root, sitting_id):
+            latest = self.show(sitting_id)
+            if latest["status"]["state"] not in ("pending", "approved"):
+                raise ValueError(f"{latest['status']['state']} sitting cannot be approved")
+            if (latest["record"] != current["record"]
+                    or latest.get("receipt") != current.get("receipt")):
+                raise ValueError("sitting changed during receipt verification")
+            with _publication_lock(web_data):
+                return self._publish(sitting_id, latest, web_data, pubkeys, Path(blob_source))
 
     def _publish(
         self, sitting_id: str, current: dict[str, Any], web_data: Path,
         pubkeys: dict[str, Any], source: Path,
     ) -> dict[str, Any]:
-        """Publish verified bytes while holding the web directory's publication lock."""
+        """Publish verified bytes while holding the sitting and web publication locks."""
         blob_directory = web_data / "blobs"
         if blob_directory.is_symlink():
             raise ValueError("symlink refused in content-addressed blob directory")
@@ -350,12 +372,14 @@ class ReviewQueue:
     def reject(self, sitting_id: str, reason: str) -> None:
         if not reason:
             raise ValueError("rejection reason is required")
-        self._move(_safe_id(sitting_id), "rejected", reason=reason)
+        sitting_id = _safe_id(sitting_id)
+        with _sitting_lock(self.root, sitting_id):
+            self._move(sitting_id, "rejected", reason=reason)
 
     def unpublish(self, sitting_id: str, *, web_data: str | Path) -> None:
         sitting_id = _safe_id(sitting_id)
         web_data = Path(web_data)
-        with _publication_lock(web_data):
+        with _sitting_lock(self.root, sitting_id), _publication_lock(web_data):
             rows_path = web_data / "rows.json"
             doc = json.loads(rows_path.read_text()) if rows_path.exists() else {
                 "format": "operant.instruments-rows/v1", "rows": [],
