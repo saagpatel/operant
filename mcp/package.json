@@ -36,7 +36,7 @@
 		"sign:manifest": "mcp-kit-sign sign --manifest=.well-known/mcp.json --key=.signing/operant-ed25519.key",
 		"verify:manifest": "node scripts/verify-manifest.mjs .well-known/mcp.json",
 		"typecheck": "tsc --noEmit",
-		"test": "vitest run",
+		"test": "vitest run && node --test scripts/verify-manifest.node.mjs",
 		"probe:mcp": "node scripts/probe-mcp.mjs",
 		"parity": "mcp-kit-parity",
 		"dev": "wrangler dev",

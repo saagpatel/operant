@@ -1,9 +1,12 @@
-.PHONY: check check-python check-mcp check-web
+.PHONY: check check-python check-mcp check-web verify-manifest
 
 check: check-python check-mcp check-web
 
 check-web:
 	node --test web/test/*.test.mjs
+
+verify-manifest:
+	npm --prefix mcp run verify:manifest
 
 check-python:
 	@command -v uv >/dev/null 2>&1 || { echo 'uv is required; install uv 0.13.x and retry.' >&2; exit 127; }
@@ -24,6 +27,10 @@ check-mcp:
 	npm --prefix mcp test
 	npm --prefix mcp run build:cli
 	npm --prefix mcp run probe:mcp
-	npm --prefix mcp run verify:manifest
+	@if [ -n "$${MCP_TRUSTED_PUBLISHER_PUB:-}" ]; then \
+		npm --prefix mcp run verify:manifest; \
+	else \
+		echo 'independent publisher pin not configured; live manifest verification NOT RUN'; \
+	fi
 	npm --prefix mcp run parity
 	git diff --exit-code -- score_orchestration.py score_orchestration_judge.py lab/public/ mcp/src/corpus.generated.ts mcp/src/well-known.generated.ts
