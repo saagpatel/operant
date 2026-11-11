@@ -25,8 +25,13 @@ its bundled npm version, then run `make check` from the repository root.
 
 `make check` runs the frozen Python environment, compile and unit checks,
 evaluation-split verification and Ruff lint, locked MCP install,
-generated-file checks, typecheck, Vitest, CLI build and probe, manifest
-verification, and package parity. It does not dispatch paid providers.
+generated-file checks, typecheck, tests, CLI build and probe, and package
+parity. It runs live manifest authentication when the independent
+`MCP_TRUSTED_PUBLISHER_PUB` path is configured; otherwise it reports that
+authentication was not run. The explicit `verify:manifest` command remains
+fail-closed when the pin is missing. Before an authenticated live release,
+provision that pin independently and run `make verify-manifest`. `make check`
+does not dispatch paid providers.
 
 # Boundaries
 
