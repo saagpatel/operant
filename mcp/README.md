@@ -74,6 +74,15 @@ For local development, use [Local verification](../docs/verification.md): it
 covers Node/npm prerequisites, focused tests, typecheck/build and local stdio
 verification without contacting the deployed endpoint.
 
+### Verify the discovery manifest
+
+Run `npm run verify:manifest` with `MCP_TRUSTED_PUBLISHER_PUB` set to an absolute
+path provisioned independently of the manifest bundle. The wrapper requires a
+single `verify-pinned` result that attests the independent-pin policy; missing
+pins, legacy mcp-kit CLIs, and non-JSON verification responses fail closed. Do
+not use the public key bundled beside the manifest as the trust pin. This source
+change does not select or install the publisher pin.
+
 ## License
 
 MIT
