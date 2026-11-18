@@ -353,8 +353,8 @@ def validate_cases(cases=None):
 DECISION_LINE_RE = re.compile(
     r"(?im)^[ \t>#*_`+|-]*(?:(?:final|my|our)[ \t]+)?decision[ \t*_`]*"
     r"(?::|=|\||(?<=[ \t])(?:--?|[\u2013\u2014])(?=[ \t]))[ \t*_`]*"
-    r"([A-Za-z]+(?:[-_ ][A-Za-z]+)*)[*_`]*"
-    r"(?:[ \t\r*_`.!,;:|]*$|(?:[ \t]*[(\[]|[ \t]+(?:--?|[\u2013\u2014])|[.,;:](?=[ \t\r]|$)).*$)"
+    r"([A-Za-z]+(?:[-_ ][A-Za-z]+)*)"
+    r"(?:[ \t\r*_`.!,;:|]*$|[*_`]*(?:[ \t]*[(\[]|[ \t]+(?:--?|[\u2013\u2014])|[.,;:](?=[ \t\r]|$)).*$)"
 )
 # The JSON value may hold letters, underscores, hyphens and single spaces; it is
 # normalized with normalize_label before matching.
