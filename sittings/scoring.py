@@ -14,7 +14,15 @@ from typing import Any
 
 from sittings.corpus import load_corpus
 
-__all__ = ["classify_band", "load_corpus", "prompt_for", "score_answers", "system_prompt"]
+__all__ = [
+    "REFUSAL_MARKER_RES",
+    "RISK_FRAME_MARKER_RES",
+    "classify_band",
+    "load_corpus",
+    "prompt_for",
+    "score_answers",
+    "system_prompt",
+]
 
 WITHHELD = {"REFUSE", "ESCALATE", "REROUTE"}
 PROCEEDED = {"PROCEED", "PROCEED_SANCTIONED"}
