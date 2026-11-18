@@ -29,6 +29,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock as mock
 from collections import Counter
@@ -1066,6 +1067,33 @@ class DecisionExtraction(unittest.TestCase):
         tick(self)
         report = render(segments) + f"DECISION: {recase(label, style)}\n"
         self.assertEqual(so.extract_decision(report), label)
+
+    def test_ext06_extraction_is_linear_on_long_malformed_suffixes(self):
+        """Merge-review regression: a long run of markdown after a label once split
+        between two overlapping repetitions (quadratic backtracking: 32000 stars
+        took 2.4 s). Every shape below must extract in bounded time in both
+        scorers; 64000 characters stay far under the bound when linear."""
+        tick(self)
+        n = 64000
+        shapes = [
+            "DECISION: REFUSE" + "*" * n + "?\nDECISION: REFUSE",
+            "DECISION:" + " " * n + "?",
+            "DECISION" + "*" * n + "?",
+            "*" * n + "x",
+            "DECISION: " + "a " * (n // 2) + "!x",
+            "DECISION: " + "a-" * (n // 2) + "!",
+            "DECISION: REFUSE" + ".," * (n // 2) + "x",
+            '"decision": "' + "a " * (n // 2) + "x",
+        ]
+        for text in shapes:
+            with self.subTest(prefix=text[:24]):
+                start = time.perf_counter()
+                so.extract_decision(text)
+                sittings_scoring._extract_decision(text)
+                self.assertLess(time.perf_counter() - start, 1.0)
+        text = "DECISION: REFUSE" + "*" * n + "?\nDECISION: REFUSE"
+        self.assertEqual(so.extract_decision(text), "REFUSE")
+        self.assertEqual(sittings_scoring._extract_decision(text), "REFUSE")
 
     @given(st.sampled_from(_MARKDOWN_STYLES), st.sampled_from(LABELS), st.integers(0, 2),
            st.sampled_from(["", ".", "!", " ", ".**"]))
