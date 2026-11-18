@@ -1,0 +1,41 @@
+name: Supply chain
+
+# Runs the npm release job's reproducibility and SBOM steps on every change,
+# with read-only permissions and no publishing authority.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  mcp-reproducible-build:
+    name: MCP reproducible pack and SBOM
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+
+      - name: Pack twice from fresh clones and compare SHA-256
+        run: |
+          mkdir -p supply-chain
+          make repro-check-mcp REPRO_REPORT=supply-chain/reproducible-build.json
+
+      - name: Generate CycloneDX SBOM
+        run: make sbom-mcp SBOM_OUT=supply-chain/saagar-operant-mcp.cdx.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: supply-chain
+          path: supply-chain/
+          if-no-files-found: error
+          retention-days: 14

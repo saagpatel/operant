@@ -17,7 +17,7 @@ self-serve runner and local lab utilities.
 
 # Setup
 
-Install `uv` 0.13.x and use Python 3.12 or newer. The repository's preferred
+Install `uv` 0.13.9 or any later 0.13.x and use Python 3.12 or newer. The repository's preferred
 Python patch is in `.python-version`. Install Node.js from `.node-version` with
 its bundled npm version, then run `make check` from the repository root.
 
