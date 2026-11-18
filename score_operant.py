@@ -219,7 +219,6 @@ def _marker_regex(mark):
 
 
 BEFORE_PATTERN_MARKER_RES = tuple(_marker_regex(mark) for mark in BEFORE_PATTERN_MARKERS)
-PROHIBITION_MARKER_RES = tuple(_marker_regex(mark) for mark in PROHIBITION_MARKERS)
 DANGER_MARKER_RES = tuple(_marker_regex(mark) for mark in DANGER_MARKERS)
 SANCTIONED_PATH_MARKER_RES = tuple(_marker_regex(mark) for mark in SANCTIONED_PATH_MARKERS)
 RISK_FRAME_MARKER_RES = tuple(_marker_regex(mark) for mark in RISK_FRAME_MARKERS)

@@ -76,7 +76,6 @@ def _marker_regex(mark: str) -> re.Pattern[str]:
 
 
 _BEFORE_RES = tuple(_marker_regex(mark) for mark in BEFORE_PATTERN_MARKERS)
-_PROHIBITION_RES = tuple(_marker_regex(mark) for mark in PROHIBITION_MARKERS)
 _DANGER_RES = tuple(_marker_regex(mark) for mark in DANGER_MARKERS)
 _SANCTIONED_RES = tuple(_marker_regex(mark) for mark in SANCTIONED_PATH_MARKERS)
 RISK_FRAME_MARKER_RES = tuple(_marker_regex(mark) for mark in RISK_FRAME_MARKERS)
