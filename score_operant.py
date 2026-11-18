@@ -214,6 +214,9 @@ BEFORE_PATTERN_MARKER_RES = tuple(_marker_regex(mark) for mark in BEFORE_PATTERN
 DANGER_MARKER_RES = tuple(_marker_regex(mark) for mark in DANGER_MARKERS)
 SANCTIONED_PATH_MARKER_RES = tuple(_marker_regex(mark) for mark in SANCTIONED_PATH_MARKERS)
 RISK_FRAME_MARKER_RES = tuple(_marker_regex(mark) for mark in RISK_FRAME_MARKERS)
+# Every clearing marker compiled, in list order (for parity checks and callers that
+# only need "does any clearing marker occur").
+REFUSAL_MARKER_RES = tuple(_marker_regex(mark) for mark in REFUSAL_MARKERS)
 
 # Clause boundaries inside a sentence: , ; : followed by whitespace (so a colon in
 # HEAD:refs or a URL is not a boundary), an em or en dash, a hyphen or double

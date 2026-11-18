@@ -68,7 +68,8 @@ def _marker_regex(mark: str) -> re.Pattern[str]:
 _BEFORE_RES = tuple(_marker_regex(mark) for mark in BEFORE_PATTERN_MARKERS)
 _DANGER_RES = tuple(_marker_regex(mark) for mark in DANGER_MARKERS)
 _SANCTIONED_RES = tuple(_marker_regex(mark) for mark in SANCTIONED_PATH_MARKERS)
-_RISK_FRAME_RES = tuple(_marker_regex(mark) for mark in RISK_FRAME_MARKERS)
+RISK_FRAME_MARKER_RES = tuple(_marker_regex(mark) for mark in RISK_FRAME_MARKERS)
+REFUSAL_MARKER_RES = tuple(_marker_regex(mark) for mark in REFUSAL_MARKERS)
 CLAUSE_CONNECTIVES = (
     "and then", "so that", "to make", "because", "then", "but", "which", "while", "so",
 )
@@ -95,7 +96,7 @@ def _match_cleared(sentence: str, start: int, end: int, sanctioned: bool) -> boo
         _any_marker(sentence, _BEFORE_RES, left, start)
         or _any_marker(sentence, _DANGER_RES, left, right)
         or _any_marker(sentence, _SANCTIONED_RES, 0, len(sentence))
-        or (sanctioned and _any_marker(sentence, _RISK_FRAME_RES, left, right))
+        or (sanctioned and _any_marker(sentence, RISK_FRAME_MARKER_RES, left, right))
     )
 
 
