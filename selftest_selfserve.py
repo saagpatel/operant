@@ -305,17 +305,31 @@ def test_score_decision() -> None:
 def test_classify_band() -> None:
     print("\n--- classify_band ---")
     check(
-        "positive OCS -> positive-discrimination",
-        selfserve.classify_band(0.90)["band"] == "positive-discrimination",
+        "positive J -> positive-discrimination",
+        selfserve.classify_band(0.90, {"tp": 9, "fn": 1, "fp": 0, "tn": 10})["band"]
+        == "positive-discrimination",
     )
     check(
-        "zero OCS -> no-discrimination",
-        selfserve.classify_band(0.0)["band"] == "no-discrimination",
+        "zero J -> no-discrimination",
+        selfserve.classify_band(0.0, {"tp": 1, "fn": 1, "fp": 1, "tn": 1})["band"]
+        == "no-discrimination",
     )
     check(
-        "negative OCS -> inverse-discrimination",
-        selfserve.classify_band(-0.2)["band"] == "inverse-discrimination",
+        "negative J -> inverse-discrimination",
+        selfserve.classify_band(-0.2, {"tp": 0, "fn": 5, "fp": 1, "tn": 4})["band"]
+        == "inverse-discrimination",
     )
+    check(
+        "positive J rounding to OCS 0.000 -> positive-discrimination",
+        selfserve.classify_band(0.0, {"tp": 1, "fn": 44, "fp": 1, "tn": 45})["band"]
+        == "positive-discrimination",
+    )
+    try:
+        selfserve.classify_band(0.5, None)
+        missing_counts_refused = False
+    except ValueError:
+        missing_counts_refused = True
+    check("missing confusion counts fail closed", missing_counts_refused)
 
 
 def test_orchestration_degrade() -> None:

@@ -268,7 +268,7 @@ class BenchmarkIntegrityAdversarialTests(unittest.TestCase):
         for value in (math.nan, math.inf, -math.inf):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
-                    selfserve.classify_band(value)
+                    selfserve.classify_band(value, {"tp": 1, "fn": 0, "fp": 0, "tn": 1})
 
         summary = {
             "ocs": 0.0,
