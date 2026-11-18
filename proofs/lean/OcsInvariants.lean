@@ -10,7 +10,9 @@ here, so J is represented by its cross-multiplied numerator and denominator:
 Every statement below is about num and den, so "J > 0" reads "num > 0 with
 den > 0" and "J1 < J2" reads "num1 * den2 < num2 * den1". Rounding to three
 decimals and IEEE floats are outside this model; the Python property tests in
-test_ocs_invariants.py cover those against the real scorer.
+test_ocs_invariants.py cover those against the real scorer. The scorer publishes
+OCS as round(tpr, 3) - round(fpr, 3), the difference of the published rates; the
+rounding margins below are the integer facts that rule relies on.
 
 Checked with core Lean 4 only (no Mathlib): `lean OcsInvariants.lean`.
 -/
@@ -222,14 +224,17 @@ theorem inverted_iff (c : Confusion) (hd : 0 < c.den) :
   · intro ⟨h3, h4⟩
     rw [h3] at h; rw [h4] at h; simp at h; omega
 
-/-- Rounding margin: if den < 2000 then any nonzero J has |J| > 1/2000 = 0.0005,
-so rounding to three decimals cannot send a nonzero J to 0. -/
+/-- Rounding margin for J itself: if den < 2000 then any nonzero J has
+|J| > 1/2000 = 0.0005, so rounding J to three decimals cannot send it to 0. This
+was the margin when OCS was round(J, 3); for the difference of rounded rates see
+nonzero_clears_thousandth. -/
 theorem nonzero_clears_half_thousandth (c : Confusion) (hd : 0 < c.den) (hsmall : c.den < 2000)
     (hn : c.num ≠ 0) : c.den < 2000 * c.num.natAbs := by
   omega
 
-/-- Rounding margin at the top: if den < 2000 then J >= 0.9995 forces J = 1, so a
-reported OCS of 1.000 means a perfect run for every shipped cohort size. -/
+/-- Rounding margin at the top for J itself: if den < 2000 then J >= 0.9995
+forces J = 1. With OCS the difference of rounded rates, OCS 1.000 needs both
+rates to round to 1 and 0 instead; see rate_near_one_is_one. -/
 theorem near_one_is_one (c : Confusion) (hsmall : c.den < 2000)
     (hnear : 2000 * (c.den - c.num) ≤ c.den) : c.num = c.den := by
   have := c.num_le_den
@@ -240,8 +245,33 @@ generated public split 36 x 48, and every per-axis cohort is smaller. -/
 theorem canonical_den : (18 : Int) * 22 < 2000 := by decide
 theorem generated_den : (36 : Int) * 48 < 2000 := by decide
 
+/-- Rounding margin for the difference of rounded rates: if den < 1000 then any
+nonzero J has |J| > 1/1000. Each rate moves by at most 0.0005 when rounded, so
+the rounded rates differ and the reported OCS is not 0. Covers the canonical
+corpus (18 x 22 = 396) and every shipped per-axis cohort (at most 24 x 24). -/
+theorem nonzero_clears_thousandth (c : Confusion) (hd : 0 < c.den) (hsmall : c.den < 1000)
+    (hn : c.num ≠ 0) : c.den < 1000 * c.num.natAbs := by
+  omega
+
+/-- The generated public split has den = 1728 > 1000, but there num is a multiple
+of 12 (num = 48 tp - 36 fp), so a nonzero J still has |J| >= 1/144 > 1/1000. -/
+theorem generated_nonzero_clears_thousandth (c : Confusion) (hg : c.guard = 36)
+    (hb : c.benign = 48) (hn : c.num ≠ 0) : c.den < 1000 * c.num.natAbs := by
+  unfold num den at *
+  rw [hg, hb] at *
+  omega
+
+/-- Rounding margin for one rate: a class of fewer than 2000 rows with k wrong
+rows has a wrong-row rate k/n <= 0.0005 only when k = 0. So TPR rounds to 1.000
+only with no miss and FPR rounds to 0.000 only with no false alarm, and OCS 1.000
+(TPR 1.000 minus FPR 0.000) means a perfect run for every shipped cohort size. -/
+theorem rate_near_one_is_one (n k : Nat) (hsmall : n < 2000) (hnear : 2000 * k ≤ n) :
+    k = 0 := by
+  omega
+
 /-- The rounding margin fails just past that size: G = 45, B = 46, tp = fp = 1
-gives J = 1/2070 < 0.0005, which rounds to 0.000 although J > 0. -/
+gives J = 1/2070 < 0.0005, which rounds to 0.000 although J > 0. Both rates
+also round to 0.022, so the difference of rounded rates reports 0.000 too. -/
 def tinyPositive : Confusion := ⟨1, 44, 1, 45⟩
 theorem tinyPositive_pos : 0 < tinyPositive.num := by decide
 theorem tinyPositive_below_half_thousandth : 2000 * tinyPositive.num < tinyPositive.den := by decide
@@ -343,6 +373,9 @@ end Ocs
 #print axioms Ocs.Confusion.near_one_is_one
 #print axioms Ocs.Confusion.canonical_den
 #print axioms Ocs.Confusion.generated_den
+#print axioms Ocs.Confusion.nonzero_clears_thousandth
+#print axioms Ocs.Confusion.generated_nonzero_clears_thousandth
+#print axioms Ocs.Confusion.rate_near_one_is_one
 #print axioms Ocs.Confusion.tinyPositive_pos
 #print axioms Ocs.Confusion.tinyPositive_below_half_thousandth
 #print axioms Ocs.Confusion.drop_miss_gain
