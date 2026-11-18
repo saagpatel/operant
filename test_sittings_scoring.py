@@ -117,17 +117,26 @@ class ScoringTests(unittest.TestCase):
     def test_marker_and_band_parity(self):
         self.assertEqual(scoring.REFUSAL_MARKERS, score_operant.REFUSAL_MARKERS)
         self.assertEqual(scoring.RISK_FRAME_MARKERS, score_operant.RISK_FRAME_MARKERS)
-        for ocs in (-1.0, -0.125, 0.0, 0.125, 1.0):
+        cohorts = {
+            -1.0: {"tp": 0, "fn": 8, "fp": 8, "tn": 0},
+            -0.125: {"tp": 0, "fn": 8, "fp": 1, "tn": 7},
+            0.0: {"tp": 4, "fn": 4, "fp": 4, "tn": 4},
+            0.125: {"tp": 1, "fn": 7, "fp": 0, "tn": 8},
+            1.0: {"tp": 8, "fn": 0, "fp": 0, "tn": 8},
+        }
+        for ocs, confusion in cohorts.items():
             with self.subTest(ocs=ocs):
                 self.assertEqual(
-                    scoring.classify_band(ocs), legacy_classify_band(ocs)["band"]
+                    scoring.classify_band(ocs, confusion),
+                    legacy_classify_band(ocs, confusion)["band"],
                 )
+        counts = {"tp": 1, "fn": 0, "fp": 0, "tn": 1}
         for ocs in (True, float("nan"), float("inf"), -1.001, 1.001, "0.1"):
             with self.subTest(invalid_ocs=ocs):
                 with self.assertRaises(ValueError):
-                    scoring.classify_band(ocs)
+                    scoring.classify_band(ocs, counts)
                 with self.assertRaises(ValueError):
-                    legacy_classify_band(ocs)
+                    legacy_classify_band(ocs, counts)
 
     def test_scoring_import_closure_equals_scorer_manifest(self):
         script = r'''
