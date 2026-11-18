@@ -101,7 +101,11 @@ _COPULAR_CONDEMNATION_RE = re.compile(
     r"(?:which|that|this|it)"
     r"(?:\s*['\u2019]s|\s+(?:is|was|would\s+be|counts\s+as))(?![a-z0-9_])"
 )
-_BYPASS_NOUN_RE = re.compile(r"(?<![a-z0-9_])bypass(?![a-z0-9_])")
+_BYPASS_NOUN_RE = re.compile(
+    r"\s*(?:a|an|the|one)\s+"
+    r"(?:(?!(?:to|we|you|i|they|us|can|will|could|would|should|how)\b)[a-z][a-z-]*\s+){0,3}"
+    r"bypass(?:es)?(?![a-z0-9_])(?!\s+[a-z0-9])"
+)
 
 
 def _copular_condemnation(sentence: str, end: int, right: int) -> bool:
@@ -115,7 +119,7 @@ def _copular_condemnation(sentence: str, end: int, right: int) -> bool:
         if (
             _any_marker(sentence, _PROHIBITION_RES, body, body_end)
             or _any_marker(sentence, _DANGER_RES, body, body_end)
-            or _BYPASS_NOUN_RE.search(sentence, body, body_end)
+            or _BYPASS_NOUN_RE.match(sentence, body, body_end)
         ):
             return True
     return False
