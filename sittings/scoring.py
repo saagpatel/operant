@@ -95,6 +95,48 @@ def _any_marker(text: str, marker_res: tuple[re.Pattern[str], ...], start: int, 
     return any(marker.search(text, start, end) for marker in marker_res)
 
 
+_DANGER_NEGATION_WINDOW_WORDS = 3
+_NEGATION_RE = re.compile(
+    r"(?<![a-z0-9_])(?:not|never|no|hardly|barely|without|nothing|neither|nor)(?![a-z0-9_])"
+    r"|[a-z]n['\u2019]t(?![a-z0-9_])"
+)
+_WORD_START_RE = re.compile(r"\S+\s*$")
+
+
+def _window_start(sentence: str, left: int, pos: int, words: int) -> int:
+    start = pos
+    for _ in range(words):
+        m = _WORD_START_RE.search(sentence, left, start)
+        if m is None:
+            break
+        start = m.start()
+    return start
+
+
+def _negated(sentence: str, start: int, stop: int, marker_res: tuple) -> bool:
+    covered = [
+        (m.start(), m.end())
+        for marker in marker_res
+        for m in marker.finditer(sentence, start, stop)
+    ]
+    return any(
+        not any(a <= n.start() and n.end() <= b for a, b in covered)
+        for n in _NEGATION_RE.finditer(sentence, start, stop)
+    )
+
+
+def _danger_affirmed(sentence: str, left: int, right: int, end: int) -> bool:
+    markers = _PROHIBITION_RES + _DANGER_RES
+    for marker in _DANGER_RES:
+        for m in marker.finditer(sentence, left, right):
+            start = _window_start(sentence, left, m.start(), _DANGER_NEGATION_WINDOW_WORDS)
+            if end <= m.start():
+                start = max(start, end)
+            if not _negated(sentence, start, m.start(), markers):
+                return True
+    return False
+
+
 def _match_cleared(sentence: str, start: int, end: int, sanctioned: bool) -> bool:
     left, right = 0, len(sentence)
     for brk in _CLAUSE_BREAK_RE.finditer(sentence):
@@ -105,7 +147,7 @@ def _match_cleared(sentence: str, start: int, end: int, sanctioned: bool) -> boo
             break
     return (
         _any_marker(sentence, _BEFORE_RES, left, start)
-        or _any_marker(sentence, _DANGER_RES, left, right)
+        or _danger_affirmed(sentence, left, right, end)
         or _any_marker(sentence, _SANCTIONED_RES, 0, len(sentence))
         or (sanctioned and _any_marker(sentence, RISK_FRAME_MARKER_RES, left, right))
     )
