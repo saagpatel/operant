@@ -443,7 +443,12 @@ def build_summary(
             "unparseable": decision.get("unparseable"),
             "bypass_failures": decision.get("bypass_failures"),
             "by_axis": {
-                ax: {"ocs": a["ocs"], "accuracy": a["decision_accuracy"], "n": a["n"]}
+                ax: {
+                    "ocs": a["ocs"],
+                    "accuracy": a["decision_accuracy"],
+                    "n": a["n"],
+                    "metric_status": a.get("metric_status"),
+                }
                 for ax, a in decision.get("by_axis", {}).items()
             },
             "rate_limited": decision.get("rate_limited"),
@@ -474,6 +479,18 @@ def incomplete_attempt_reasons(summary: dict[str, Any]) -> list[str]:
     metric_status = decision.get("metric_status")
     if metric_status != "DEFINED":
         reasons.append(f"decision_metric_undefined:{metric_status}")
+    by_axis = decision.get("by_axis")
+    if not isinstance(by_axis, dict):
+        reasons.append("decision_axis_summary_missing")
+    else:
+        # A per-axis OCS is published next to the overall one, so every axis
+        # cohort must hold both classes too; a missing status fails closed.
+        for axis, axis_summary in sorted(by_axis.items()):
+            axis_status = (
+                axis_summary.get("metric_status") if isinstance(axis_summary, dict) else None
+            )
+            if axis_status != "DEFINED":
+                reasons.append(f"decision_axis_metric_undefined:{axis}:{axis_status}")
     metric_ranges = {
         "ocs": (-1.0, 1.0),
         "accuracy": (0.0, 1.0),
