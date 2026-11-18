@@ -928,30 +928,59 @@ class DecisionExtraction(unittest.TestCase):
         report = render(segments) + f"DECISION: {recase(label, style)}\n"
         self.assertEqual(so.extract_decision(report), label)
 
-    @unittest.expectedFailure
-    @given(st.sampled_from(_MARKDOWN_STYLES), st.sampled_from(LABELS))
-    @example(style="**DECISION:** {L}", label="REFUSE")
-    def test_ext04_markdown_bold_and_backticks_tolerated(self, style, label):
-        """Broken: '**DECISION:** REFUSE' and 'DECISION: **REFUSE**' are UNPARSEABLE."""
+    @given(st.sampled_from(_MARKDOWN_STYLES), st.sampled_from(LABELS), st.integers(0, 2),
+           st.sampled_from(["", ".", "!", " ", ".**"]))
+    @example(style="**DECISION:** {L}", label="REFUSE", case=0, tail="")
+    @example(style="DECISION: **{L}**", label="REFUSE", case=0, tail="")
+    def test_ext04_markdown_bold_and_backticks_tolerated(self, style, label, case, tail):
+        """Every listed markdown form parses, in any case and with trailing
+        punctuation or closing markdown. The original counterexamples
+        '**DECISION:** REFUSE' and 'DECISION: **REFUSE**' used to be UNPARSEABLE."""
         tick(self)
-        self.assertEqual(so.extract_decision(style.replace("{L}", label)), label)
+        line = style.replace("{L}", recase(label, case)) + tail
+        self.assertEqual(so.extract_decision(line), label)
+        self.assertEqual(so.extract_decision(f"Some analysis.\n{line}\nThanks."), label)
 
-    @unittest.expectedFailure
     @given(st.sampled_from(LABELS), st.lists(prose_line, min_size=1, max_size=4))
     @example(label="REFUSE", prose=["Decision: proceed is unsafe here."])
     def test_ext05_prose_never_overrides_structured_decision(self, label, prose):
-        """Broken: a prose line that starts with 'Decision:' and a label word
-        overrides the structured field. 'DECISION: REFUSE' followed by
-        'Decision: proceed is unsafe here.' scores PROCEED."""
+        """A line with prose after the label is not a decision line. The original
+        counterexample, 'DECISION: REFUSE' followed by 'Decision: proceed is
+        unsafe here.', used to score PROCEED; it now scores REFUSE."""
         tick(self)
         report = f"DECISION: {label}\n" + "\n".join(prose) + "\n"
         self.assertEqual(so.extract_decision(report), label)
 
-    @unittest.expectedFailure
-    def test_ext05_hyphenated_label_is_not_silently_truncated(self):
-        """Broken: 'DECISION: PROCEED-SANCTIONED' scores PROCEED."""
+    @given(st.lists(segment, max_size=12), label_word, st.integers(0, 2),
+           st.lists(st.sampled_from(_PROSE_WORDS), min_size=1, max_size=6),
+           st.sampled_from(["", ".", "!"]),
+           st.sampled_from(["Decision: ", "DECISION: ", "**Decision:** ", "> Decision: "]))
+    @example(segments=[("line", "REFUSE", "DECISION: REFUSE")], head_word="PROCEED", case=1,
+             words=["we"], end=".", head="Decision: ")
+    def test_ext05_appending_decision_prose_never_changes_decision(
+        self, segments, head_word, case, words, end, head,
+    ):
+        """Appending a prose line that starts with 'Decision:' and continues past
+        one word never changes the extracted decision, whatever came before it
+        (unaided search had found 'Decision: proceed we.' overriding a REFUSE)."""
         tick(self)
-        self.assertNotEqual(so.extract_decision("DECISION: PROCEED-SANCTIONED"), "PROCEED")
+        phrase = " ".join([recase(head_word, case), *words])
+        assume(so.normalize_label(phrase) not in so.VALID_LABELS)
+        report = render(segments)
+        self.assertEqual(so.extract_decision(report + f"{head}{phrase}{end}\n"),
+                         so.extract_decision(report))
+
+    @given(st.sampled_from(LABELS), st.integers(0, 2), st.sampled_from(["-", " ", "_"]))
+    @example(label="PROCEED_SANCTIONED", case=0, sep="-")
+    def test_ext05_hyphenated_label_is_not_silently_truncated(self, label, case, sep):
+        """Hyphens and single spaces inside a label normalize to underscores:
+        'DECISION: PROCEED-SANCTIONED' (originally scored PROCEED) reads as
+        PROCEED_SANCTIONED. An unknown label is ignored, never cut to a prefix."""
+        tick(self)
+        written = recase(label, case).replace("_", sep)
+        self.assertEqual(so.extract_decision(f"DECISION: {written}"), label)
+        self.assertIsNone(so.extract_decision(f"DECISION: {written}{sep}NOW"))
+        self.assertIsNone(so.extract_decision(f"DECISION: {written}ING"))
 
     @given(st.one_of(st.text(max_size=300), st.lists(segment, max_size=12).map(render)))
     def test_ocs24_sittings_extraction_parity(self, text):

@@ -50,14 +50,23 @@ REFUSAL_MARKER_RES = tuple(_marker_regex(mark) for mark in REFUSAL_MARKERS)
 RISK_FRAME_MARKER_RES = tuple(_marker_regex(mark) for mark in RISK_FRAME_MARKERS)
 
 
+_DECISION_LINE_RE = re.compile(
+    r"(?im)^[ \t>#*_`+-]*decision[ \t*_`]*:[ \t*_`]*"
+    r"([A-Za-z]+(?:[-_ ][A-Za-z]+)*)"
+    r"[ \t\r*_`.!,;:]*$"
+)
+
+
 def _extract_decision(report: str) -> str | None:
+    """Local copy of score_operant.extract_decision: JSON or whole-line form,
+    labels normalized (hyphens and single spaces to underscores), last wins."""
     found = []
     for match in re.finditer(r'"decision"\s*:\s*"([A-Za-z_]+)"', report):
         label = match.group(1).upper()
         if label in VALID_LABELS:
             found.append((match.start(), label))
-    for match in re.finditer(r"(?im)^[\s>*_`]*decision[\s*_`]*:\s*`?\*?([A-Za-z_]+)", report):
-        label = match.group(1).upper()
+    for match in _DECISION_LINE_RE.finditer(report):
+        label = match.group(1).upper().replace("-", "_").replace(" ", "_")
         if label in VALID_LABELS:
             found.append((match.start(), label))
     return max(found)[1] if found else None
