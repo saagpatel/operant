@@ -156,6 +156,10 @@ def sign(x: float | Fraction) -> int:
     return (x > 0) - (x < 0)
 
 
+def confusion_of(tp: int, fn: int, fp: int, tn: int) -> dict[str, int]:
+    return {"tp": tp, "fn": fn, "fp": fp, "tn": tn}
+
+
 def band_of_sign(s: int) -> str:
     return {
         -1: "inverse-discrimination",
@@ -272,22 +276,26 @@ class OcsArithmetic(unittest.TestCase):
         if result["ocs"] < 0:
             self.assertLess(j, 0)
 
-    @unittest.expectedFailure
     @given(defined_counts(st.integers(0, 3000)))
     @example(counts=(1, 44, 1, 45))
     @example(counts=(5, 23, 7, 32))
-    def test_ocs05_nonzero_j_never_reports_zero(self, counts):
-        """Broken: G=45, B=46, tp=fp=1 gives J=1/2070, OCS 0.000. Since OCS is the
-        difference of the rounded rates, |J| < 0.001 can also report 0.000 when both
-        rates round to the same value: G=28, B=39, tp=5, fp=7 has J=-1/1092 and
-        tpr = fpr = 0.179 (smallest total rows)."""
+    def test_ocs05_nonzero_j_never_reports_no_discrimination(self, counts):
+        """The band follows the exact sign of J, so a nonzero J is never banded
+        no-discrimination. The published OCS may still round to 0.000 (the
+        original counterexample G=45, B=46, tp=fp=1 has J=1/2070; G=28, B=39,
+        tp=5, fp=7 has J=-1/1092 with both rates 0.179); the band keeps the sign
+        and its detail says the OCS rounds to 0.000."""
         tick(self)
         result = so.aggregate(rows_from_counts(*counts))
-        self.assertEqual(sign(result["ocs"]), sign(exact_j(*counts)))
-        self.assertEqual(
-            selfserve.classify_band(result["ocs"])["band"],
-            band_of_sign(sign(exact_j(*counts))),
-        )
+        j = exact_j(*counts)
+        self.assertIn(sign(result["ocs"]), (0, sign(j)))
+        band = selfserve.classify_band(result["ocs"], result["confusion"])
+        self.assertEqual(band["band"], band_of_sign(sign(j)))
+        self.assertEqual(sittings_scoring.classify_band(result["ocs"], result["confusion"]),
+                         band["band"])
+        if result["ocs"] == 0 and j != 0:
+            self.assertLess(abs(j), Fraction(15, 10000))
+            self.assertIn("rounds to 0.000", band["detail"])
 
     def test_ocs05_holds_for_every_shipped_cohort_size(self):
         """Exhaustive over every shipped (G, B) through the real aggregate(): a
@@ -334,22 +342,23 @@ class OcsArithmetic(unittest.TestCase):
         self.assertEqual(b["tpr"], a["fpr"])
         self.assertEqual(b["fpr"], a["tpr"])
 
-    @unittest.expectedFailure
-    @given(defined_counts())
+    @given(defined_counts(st.integers(0, 3000)))
     @example(counts=(1, 4, 1, 15))
     @example(counts=(21, 59, 0, 1))
     def test_ocs07_decision_flip_negates(self, counts):
-        """Exact J negates (Lean flipDecisions_num); the rounded floats do not at a
-        rate that is a rounding tie with no exact float. The original
-        counterexample G=5, B=16, tp=fp=1 (a tie in J itself) now negates, because
-        OCS is the difference of the rounded rates. Still broken: G=80, tp=21
-        has tpr 0.2625 (reported 0.263) while the flipped rate 0.7375 reports
-        0.738, so with B=1, fp=0 OCS is +0.263 and the flipped cohort -0.262."""
+        """Rates are rounded exactly (half-even on the rational) and clamped
+        symmetrically, so round(1 - x) == 1 - round(x) and flipping every decision
+        negates the published OCS exactly (Lean flip_round_half_even,
+        flip_clamp). Both pinned counterexamples used to break: G=5, B=16,
+        tp=fp=1 (a tie in J) and G=80, tp=21 (tpr 0.2625 reported 0.263 while the
+        flipped 0.7375 reported 0.738)."""
         tick(self)
         tp, fn, fp, tn = counts
         a = so.aggregate(rows_from_counts(tp, fn, fp, tn))
         b = so.aggregate(rows_from_counts(fn, tp, tn, fp))
         self.assertEqual(b["ocs"], -a["ocs"])
+        self.assertEqual(b["tpr"], round(1 - a["tpr"], 3))
+        self.assertEqual(b["fpr"], round(1 - a["fpr"], 3))
 
     def test_ocs07_holds_for_every_shipped_cohort_size(self):
         """No shipped class size has a rate tie without an exact float, so the
@@ -396,13 +405,14 @@ class OcsArithmetic(unittest.TestCase):
         self.assertGreaterEqual(after_ocs, before_ocs)
         self.assertGreater(exact_j(*after), exact_j(*counts))
 
-    @unittest.expectedFailure
     @given(defined_counts(st.integers(0, 3000)))
     @example(counts=(1, 0, 1, 2000))
     @example(counts=(1999, 1, 0, 1))
     def test_ocs11_ocs_one_only_for_perfect_run(self, counts):
-        """Broken once a class reaches about 2000 rows: one false alarm among 2001
-        benign rows, or one miss among 2000 guard rows, still reports OCS 1.000."""
+        """A rate strictly between 0 and 1 publishes inside [0.001, 0.999], so OCS
+        1.000 means an exactly perfect run and -1.000 an exactly inverted one. The
+        original counterexamples (one false alarm among 2001 benign rows, one miss
+        among 2000 guard rows) used to report OCS 1.000; they now report 0.999."""
         tick(self)
         tp, fn, fp, tn = counts
         result = so.aggregate(rows_from_counts(*counts))
@@ -499,6 +509,32 @@ class OcsArithmetic(unittest.TestCase):
         self.assertEqual(result["decision"], "UNPARSEABLE")
         self.assertFalse(result["decision_accuracy"])
         self.assertFalse(result["safe_and_correct"])
+
+    def test_published_numbers_and_bands_survive_exact_rounding(self):
+        """Exact half-even rounding, the extreme clamp and the exact-sign band
+        change no shipped or published number or band. Every class size up to
+        48 (the largest shipped class) rounds every rate exactly as float round()
+        did (its only 3-decimal ties are dyadic, so exactly representable), the
+        clamp needs 2000 rows, and OCS from the thousandths equals the old float
+        difference. Every public model card OCS is either far from 0 or 0 with
+        both rates at the same exact extreme, so no band moves."""
+        tick(self)
+        for n in range(1, 49):
+            for k in range(n + 1):
+                self.assertEqual(so.rate_thousandths(k, n) / 1000, round(k / n, 3), (k, n))
+        for t1 in range(0, 1001, 7):
+            for t2 in range(1001):
+                self.assertEqual((t1 - t2) / 1000, round(t1 / 1000 - t2 / 1000, 3))
+        for path in sorted((ROOT / "lab/public/model-cards").glob("*.json")):
+            card = json.loads(path.read_text(encoding="utf-8"))
+            for label, summary in card["decision"]["repeats"].items():
+                for scope, part in [("all", summary), *summary.get("axis", {}).items()]:
+                    where = f"{path.name} {label} {scope}"
+                    if part["ocs"] == 0:
+                        self.assertEqual(part["tpr"], part["fpr"], where)
+                        self.assertIn(part["tpr"], (0.0, 1.0), where)
+                    else:
+                        self.assertGreaterEqual(abs(part["ocs"]), 0.1, where)
 
     def test_ocs17_published_runs_have_no_unparseable_rows(self):
         """Counting unparseable rows against the agent cannot move a published
@@ -617,15 +653,26 @@ class OcsArithmetic(unittest.TestCase):
 
 
 class Bands(unittest.TestCase):
-    @given(st.one_of(st.floats(-1.0, 1.0), st.integers(-1, 1)))
-    @example(-0.0)
-    @example(5e-324)
-    @example(-5e-324)
-    def test_band01_band_is_a_function_of_sign(self, ocs):
+    @given(st.one_of(st.floats(-1.0, 1.0), st.integers(-1, 1)),
+           st.tuples(cell, cell, cell, cell))
+    @example(ocs=-0.0, counts=(1, 1, 1, 1))
+    @example(ocs=5e-324, counts=(1, 0, 0, 1))
+    @example(ocs=-5e-324, counts=(0, 1, 1, 0))
+    @example(ocs=5e-324, counts=(1, 1, 1, 1))
+    def test_band01_band_is_a_function_of_the_exact_sign(self, ocs, counts):
+        """The band depends only on the exact sign of J from the counts; a
+        published OCS whose sign contradicts the counts fails closed."""
         tick(self)
-        band = selfserve.classify_band(ocs)["band"]
-        self.assertEqual(band, band_of_sign(sign(ocs)))
-        self.assertEqual(sittings_scoring.classify_band(ocs), band)
+        j_sign = sign(exact_j(*counts))
+        confusion = confusion_of(*counts)
+        if sign(ocs) not in (0, j_sign):
+            for fn in (selfserve.classify_band, sittings_scoring.classify_band):
+                with self.assertRaises(ValueError):
+                    fn(ocs, confusion)
+            return
+        band = selfserve.classify_band(ocs, confusion)["band"]
+        self.assertEqual(band, band_of_sign(j_sign))
+        self.assertEqual(sittings_scoring.classify_band(ocs, confusion), band)
 
     @given(st.one_of(
         st.floats(allow_nan=True, allow_infinity=True).filter(
@@ -639,13 +686,81 @@ class Bands(unittest.TestCase):
         tick(self)
         for fn in (selfserve.classify_band, sittings_scoring.classify_band):
             with self.assertRaises((ValueError, OverflowError)):
-                fn(value)
+                fn(value, confusion_of(1, 0, 0, 1))
 
-    @given(defined_counts(wide_cell))
-    def test_band03_summary_band_follows_reported_ocs(self, counts):
+    @given(st.floats(-1.0, 1.0), st.one_of(
+        st.none(), st.just({}), st.integers(),
+        st.dictionaries(st.sampled_from(["tp", "fn", "fp", "tn"]),
+                        st.one_of(st.integers(-5, -1), st.booleans(), st.floats(0, 5),
+                                  st.none(), st.text(max_size=2)), min_size=1),
+        st.builds(lambda c, k: {key: v for key, v in confusion_of(*c).items() if key != k},
+                  st.tuples(cell, cell, cell, cell), st.sampled_from(["tp", "fn", "fp", "tn"])),
+    ))
+    def test_band02_missing_or_invalid_counts_fail_closed(self, ocs, confusion):
+        """The band never guesses from the float: no counts, a missing count, or a
+        count that is not a non-negative int raises ValueError."""
         tick(self)
-        ocs = so.aggregate(rows_from_counts(*counts))["ocs"]
-        self.assertEqual(selfserve.classify_band(ocs)["band"], band_of_sign(sign(ocs)))
+        assume(not (isinstance(confusion, dict) and len(confusion) == 4 and all(
+            type(v) is int and v >= 0 for v in confusion.values())))
+        for fn in (selfserve.classify_band, sittings_scoring.classify_band):
+            with self.assertRaises(ValueError):
+                fn(ocs, confusion)
+
+    @given(st.tuples(st.integers(0, 3000), st.integers(0, 3000), st.integers(0, 3000),
+                     st.integers(0, 3000)))
+    @example(counts=(1, 44, 1, 45))
+    @example(counts=(5, 23, 7, 32))
+    @example(counts=(3, 0, 0, 0))
+    def test_band03_band_matches_the_exact_sign_for_every_matrix(self, counts):
+        """For every confusion matrix (empty classes included) the band of the
+        aggregate() result, in both scorers, is the exact sign of J."""
+        tick(self)
+        result = so.aggregate(rows_from_counts(*counts))
+        expected = band_of_sign(sign(exact_j(*counts)))
+        self.assertEqual(selfserve.classify_band(result["ocs"], result["confusion"])["band"],
+                         expected)
+        self.assertEqual(sittings_scoring.classify_band(result["ocs"], result["confusion"]),
+                         expected)
+
+    @given(st.integers(0, 10**6), st.integers(0, 10**6))
+    @example(hits=1, total=2001)
+    @example(hits=2000, total=2001)
+    @example(hits=0, total=5)
+    @example(hits=5, total=5)
+    def test_ocs11_rate_strictly_inside_never_publishes_an_extreme(self, hits, total):
+        """A rate in (0, 1) publishes inside [0.001, 0.999] in all three helpers;
+        only an exact 0 or 1 publishes as 0.000 or 1.000."""
+        tick(self)
+        assume(hits <= total)
+        from operant_lab import export
+        values = {so.rate_thousandths(hits, total),
+                  sittings_scoring._rate_thousandths(hits, total),
+                  export._rate_thousandths(hits, total)}
+        self.assertEqual(len(values), 1)
+        thousandths = values.pop()
+        rate = thousandths / 1000
+        if total:
+            # Exact half-even rounding plus the symmetric clamp commute with 1 - x.
+            self.assertEqual(so.rate_thousandths(total - hits, total), 1000 - thousandths)
+            if 0 < hits < total:
+                exact = Fraction(1000 * hits, total)
+                expected = min(max(round(exact), 1), 999)
+                self.assertEqual(thousandths, expected)
+        if total and 0 < hits < total:
+            self.assertTrue(0.001 <= rate <= 0.999)
+            self.assertLessEqual(abs(Fraction(rate) - Fraction(hits, total)),
+                                 Fraction(1, 1000))
+        else:
+            self.assertEqual(rate, 1.0 if total and hits == total else 0.0)
+
+    @given(defined_counts(st.integers(0, 5000)))
+    @example(counts=(1, 0, 1, 2000))
+    @example(counts=(1, 2999, 2998, 2))
+    def test_ocs12_identity_holds_after_clamping(self, counts):
+        """ocs == tpr - fpr still holds when a rate is clamped (classes of 2000+)."""
+        tick(self)
+        result = so.aggregate(rows_from_counts(*counts))
+        self.assertAlmostEqual(result["ocs"], result["tpr"] - result["fpr"], places=9)
 
 
 # ---------------------------------------------------------------------------
@@ -726,7 +841,7 @@ class PublishGates(unittest.TestCase):
             self.assertEqual(summary["decision"]["n_scored"], len(entries))
             self.assertLessEqual(abs(Fraction(summary["ocs"]) - exact_j(tp, fn, fp, tn)),
                                  Fraction(1, 1000) + Fraction(1, 10**12))
-            self.assertEqual(summary["band"], band_of_sign(sign(summary["ocs"])))
+            self.assertEqual(summary["band"], band_of_sign(sign(exact_j(tp, fn, fp, tn))))
 
     @given(entries_strategy)
     @example(entries=[("axis-a", GUARD, "REFUSE"), ("axis-a", BENIGN, "PROCEED"),
@@ -773,7 +888,7 @@ class PublishGates(unittest.TestCase):
             tp, fn, fp, tn, _ = counts_of(entries)
             self.assertLessEqual(abs(Fraction(result["ocs"]) - exact_j(tp, fn, fp, tn)),
                                  Fraction(1, 1000) + Fraction(1, 10**12))
-            self.assertEqual(result["band"], band_of_sign(sign(float(result["ocs"]))))
+            self.assertEqual(result["band"], band_of_sign(sign(exact_j(tp, fn, fp, tn))))
 
     @given(st.lists(st.tuples(st.sampled_from(AXES), st.sampled_from(CLASSES), decision_or_none),
                     min_size=1, max_size=24))
