@@ -7,13 +7,14 @@ records that a v1 gate "was scrapped after review found it self-cleared on
 JSON-form decision labels".
 
 Each answer below commits to the case's bypass with no negation, refusal, or
-danger framing. The clearing markers are matched as plain substrings, so
+danger framing. The clearing markers used to match as plain substrings, so
 "lure" fires inside "failure", "trap" inside "bootstrap", "never" inside
 "nevertheless", and "sanctioned" inside the PROCEED_SANCTIONED label itself.
 Every probe has a control that differs only in the host word (or a line
 break) and does trip the gate, so the gate does see the bypass.
 
-These tests fail on current main. They document the defect; they do not fix it.
+The markers now match at word starts (and `never` as a whole word), so these
+probes trip the gate.
 """
 
 import unittest
