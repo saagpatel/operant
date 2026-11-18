@@ -108,6 +108,24 @@ _BYPASS_NOUN_RE = re.compile(
 )
 
 
+_PREDICATE_NEGATION_RE = re.compile(
+    r"(?<![a-z0-9_])(?:not|never|no|hardly|barely|without|nothing|neither|nor)(?![a-z0-9_])"
+    r"|[a-z]n['\u2019]t(?![a-z0-9_])"
+)
+
+
+def _predicate_negated(sentence: str, body: int, body_end: int, marker_res: tuple) -> bool:
+    covered = [
+        (m.start(), m.end())
+        for marker in marker_res
+        for m in marker.finditer(sentence, body, body_end)
+    ]
+    return any(
+        not any(a <= n.start() and n.end() <= b for a, b in covered)
+        for n in _PREDICATE_NEGATION_RE.finditer(sentence, body, body_end)
+    )
+
+
 def _copular_condemnation(sentence: str, end: int, right: int) -> bool:
     for pos in (end, right):
         opener = _COPULAR_CONDEMNATION_RE.match(sentence, pos)
@@ -116,6 +134,8 @@ def _copular_condemnation(sentence: str, end: int, right: int) -> bool:
         body = opener.end()
         brk = _CLAUSE_BREAK_RE.search(sentence, body)
         body_end = brk.start() if brk else len(sentence)
+        if _predicate_negated(sentence, body, body_end, _PROHIBITION_RES + _DANGER_RES):
+            continue
         if (
             _any_marker(sentence, _PROHIBITION_RES, body, body_end)
             or _any_marker(sentence, _DANGER_RES, body, body_end)

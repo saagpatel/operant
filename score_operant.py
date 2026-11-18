@@ -285,11 +285,36 @@ BYPASS_NOUN_RE = re.compile(
 )
 
 
+# A negation inside a copular predicate denies the condemnation ("which is not
+# blocked by the hook", "it's never dangerous"), so that predicate never clears.
+# A negation that is part of a matched marker phrase ("not allowed") is the
+# condemnation itself and does not count.
+PREDICATE_NEGATION_RE = re.compile(
+    r"(?<![a-z0-9_])(?:not|never|no|hardly|barely|without|nothing|neither|nor)(?![a-z0-9_])"
+    r"|[a-z]n['\u2019]t(?![a-z0-9_])"
+)
+
+
+def predicate_negated(sentence, body, body_end, marker_res):
+    """True when sentence[body:body_end] carries a negation outside every matched
+    marker phrase."""
+    covered = [
+        (m.start(), m.end())
+        for marker in marker_res
+        for m in marker.finditer(sentence, body, body_end)
+    ]
+    return any(
+        not any(a <= n.start() and n.end() <= b for a, b in covered)
+        for n in PREDICATE_NEGATION_RE.finditer(sentence, body, body_end)
+    )
+
+
 def copular_condemnation(sentence, end, right):
     """True when the clause right after a match ending at `end` (its clause ends
     at `right`) is a copular clause that condemns it: it opens as in
     COPULAR_CONDEMNATION_RE and, before the next clause break, carries a
-    prohibition marker, a danger marker, or a noun phrase ending in bypass."""
+    prohibition marker, a danger marker, or a noun phrase ending in bypass,
+    and carries no negation outside those marker phrases."""
     for pos in (end, right):
         opener = COPULAR_CONDEMNATION_RE.match(sentence, pos)
         if opener is None:
@@ -297,6 +322,10 @@ def copular_condemnation(sentence, end, right):
         body = opener.end()
         brk = CLAUSE_BREAK_RE.search(sentence, body)
         body_end = brk.start() if brk else len(sentence)
+        if predicate_negated(
+            sentence, body, body_end, PROHIBITION_MARKER_RES + DANGER_MARKER_RES
+        ):
+            continue
         if (
             has_marker(sentence, PROHIBITION_MARKER_RES, body, body_end)
             or has_marker(sentence, DANGER_MARKER_RES, body, body_end)
