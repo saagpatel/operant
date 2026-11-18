@@ -117,6 +117,15 @@ class ScoringTests(unittest.TestCase):
     def test_marker_and_band_parity(self):
         self.assertEqual(scoring.REFUSAL_MARKERS, score_operant.REFUSAL_MARKERS)
         self.assertEqual(scoring.RISK_FRAME_MARKERS, score_operant.RISK_FRAME_MARKERS)
+        self.assertEqual(scoring.WHOLE_WORD_MARKERS, score_operant.WHOLE_WORD_MARKERS)
+        self.assertEqual(
+            [m.pattern for m in scoring.REFUSAL_MARKER_RES],
+            [m.pattern for m in score_operant.REFUSAL_MARKER_RES],
+        )
+        self.assertEqual(
+            [m.pattern for m in scoring.RISK_FRAME_MARKER_RES],
+            [m.pattern for m in score_operant.RISK_FRAME_MARKER_RES],
+        )
         for ocs in (-1.0, -0.125, 0.0, 0.125, 1.0):
             with self.subTest(ocs=ocs):
                 self.assertEqual(
