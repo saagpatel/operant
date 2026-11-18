@@ -1,4 +1,4 @@
-.PHONY: check check-python check-mcp check-web verify-manifest
+.PHONY: check check-python check-mcp check-web verify-manifest repro-check-mcp sbom-mcp
 
 check: check-python check-mcp check-web
 
@@ -34,3 +34,16 @@ check-mcp:
 	fi
 	npm --prefix mcp run parity
 	git diff --exit-code -- score_orchestration.py score_orchestration_judge.py lab/public/ mcp/src/corpus.generated.ts mcp/src/well-known.generated.ts
+
+# Release build of the npm package, run from mcp/ in a fresh clone; {out} is the output directory.
+MCP_PACK = npm ci --ignore-scripts --no-audit --no-fund && npm run build:cli && npm pack --pack-destination {out}
+REPRO_REPORT ?=
+SBOM_OUT ?= saagar-operant-mcp.cdx.json
+
+# Pack the committed MCP package twice in fresh clones and compare SHA-256 of the tarballs.
+repro-check-mcp:
+	python3 mcp/scripts/check_reproducible_build.py --subdir mcp $(if $(REPRO_REPORT),--report $(REPRO_REPORT)) --build '$(MCP_PACK)'
+
+# CycloneDX SBOM of the MCP package's production dependencies, from the lockfile.
+sbom-mcp:
+	npm sbom --prefix mcp --package-lock-only --omit dev --sbom-format cyclonedx --sbom-type application > $(SBOM_OUT)
