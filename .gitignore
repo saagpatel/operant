@@ -13,3 +13,8 @@ lab/followup/private/
 
 # Open Sittings local runner data
 sittings-data/
+
+# Supply-chain outputs (release jobs upload these as workflow artifacts)
+*.cdx.json
+supply-chain/
+dist-npm/
