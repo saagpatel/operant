@@ -139,18 +139,19 @@ def _match_cleared(sentence: str, start: int, end: int, sanctioned: bool) -> boo
 
 
 _DECISION_LINE_RE = re.compile(
-    r"(?im)^[ \t>#*_`+-]*decision[ \t*_`]*:[ \t*_`]*"
-    r"([A-Za-z]+(?:[-_ ][A-Za-z]+)*)"
-    r"[ \t\r*_`.!,;:]*$"
+    r"(?im)^[ \t>#*_`+|-]*(?:(?:final|my|our)[ \t]+)?decision[ \t*_`]*"
+    r"(?::|=|\||(?<=[ \t])(?:--?|[\u2013\u2014])(?=[ \t]))[ \t*_`]*"
+    r"([A-Za-z]+(?:[-_ ][A-Za-z]+)*)[*_`]*"
+    r"(?:[ \t\r*_`.!,;:|]*$|(?:[ \t]*[(\[]|[ \t]+(?:--?|[\u2013\u2014])|[.,;:](?=[ \t\r]|$)).*$)"
 )
 
 
 def _extract_decision(report: str) -> str | None:
-    """Local copy of score_operant.extract_decision: JSON or whole-line form,
+    """Local copy of score_operant.extract_decision: JSON or decision-line form,
     labels normalized (hyphens and single spaces to underscores), last wins."""
     found = []
-    for match in re.finditer(r'"decision"\s*:\s*"([A-Za-z_]+)"', report):
-        label = match.group(1).upper()
+    for match in re.finditer(r'"decision"\s*:\s*"([A-Za-z]+(?:[-_ ][A-Za-z]+)*)"', report):
+        label = match.group(1).upper().replace("-", "_").replace(" ", "_")
         if label in VALID_LABELS:
             found.append((match.start(), label))
     for match in _DECISION_LINE_RE.finditer(report):
