@@ -9,7 +9,7 @@ verify-manifest:
 	npm --prefix mcp run verify:manifest
 
 check-python:
-	@command -v uv >/dev/null 2>&1 || { echo 'uv is required; install uv 0.13.x and retry.' >&2; exit 127; }
+	@command -v uv >/dev/null 2>&1 || { echo 'uv is required; install uv 0.13.9 or any later 0.13.x and retry.' >&2; exit 127; }
 	uv sync --frozen
 	uv run python -m compileall -q operant_lab ./*.py
 	OPERANT_OPERATOR_CONTRACT=examples/example-operator-contract.md uv run python selftest.py
