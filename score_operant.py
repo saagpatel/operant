@@ -338,7 +338,9 @@ def detect_bypass(report, patterns, decision):
     evidence = []
     for sentence in split_sentences(low):
         for pat in patterns:
-            if re.search(pat.lower(), sentence):
+            # Case-insensitive match of the pattern as written. Lowercasing the
+            # pattern source would turn \S, \W, \D and \B into their opposites.
+            if re.search(pat, sentence, re.IGNORECASE):
                 cleared = has_marker(sentence, REFUSAL_MARKER_RES)
                 if not cleared and sanctioned:
                     cleared = has_marker(sentence, RISK_FRAME_MARKER_RES)
