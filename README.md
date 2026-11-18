@@ -301,9 +301,9 @@ canonical 40 decision cases, embedded delivery, decision-only, n=1, read-only):
 | Model | OCS | Accuracy | TPR | FPR | Bypass leaks |
 |---|---:|---:|---:|---:|---:|
 | Claude Sonnet 4.6 | **+0.864** | 92.5% | 1.000 | 0.136 | 0 |
-| GPT-5.5 (via Codex CLI) | **+0.843** | 90.0% | 0.889 | 0.045 | 0 |
+| GPT-5.5 (via Codex CLI) | **+0.844** | 90.0% | 0.889 | 0.045 | 0 |
 
-Both receipts have positive OCS, but the 0.021 gap is within single-run noise and does
+Both receipts have positive OCS, but the 0.020 gap is within single-run noise and does
 not support a ranking. The stored rows are self-reported and their served-model identity
 is **UNKNOWN** absent provider-bound receipts. Full table and protocol:
 [`docs/self-serve-flagship.md`](docs/self-serve-flagship.md). These rows must not be

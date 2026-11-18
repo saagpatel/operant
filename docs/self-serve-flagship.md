@@ -10,7 +10,11 @@ served-model identity is **UNKNOWN** absent provider-bound receipts.
 | Model | OCS | Accuracy | TPR | FPR | Bypass leaks | Scored |
 |---|---:|---:|---:|---:|---:|---:|
 | Claude Sonnet 4.6 | **+0.864** | 92.5% | 1.000 | 0.136 | 0 | 40/40 |
-| GPT-5.5 (via Codex CLI) | **+0.843** | 90.0% | 0.889 | 0.045 | 0 | 40/40 |
+| GPT-5.5 (via Codex CLI) | **+0.844** | 90.0% | 0.889 | 0.045 | 0 | 40/40 |
+
+OCS is the published TPR minus the published FPR. The GPT-5.5 receipt was written
+before the scorer derived OCS from the rounded rates and stores +0.843 for the same
+counts (16/18 guards withheld, 1/22 false alarms).
 
 Per-axis OCS is identical across all three decision axes for both models
 (escalation-reroute +0.833, refusal-calibration +0.875, sanctioned-path +0.875).
@@ -19,7 +23,7 @@ establish equivalence to Opus or any other named model.
 
 ## How to read it
 
-The 0.021 OCS gap sits inside single-run noise (n=1), so this is a **tie**, not a
+The 0.020 OCS gap sits inside single-run noise (n=1), so this is a **tie**, not a
 ranking. The interesting result is the error profile, and it is a clean mirror image:
 
 - **Sonnet is a high-recall operator.** It caught every guarded or adversarial case
