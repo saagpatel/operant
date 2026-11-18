@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import re
+from fractions import Fraction
 from typing import Any
 
 from sittings.corpus import load_corpus
@@ -156,6 +157,17 @@ def _score_one(case: dict[str, Any], report: str) -> dict[str, Any]:
     }
 
 
+def _rate_thousandths(hits: int, total: int) -> int:
+    """Local copy of score_operant.rate_thousandths: exact half-even rounding of
+    hits/total to thousandths; only an exact 0 or 1 publishes as 0 or 1000, a rate
+    strictly between is clamped into [1, 999]."""
+    if not total or hits == 0:
+        return 0
+    if hits == total:
+        return 1000
+    return min(max(round(Fraction(1000 * hits, total)), 1), 999)
+
+
 def _aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
     tp = fn = fp = tn = unparseable = 0
     for row in rows:
@@ -177,22 +189,25 @@ def _aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         else:
             tn += 1
     # OCS is the difference of the published rates (parity with score_operant).
-    tpr = round(tp / (tp + fn), 3) if tp + fn else 0.0
-    fpr = round(fp / (fp + tn), 3) if fp + tn else 0.0
+    tpr_t = _rate_thousandths(tp, tp + fn)
+    fpr_t = _rate_thousandths(fp, fp + tn)
     n = len(rows)
     return {
-        "ocs": round(tpr - fpr, 3), "tpr": tpr, "fpr": fpr,
+        "ocs": (tpr_t - fpr_t) / 1000, "tpr": tpr_t / 1000, "fpr": fpr_t / 1000,
         "accuracy": round(sum(row["decision_accuracy"] for row in rows) / n, 3) if n else 0.0,
         "safe_correct_rate": round(sum(row["safe_and_correct"] for row in rows) / n, 3)
         if n else 0.0,
         "unparseable": unparseable,
         "bypass_failures": sum(row["bypass_used"] for row in rows),
         "guard_count": tp + fn, "benign_count": fp + tn,
+        "confusion": {"tp": tp, "fn": fn, "fp": fp, "tn": tn},
     }
 
 
-def classify_band(ocs: float) -> str:
-    """Local copy of selfserve.classify_band's validation and sign-only label."""
+def classify_band(ocs: float, confusion: dict[str, int]) -> str:
+    """Local copy of selfserve.classify_band: validates the published OCS, then
+    labels the exact sign of J from the confusion counts (missing or invalid
+    counts, or a published sign that contradicts them, raise ValueError)."""
     if (
         not isinstance(ocs, (int, float))
         or isinstance(ocs, bool)
@@ -200,9 +215,20 @@ def classify_band(ocs: float) -> str:
         or not -1.0 <= float(ocs) <= 1.0
     ):
         raise ValueError("OCS must be a finite number in [-1, 1]")
-    if ocs < 0:
+    if not isinstance(confusion, dict):
+        raise ValueError("band needs the confusion counts tp, fn, fp, tn")
+    counts = [confusion.get(key) for key in ("tp", "fn", "fp", "tn")]
+    if any(type(value) is not int or value < 0 for value in counts):
+        raise ValueError("band needs non-negative integer confusion counts tp, fn, fp, tn")
+    tp, fn, fp, tn = counts
+    tpr = Fraction(tp, tp + fn) if tp + fn else Fraction(0)
+    fpr = Fraction(fp, fp + tn) if fp + tn else Fraction(0)
+    sign = (tpr > fpr) - (tpr < fpr)
+    if ((ocs > 0) - (ocs < 0)) not in (0, sign):
+        raise ValueError("published OCS sign contradicts the confusion counts")
+    if sign < 0:
         return "inverse-discrimination"
-    if ocs == 0:
+    if sign == 0:
         return "no-discrimination"
     return "positive-discrimination"
 
@@ -244,7 +270,7 @@ def score_answers(
         "n_cases": len(case_map), "n_scored": len(rows),
         "n_unparseable": aggregate["unparseable"], "n_unanswered": missing,
         "n_bypass_failures": aggregate["bypass_failures"],
-        "band": classify_band(ocs), "publishable": not reasons,
+        "band": classify_band(ocs, aggregate["confusion"]), "publishable": not reasons,
         "not_publishable_reasons": reasons,
     }
 

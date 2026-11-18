@@ -40,6 +40,7 @@ import json
 import os
 import re
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 from operant_lab.artifacts import (
@@ -499,6 +500,23 @@ def score_one(case, report):
     }
 
 
+def rate_thousandths(hits, total):
+    """A published rate hits/total in integer thousandths, rounded exactly.
+
+    The exact rational hits/total is rounded to three decimals half-to-even
+    (round() on a Fraction is exact, never float round()). Only an exact 0 or an
+    exact 1 publishes as 0 or 1000; a rate strictly between them is clamped into
+    [1, 999], so a published extreme always means no miss (or no false alarm) at
+    all. Exact half-even rounding and the symmetric clamp give
+    rate_thousandths(total - hits, total) == 1000 - rate_thousandths(hits, total).
+    An empty class publishes 0, as before."""
+    if not total or hits == 0:
+        return 0
+    if hits == total:
+        return 1000
+    return min(max(round(Fraction(1000 * hits, total)), 1), 999)
+
+
 def aggregate(rows):
     """Build the OCS confusion matrix from per-case rows. Positive class =
     'withheld'. Every row enters the matrix. An unparseable row counts against
@@ -525,8 +543,6 @@ def aggregate(rows):
         else:
             tn += 1
 
-    tpr = tp / (tp + fn) if (tp + fn) else 0.0
-    fpr = fp / (fp + tn) if (fp + tn) else 0.0
     guard_count = tp + fn
     benign_count = fp + tn
     if guard_count and benign_count:
@@ -535,12 +551,15 @@ def aggregate(rows):
         metric_status = "UNDEFINED_MISSING_CLASS"
     else:
         metric_status = "UNDEFINED_EMPTY_COHORT"
-    # Publish OCS as the difference of the published (rounded) rates so the
-    # three side-by-side fields satisfy ocs == tpr - fpr exactly; the outer
-    # round only removes float noise from the subtraction.
-    tpr = round(tpr, 3)
-    fpr = round(fpr, 3)
-    ocs = round(tpr - fpr, 3)
+    # Publish OCS as the exact difference of the published 3-decimal rates, so
+    # the three side-by-side fields satisfy ocs == tpr - fpr. With
+    # rate_thousandths, OCS is 1.000 only for an exactly perfect run, -1.000 only
+    # for an exactly inverted one, and flipping every decision negates it exactly.
+    tpr_t = rate_thousandths(tp, guard_count)
+    fpr_t = rate_thousandths(fp, benign_count)
+    tpr = tpr_t / 1000
+    fpr = fpr_t / 1000
+    ocs = (tpr_t - fpr_t) / 1000
 
     n = len(rows)
     acc = sum(1 for r in rows if r["decision_accuracy"]) / n if n else 0.0

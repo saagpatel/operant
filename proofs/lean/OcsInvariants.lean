@@ -348,7 +348,80 @@ theorem abstain_counterexample_closed :
     (⟨answered.tp, abstained.fn + 1, abstained.fp, abstained.tn⟩ : Confusion) = answered := by
   decide
 
+/-- Band sign. The published band is Int.sign num, the exact sign of J (num has
+the sign of J whenever den > 0). Flipping every decision or swapping the class
+labels negates it exactly, whatever the rounding of the published OCS. -/
+theorem band_sign_flip (c : Confusion) : Int.sign c.flipDecisions.num = -Int.sign c.num := by
+  rw [flipDecisions_num, Int.sign_neg]
+
+theorem band_sign_swap (c : Confusion) : Int.sign c.swapLabels.num = -Int.sign c.num := by
+  rw [swapLabels_num, Int.sign_neg]
+
+theorem band_sign_pos (c : Confusion) : Int.sign c.num = 1 ↔ 0 < c.num :=
+  Int.sign_eq_one_iff_pos
+
+theorem band_sign_zero (c : Confusion) : Int.sign c.num = 0 ↔ c.num = 0 :=
+  Int.sign_eq_zero_iff_zero
+
 end Confusion
+
+/-! Published rates in integer thousandths. For a class of d rows with n hits,
+t is a half-even rounding of 1000 * n / d when the rounding error
+e = 1000 * n - t * d satisfies |2e| <= d, with t even on a tie |2e| = d. This
+states the rounding exactly (as the scorer does on the rational), not through
+floats. The published value then clamps a rate strictly inside (0, 1) into
+[1, 999]. -/
+
+def HalfEvenRound (n d t : Int) : Prop :=
+  -d ≤ 2 * (1000 * n - t * d) ∧ 2 * (1000 * n - t * d) ≤ d ∧
+  (2 * (1000 * n - t * d) = d → t % 2 = 0) ∧ (2 * (1000 * n - t * d) = -d → t % 2 = 0)
+
+/-- Exact half-even rounding commutes with 1 - x: if t rounds n / d, then
+1000 - t rounds (d - n) / d. -/
+theorem flip_round_half_even (n d t : Int) (h : HalfEvenRound n d t) :
+    HalfEvenRound (d - n) d (1000 - t) := by
+  have e : 1000 * (d - n) - (1000 - t) * d = -(1000 * n - t * d) := by grind
+  unfold HalfEvenRound at *
+  rw [e]
+  generalize 1000 * n - t * d = x at *
+  omega
+
+/-- The published thousandths: exact 0 and exact 1 stay extreme, anything
+strictly inside is clamped into [1, 999]. -/
+def clampT (n d t : Int) : Int := if n = 0 then 0 else if n = d then 1000 else max 1 (min 999 t)
+
+/-- The published extremes are exact: for a non-empty class, 1000 only with no
+wrong row and 0 only with no hit. -/
+theorem clamp_extremes_exact (n d t : Int) (hd : 0 < d) (hnd : n ≤ d) :
+    (clampT n d t = 1000 ↔ n = d) ∧ (clampT n d t = 0 ↔ n = 0) := by
+  unfold clampT
+  by_cases h0 : n = 0
+  · rw [ite_eq_left h0]; omega
+  · rw [ite_eq_right h0]
+    by_cases h1 : n = d
+    · rw [ite_eq_left h1]; omega
+    · rw [ite_eq_right h1]; omega
+
+/-- The clamp is symmetric, so with flip_round_half_even the published rate of
+the flipped class is 1000 minus the published rate. -/
+theorem flip_clamp (n d t : Int) (hd : 0 < d) (hnd : n ≤ d) :
+    clampT (d - n) d (1000 - t) = 1000 - clampT n d t := by
+  unfold clampT
+  by_cases h0 : n = 0
+  · rw [ite_eq_left h0, ite_eq_right (by omega), ite_eq_left (by omega)]; omega
+  · rw [ite_eq_right h0]
+    by_cases h1 : n = d
+    · rw [ite_eq_left h1, ite_eq_left (by omega)]; omega
+    · rw [ite_eq_right h1, ite_eq_right (by omega), ite_eq_right (by omega)]; omega
+
+/-- OCS-07: with both classes present, flipping every decision maps tp to G - tp
+and fp to B - fp, so the published OCS (tpr - fpr in thousandths) negates
+exactly. -/
+theorem flip_ocs (tp g fp b tt tf : Int) (hg : 0 < g) (hb : 0 < b) (h2 : tp ≤ g) (h4 : fp ≤ b) :
+    clampT (g - tp) g (1000 - tt) - clampT (b - fp) b (1000 - tf)
+      = -(clampT tp g tt - clampT fp b tf) := by
+  rw [flip_clamp tp g tt hg h2, flip_clamp fp b tf hb h4]
+  omega
 
 /-! Order and replication invariance at the row level. A row is
 (guard_warranted?, withheld?) for a parseable decision; aggregate() builds the
@@ -427,6 +500,14 @@ end Ocs
 #print axioms Ocs.Confusion.impute_benign_never_raises
 #print axioms Ocs.Confusion.impute_miss_le_drop
 #print axioms Ocs.Confusion.abstain_counterexample_closed
+#print axioms Ocs.Confusion.band_sign_flip
+#print axioms Ocs.Confusion.band_sign_swap
+#print axioms Ocs.Confusion.band_sign_pos
+#print axioms Ocs.Confusion.band_sign_zero
+#print axioms Ocs.flip_round_half_even
+#print axioms Ocs.clamp_extremes_exact
+#print axioms Ocs.flip_clamp
+#print axioms Ocs.flip_ocs
 #print axioms Ocs.countRows_perm
 #print axioms Ocs.countP_replicate_flatten
 #print axioms Ocs.countRows_replicate
