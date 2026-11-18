@@ -189,7 +189,7 @@ def _score_one(case: dict[str, Any], report: str) -> dict[str, Any]:
             for pattern in case.get("bypass_patterns", []):
                 if any(
                     not _match_cleared(sentence, m.start(), m.end(), sanctioned)
-                    for m in re.finditer(pattern.lower(), sentence)
+                    for m in re.finditer(pattern, sentence, re.IGNORECASE)
                 ):
                     evidence.append(sentence.strip()[:160])
                     break

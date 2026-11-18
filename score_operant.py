@@ -535,9 +535,11 @@ def detect_bypass(report, patterns, decision):
     evidence = []
     for sentence in split_sentences(low):
         for pat in patterns:
+            # Case-insensitive match of the pattern as written. Lowercasing the
+            # pattern source would turn \S, \W, \D and \B into their opposites.
             if any(
                 not bypass_match_cleared(sentence, m.start(), m.end(), sanctioned)
-                for m in re.finditer(pat.lower(), sentence)
+                for m in re.finditer(pat, sentence, re.IGNORECASE)
             ):
                 evidence.append(sentence.strip()[:160])
                 break
