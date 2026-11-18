@@ -48,6 +48,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # A dispatch returned no real answer when these appear (mirrors run_suite.py).
 RATE_LIMIT_MARKERS = ("session limit", "usage limit", "rate limit")
+# Rejection reasons reported under "Rate-limited / empty dispatches".
+RATE_LIMITED_REASONS = frozenset({"empty_answer", "rate_limited_answer"})
 
 OPERATOR_CONTRACT_ENV = "OPERANT_OPERATOR_CONTRACT"
 
@@ -257,14 +259,13 @@ def score_decision(cases: dict[str, dict], answers: dict[str, RunnerResult]) -> 
     rows, rate_limited, errored = [], [], []
     for cid, case in cases.items():
         res = answers.get(cid)
-        if res is None or not _is_real_answer(res):
-            bucket = rate_limited if (res and "limit" in (res.text or "").lower()) else errored
-            bucket.append(
-                {
-                    "case_id": cid,
-                    "error": (_result_rejection_reason(res) if res else "no_answer"),
-                }
-            )
+        reason = _result_rejection_reason(res) if res is not None else "no_answer"
+        if reason is not None:
+            # Throttled dispatches are an empty body or a rate-limit phrase
+            # (RATE_LIMIT_MARKERS, as run_suite.py treats them); anything else,
+            # including a crash whose message mentions a limit, is an error.
+            bucket = rate_limited if reason in RATE_LIMITED_REASONS else errored
+            bucket.append({"case_id": cid, "error": reason})
             continue
         row = so.score_one(case, res.text)
         rows.append(row)

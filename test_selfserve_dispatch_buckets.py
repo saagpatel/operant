@@ -6,14 +6,13 @@ empty dispatches", and operant_lab/selfserve.py defines RATE_LIMIT_MARKERS =
 throttled dispatch returns a report containing "session limit" / "usage limit"
 or an empty body."
 
-score_decision instead files a non-answer under rate_limited only when the
-bare substring "limit" appears in its text. So an empty dispatch lands in
-`errored`, and a crash whose message mentions any limit lands in
-`rate_limited`.
+score_decision used to file a non-answer under rate_limited only when the
+bare substring "limit" appeared in its text, so an empty dispatch landed in
+`errored` and a crash whose message mentioned any limit landed in
+`rate_limited`. It now buckets by rejection reason (RATE_LIMITED_REASONS).
 
-Both buckets are excluded from the score, so no OCS number moves; the
-published category is wrong. These tests fail on current main. They document
-the defect; they do not fix it.
+Both buckets are excluded from the score and block publication, so no OCS
+number moves; only the reported category and reason code change.
 """
 
 import unittest
