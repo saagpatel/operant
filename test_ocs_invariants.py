@@ -30,10 +30,10 @@ import re
 import sys
 import tempfile
 import unittest
+import unittest.mock as mock
 from collections import Counter
 from fractions import Fraction
 from pathlib import Path
-from unittest import mock
 
 from hypothesis import HealthCheck, Phase, assume, example, given, settings
 from hypothesis import strategies as st
