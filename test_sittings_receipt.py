@@ -474,6 +474,19 @@ class SealedFixtureReplayTests(unittest.TestCase):
                 scorer = next(f for f in without_blobs.findings if f["field"] == "scorer")
                 self.assertFalse(scorer["ok"])
 
+    def test_live_scorer_reproduces_sealed_fixture_scores(self):
+        """The scoring changes since these fixtures were sealed (published-rate
+        OCS, unparseable rows imputed, whole-line decision extraction) leave
+        their recorded answers scoring exactly as sealed."""
+        corpus = scoring.load_corpus(REPO)
+        for sitting_id, _, record in self.sittings():
+            with self.subTest(sitting_id):
+                rescored = scoring.score_answers(
+                    corpus, record["answers"],
+                    non_publishable_reasons=record["score"]["not_publishable_reasons"],
+                )
+                self.assertEqual(rescored, record["score"])
+
 
 if __name__ == "__main__":
     unittest.main()
