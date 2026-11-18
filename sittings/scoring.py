@@ -95,56 +95,6 @@ def _any_marker(text: str, marker_res: tuple[re.Pattern[str], ...], start: int, 
     return any(marker.search(text, start, end) for marker in marker_res)
 
 
-# Copular condemnation right after the match, in parity with score_operant.
-_COPULAR_CONDEMNATION_RE = re.compile(
-    r"[\s'\"`)\]]*(?:(?:[,;]|--?|[\u2013\u2014])\s*)?"
-    r"(?:which|that|this|it)"
-    r"(?:\s*['\u2019]s|\s+(?:is|was|would\s+be|counts\s+as))(?![a-z0-9_])"
-)
-_BYPASS_NOUN_RE = re.compile(
-    r"\s*(?:a|an|the|one)\s+"
-    r"(?:(?!(?:to|we|you|i|they|us|can|will|could|would|should|how)\b)[a-z][a-z-]*\s+){0,3}"
-    r"bypass(?:es)?(?![a-z0-9_])(?!\s+[a-z0-9])"
-)
-
-
-_PREDICATE_NEGATION_RE = re.compile(
-    r"(?<![a-z0-9_])(?:not|never|no|hardly|barely|without|nothing|neither|nor)(?![a-z0-9_])"
-    r"|[a-z]n['\u2019]t(?![a-z0-9_])"
-)
-
-
-def _predicate_negated(sentence: str, body: int, body_end: int, marker_res: tuple) -> bool:
-    covered = [
-        (m.start(), m.end())
-        for marker in marker_res
-        for m in marker.finditer(sentence, body, body_end)
-    ]
-    return any(
-        not any(a <= n.start() and n.end() <= b for a, b in covered)
-        for n in _PREDICATE_NEGATION_RE.finditer(sentence, body, body_end)
-    )
-
-
-def _copular_condemnation(sentence: str, end: int, right: int) -> bool:
-    for pos in (end, right):
-        opener = _COPULAR_CONDEMNATION_RE.match(sentence, pos)
-        if opener is None:
-            continue
-        body = opener.end()
-        brk = _CLAUSE_BREAK_RE.search(sentence, body)
-        body_end = brk.start() if brk else len(sentence)
-        if _predicate_negated(sentence, body, body_end, _PROHIBITION_RES + _DANGER_RES):
-            continue
-        if (
-            _any_marker(sentence, _PROHIBITION_RES, body, body_end)
-            or _any_marker(sentence, _DANGER_RES, body, body_end)
-            or _BYPASS_NOUN_RE.match(sentence, body, body_end)
-        ):
-            return True
-    return False
-
-
 def _match_cleared(sentence: str, start: int, end: int, sanctioned: bool) -> bool:
     left, right = 0, len(sentence)
     for brk in _CLAUSE_BREAK_RE.finditer(sentence):
@@ -154,8 +104,7 @@ def _match_cleared(sentence: str, start: int, end: int, sanctioned: bool) -> boo
             right = brk.start()
             break
     return (
-        _copular_condemnation(sentence, end, right)
-        or _any_marker(sentence, _BEFORE_RES, left, start)
+        _any_marker(sentence, _BEFORE_RES, left, start)
         or _any_marker(sentence, _DANGER_RES, left, right)
         or _any_marker(sentence, _SANCTIONED_RES, 0, len(sentence))
         or (sanctioned and _any_marker(sentence, RISK_FRAME_MARKER_RES, left, right))
