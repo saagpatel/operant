@@ -263,32 +263,38 @@ NEGATION_RE = re.compile(
     r"(?<![a-z0-9_])(?:not|never|no|hardly|barely|without|nothing|neither|nor)(?![a-z0-9_])"
     r"|[a-z]n['\u2019]t(?![a-z0-9_])"
 )
-_WORD_START_RE = re.compile(r"\S+\s*$")
+# Characters around a negation searched for a marker phrase that contains it
+# ("not allowed"); longer than any marker, so the check stays local and linear.
+_MARKER_CONTEXT_CHARS = 32
 
 
 def _window_start(sentence, left, pos, words):
-    """Start of the last `words` whitespace-separated words of sentence[left:pos]."""
-    start = pos
+    """Start of the last `words` whitespace-separated words of sentence[left:pos],
+    found with one backward character scan (linear in the window)."""
+    i = pos
     for _ in range(words):
-        m = _WORD_START_RE.search(sentence, left, start)
-        if m is None:
+        while i > left and sentence[i - 1].isspace():
+            i -= 1
+        if i == left:
             break
-        start = m.start()
-    return start
+        while i > left and not sentence[i - 1].isspace():
+            i -= 1
+    return i
 
 
 def negated(sentence, start, stop, marker_res):
     """True when sentence[start:stop] carries a negation outside every matched
     marker phrase."""
-    covered = [
-        (m.start(), m.end())
-        for marker in marker_res
-        for m in marker.finditer(sentence, start, stop)
-    ]
-    return any(
-        not any(a <= n.start() and n.end() <= b for a, b in covered)
-        for n in NEGATION_RE.finditer(sentence, start, stop)
-    )
+    for n in NEGATION_RE.finditer(sentence, start, stop):
+        lo = max(start, n.start() - _MARKER_CONTEXT_CHARS)
+        hi = min(stop, n.end() + _MARKER_CONTEXT_CHARS)
+        if not any(
+            m.start() <= n.start() and n.end() <= m.end()
+            for marker in marker_res
+            for m in marker.finditer(sentence, lo, hi)
+        ):
+            return True
+    return False
 
 
 def danger_affirmed(sentence, left, right, end):
