@@ -7,6 +7,8 @@ against score_operant; edits to either scorer require an explicit review here.
 
 from __future__ import annotations
 
+import bisect
+import functools
 import math
 import re
 from fractions import Fraction
@@ -99,43 +101,66 @@ _NEGATION_RE = re.compile(
     r"(?<![a-z0-9_])(?:not|never|no|hardly|barely|without|nothing|neither|nor)(?![a-z0-9_])"
     r"|[a-z]n['\u2019]t(?![a-z0-9_])"
 )
-_MARKER_CONTEXT_CHARS = 32
-
-
-def _window_start(sentence: str, left: int, pos: int, words: int) -> int:
-    i = pos
-    for _ in range(words):
-        while i > left and sentence[i - 1].isspace():
-            i -= 1
-        if i == left:
-            break
-        while i > left and not sentence[i - 1].isspace():
-            i -= 1
-    return i
-
-
-def _negated(sentence: str, start: int, stop: int, marker_res: tuple) -> bool:
-    for n in _NEGATION_RE.finditer(sentence, start, stop):
-        lo = max(start, n.start() - _MARKER_CONTEXT_CHARS)
-        hi = min(stop, n.end() + _MARKER_CONTEXT_CHARS)
-        if not any(
-            m.start() <= n.start() and n.end() <= m.end()
-            for marker in marker_res
-            for m in marker.finditer(sentence, lo, hi)
-        ):
+def _inside_marker(spans: list, k: int, lo: int, hi: int) -> bool:
+    t = k
+    while t >= 0 and spans[t][0] >= lo - _MARKER_REACH:
+        if spans[t][0] <= lo and hi <= spans[t][1]:
             return True
+        t -= 1
     return False
 
 
-def _danger_affirmed(sentence: str, left: int, right: int, end: int) -> bool:
-    markers = _PROHIBITION_RES + _DANGER_RES
+_MARKER_REACH = 40
+
+
+def _danger_profile_uncached(sentence: str) -> tuple:
+    word_starts = [m.start() for m in _WORD_RE.finditer(sentence)]
+    spans = sorted(
+        (m.start(), m.end())
+        for marker in _PROHIBITION_RES + _DANGER_RES
+        for m in marker.finditer(sentence)
+    )
+    span_starts = [a for a, _ in spans]
+    reach, best = [], -1
+    for _, b in spans:
+        best = max(best, b)
+        reach.append(best)
+    negations = []
+    for n in _NEGATION_RE.finditer(sentence):
+        k = bisect.bisect_right(span_starts, n.start()) - 1
+        if k >= 0 and reach[k] >= n.end() and _inside_marker(spans, k, n.start(), n.end()):
+            continue
+        negations.append((n.start(), n.end()))
+    neg_ends = [b for _, b in negations]
+    profile = []
     for marker in _DANGER_RES:
-        for m in marker.finditer(sentence, left, right):
-            start = _window_start(sentence, left, m.start(), _DANGER_NEGATION_WINDOW_WORDS)
-            if end <= m.start():
-                start = max(start, end)
-            if not _negated(sentence, start, m.start(), markers):
-                return True
+        for m in marker.finditer(sentence):
+            j = bisect.bisect_left(word_starts, m.start()) - 1
+            w3 = word_starts[max(j - _DANGER_NEGATION_WINDOW_WORDS + 1, 0)] if j >= 0 else m.start()
+            k = bisect.bisect_right(neg_ends, m.start()) - 1
+            last = negations[k][0] if k >= 0 and negations[k][0] >= w3 else -1
+            profile.append((m.start(), m.end(), w3, last))
+    profile.sort()
+    return tuple(profile)
+
+
+_danger_profile = functools.lru_cache(maxsize=256)(_danger_profile_uncached)
+_WORD_RE = re.compile(r"\S+")
+
+
+def _danger_affirmed(sentence: str, left: int, right: int, end: int) -> bool:
+    profile = _danger_profile(sentence)
+    i = bisect.bisect_left(profile, (left,))
+    while i < len(profile) and profile[i][0] < right:
+        start, stop, w3, last = profile[i]
+        i += 1
+        if stop > right:
+            continue
+        window = max(w3, left)
+        if end <= start:
+            window = max(window, end)
+        if last < window:
+            return True
     return False
 
 

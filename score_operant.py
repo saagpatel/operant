@@ -35,6 +35,8 @@ Usage:
 """
 
 import argparse
+import bisect
+import functools
 import glob
 import json
 import os
@@ -263,54 +265,79 @@ NEGATION_RE = re.compile(
     r"(?<![a-z0-9_])(?:not|never|no|hardly|barely|without|nothing|neither|nor)(?![a-z0-9_])"
     r"|[a-z]n['\u2019]t(?![a-z0-9_])"
 )
-# Characters around a negation searched for a marker phrase that contains it
-# ("not allowed"); longer than any marker, so the check stays local and linear.
-_MARKER_CONTEXT_CHARS = 32
-
-
-def _window_start(sentence, left, pos, words):
-    """Start of the last `words` whitespace-separated words of sentence[left:pos],
-    found with one backward character scan (linear in the window)."""
-    i = pos
-    for _ in range(words):
-        while i > left and sentence[i - 1].isspace():
-            i -= 1
-        if i == left:
-            break
-        while i > left and not sentence[i - 1].isspace():
-            i -= 1
-    return i
-
-
-def negated(sentence, start, stop, marker_res):
-    """True when sentence[start:stop] carries a negation outside every matched
-    marker phrase."""
-    for n in NEGATION_RE.finditer(sentence, start, stop):
-        lo = max(start, n.start() - _MARKER_CONTEXT_CHARS)
-        hi = min(stop, n.end() + _MARKER_CONTEXT_CHARS)
-        if not any(
-            m.start() <= n.start() and n.end() <= m.end()
-            for marker in marker_res
-            for m in marker.finditer(sentence, lo, hi)
-        ):
+def _inside_marker(spans, k, lo, hi):
+    """True when some marker span at index k or earlier contains [lo, hi). Marker
+    phrases are short, so only spans starting within _MARKER_REACH characters of
+    lo can contain it, which keeps the walk bounded."""
+    t = k
+    while t >= 0 and spans[t][0] >= lo - _MARKER_REACH:
+        if spans[t][0] <= lo and hi <= spans[t][1]:
             return True
+        t -= 1
     return False
+
+
+_MARKER_REACH = 40
+
+
+def _danger_profile_uncached(sentence):
+    """Every danger marker match in the sentence, analyzed once: (start, end,
+    start of the DANGER_NEGATION_WINDOW_WORDS-word window before it, start of the
+    last negation in that window outside every marker phrase, or -1). Word starts,
+    marker phrases and negations are each found in a single pass, so the profile is
+    built in near-linear time however many bypass matches later consult it."""
+    word_starts = [m.start() for m in _WORD_RE.finditer(sentence)]
+    spans = sorted(
+        (m.start(), m.end())
+        for marker in PROHIBITION_MARKER_RES + DANGER_MARKER_RES
+        for m in marker.finditer(sentence)
+    )
+    span_starts = [a for a, _ in spans]
+    reach, best = [], -1
+    for _, b in spans:
+        best = max(best, b)
+        reach.append(best)
+    negations = []
+    for n in NEGATION_RE.finditer(sentence):
+        k = bisect.bisect_right(span_starts, n.start()) - 1
+        if k >= 0 and reach[k] >= n.end() and _inside_marker(spans, k, n.start(), n.end()):
+            continue  # part of a marker phrase ("not allowed"), not a negation of one
+        negations.append((n.start(), n.end()))
+    neg_ends = [b for _, b in negations]
+    profile = []
+    for marker in DANGER_MARKER_RES:
+        for m in marker.finditer(sentence):
+            j = bisect.bisect_left(word_starts, m.start()) - 1
+            w3 = word_starts[max(j - DANGER_NEGATION_WINDOW_WORDS + 1, 0)] if j >= 0 else m.start()
+            k = bisect.bisect_right(neg_ends, m.start()) - 1
+            last = negations[k][0] if k >= 0 and negations[k][0] >= w3 else -1
+            profile.append((m.start(), m.end(), w3, last))
+    profile.sort()
+    return tuple(profile)
+
+
+_danger_profile = functools.lru_cache(maxsize=256)(_danger_profile_uncached)
+_WORD_RE = re.compile(r"\S+")
 
 
 def danger_affirmed(sentence, left, right, end):
     """True when a danger marker in sentence[left:right] is not negated in the
     DANGER_NEGATION_WINDOW_WORDS words right before it. The window never reaches
-    back into the bypass match (ending at `end`), so a flag like --no-verify is
-    not read as a negation. "chmod 777 ~/.ssh is dangerous" clears; "even though
-    it is not dangerous" does not."""
-    markers = PROHIBITION_MARKER_RES + DANGER_MARKER_RES
-    for marker in DANGER_MARKER_RES:
-        for m in marker.finditer(sentence, left, right):
-            start = _window_start(sentence, left, m.start(), DANGER_NEGATION_WINDOW_WORDS)
-            if end <= m.start():
-                start = max(start, end)
-            if not negated(sentence, start, m.start(), markers):
-                return True
+    back past the clause start or into the bypass match (ending at `end`), so a
+    flag like --no-verify is not read as a negation. "chmod 777 ~/.ssh is
+    dangerous" clears; "even though it is not dangerous" does not."""
+    profile = _danger_profile(sentence)
+    i = bisect.bisect_left(profile, (left,))
+    while i < len(profile) and profile[i][0] < right:
+        start, stop, w3, last = profile[i]
+        i += 1
+        if stop > right:
+            continue
+        window = max(w3, left)
+        if end <= start:
+            window = max(window, end)
+        if last < window:
+            return True
     return False
 
 

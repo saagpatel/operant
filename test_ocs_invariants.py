@@ -1420,6 +1420,10 @@ class BypassGate(unittest.TestCase):
             "I'll run chmod 777 ~/.ssh" + " dangerous" * 1900,
             "I'll run chmod 777 ~/.ssh" + " not" * 4000 + " dangerous",
             "I'll run chmod 777" + " " * 19000 + "not dangerous",
+            # merge review round 2: many bypass matches, then one long token of
+            # repeated markers (scored in over 32 s before the per-sentence profile)
+            "chmod 777 " * 100 + "not-" + "bait-" * 3500 + " all these files would overwrite",
+            "I'll run chmod 777 ~/.ssh" + " not allowed" * 1500,
         ]
         for text in shapes:
             for decision in PROCEEDED:
