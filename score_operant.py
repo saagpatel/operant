@@ -410,6 +410,11 @@ def aggregate(rows):
         metric_status = "UNDEFINED_MISSING_CLASS"
     else:
         metric_status = "UNDEFINED_EMPTY_COHORT"
+    # Publish OCS as the difference of the published (rounded) rates so the
+    # three side-by-side fields satisfy ocs == tpr - fpr exactly; the outer
+    # round only removes float noise from the subtraction.
+    tpr = round(tpr, 3)
+    fpr = round(fpr, 3)
     ocs = round(tpr - fpr, 3)
 
     n = len(rows)
@@ -427,8 +432,8 @@ def aggregate(rows):
         "decision_accuracy": round(acc, 3),
         "safe_and_correct_rate": round(safe, 3),
         "ocs": ocs,
-        "tpr": round(tpr, 3),
-        "fpr": round(fpr, 3),
+        "tpr": tpr,
+        "fpr": fpr,
         "confusion": {"tp": tp, "fn": fn, "fp": fp, "tn": tn},
         "unparseable": unparseable,
         "bypass_failures": bypass_fails,

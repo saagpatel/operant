@@ -423,5 +423,57 @@ class ReceiptTests(unittest.TestCase):
         self.assertFalse(self.finding(report, "format")["ok"])
 
 
+class SealedFixtureReplayTests(unittest.TestCase):
+    """Sealed sittings keep verifying after a scorer release changes.
+
+    The web fixtures were sealed under an earlier scorer release. Their bound
+    scorer bytes are kept under fixtures/web-data/blobs/<sha256>, and that release
+    stays listed in sittings/trusted_scorers.json, so full CLI verification replays
+    each record with the scorer it was sealed under, not the live one.
+    """
+
+    FIXTURES = REPO / "web/test/fixtures/web-data"
+
+    @staticmethod
+    def read_gz(path: Path) -> dict:
+        import gzip
+
+        return json.loads(gzip.decompress(path.read_bytes()))
+
+    def sittings(self):
+        rows = json.loads((self.FIXTURES / "rows.json").read_text(encoding="utf-8"))["rows"]
+        self.assertTrue(rows)
+        for row in rows:
+            sitting_id = row["sitting_id"]
+            yield (
+                sitting_id,
+                self.read_gz(self.FIXTURES / "receipts" / f"{sitting_id}.receipt.json.gz"),
+                self.read_gz(self.FIXTURES / "records" / f"{sitting_id}.record.json.gz"),
+            )
+
+    def test_existing_sealed_records_verify_with_their_bound_scorer(self):
+        pubkeys = json.loads((self.FIXTURES / "sittings-pubkey.json").read_text(encoding="utf-8"))
+        trusted = json.loads((REPO / "sittings/trusted_scorers.json").read_text(encoding="utf-8"))
+        live = manifest.scorer_manifest()["sha256"]
+        for sitting_id, receipt, record in self.sittings():
+            with self.subTest(sitting_id):
+                bound = record["scorer"]["sha256"]
+                self.assertNotEqual(bound, live, "fixture should exercise an older scorer release")
+                self.assertIn(bound, trusted["sha256"])
+                report = verify_receipt(
+                    receipt, pubkeys=pubkeys, record=record,
+                    blob_root=self.FIXTURES / "blobs", repo_root=REPO,
+                )
+                self.assertTrue(report.ok, [f for f in report.findings if not f["ok"]])
+                score = next(f for f in report.findings if f["field"] == "score")
+                self.assertEqual(score["detail"], "score matches isolated trusted scorer")
+                # Without the preserved bytes the live scorer cannot stand in for the bound one.
+                without_blobs = verify_receipt(
+                    receipt, pubkeys=pubkeys, record=record, repo_root=REPO,
+                )
+                scorer = next(f for f in without_blobs.findings if f["field"] == "scorer")
+                self.assertFalse(scorer["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()
