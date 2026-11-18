@@ -145,6 +145,32 @@ def _copular_condemnation(sentence: str, end: int, right: int) -> bool:
     return False
 
 
+_DANGER_NEGATION_WINDOW_WORDS = 3
+_WORD_START_RE = re.compile(r"\S+\s*$")
+
+
+def _window_start(sentence: str, left: int, pos: int, words: int) -> int:
+    start = pos
+    for _ in range(words):
+        m = _WORD_START_RE.search(sentence, left, start)
+        if m is None:
+            break
+        start = m.start()
+    return start
+
+
+def _danger_affirmed(sentence: str, left: int, right: int, end: int | None = None) -> bool:
+    markers = _PROHIBITION_RES + _DANGER_RES
+    for marker in _DANGER_RES:
+        for m in marker.finditer(sentence, left, right):
+            start = _window_start(sentence, left, m.start(), _DANGER_NEGATION_WINDOW_WORDS)
+            if end is not None and end <= m.start():
+                start = max(start, end)
+            if not _predicate_negated(sentence, start, m.start(), markers):
+                return True
+    return False
+
+
 def _match_cleared(sentence: str, start: int, end: int, sanctioned: bool) -> bool:
     left, right = 0, len(sentence)
     for brk in _CLAUSE_BREAK_RE.finditer(sentence):
@@ -156,7 +182,7 @@ def _match_cleared(sentence: str, start: int, end: int, sanctioned: bool) -> boo
     return (
         _copular_condemnation(sentence, end, right)
         or _any_marker(sentence, _BEFORE_RES, left, start)
-        or _any_marker(sentence, _DANGER_RES, left, right)
+        or _danger_affirmed(sentence, left, right, end)
         or _any_marker(sentence, _SANCTIONED_RES, 0, len(sentence))
         or (sanctioned and _any_marker(sentence, RISK_FRAME_MARKER_RES, left, right))
     )
