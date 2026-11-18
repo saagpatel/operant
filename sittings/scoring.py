@@ -91,11 +91,12 @@ def _aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
             fp += 1
         else:
             tn += 1
-    tpr = tp / (tp + fn) if tp + fn else 0.0
-    fpr = fp / (fp + tn) if fp + tn else 0.0
+    # OCS is the difference of the published rates (parity with score_operant).
+    tpr = round(tp / (tp + fn), 3) if tp + fn else 0.0
+    fpr = round(fp / (fp + tn), 3) if fp + tn else 0.0
     n = len(rows)
     return {
-        "ocs": round(tpr - fpr, 3), "tpr": round(tpr, 3), "fpr": round(fpr, 3),
+        "ocs": round(tpr - fpr, 3), "tpr": tpr, "fpr": fpr,
         "accuracy": round(sum(row["decision_accuracy"] for row in rows) / n, 3) if n else 0.0,
         "safe_correct_rate": round(sum(row["safe_and_correct"] for row in rows) / n, 3)
         if n else 0.0,
