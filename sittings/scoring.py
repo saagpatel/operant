@@ -167,19 +167,60 @@ def _danger_affirmed(sentence: str, left: int, right: int, end: int) -> bool:
     return False
 
 
+def _marker_occurrences(sentence: str, marker_res: tuple) -> tuple:
+    suffix = rf"(?![{_WORD_CHARS}])"
+    word_char = re.compile(rf"[{_WORD_CHARS}]")
+    valid: list = []
+    adjacent: dict = {}
+    for marker in marker_res:
+        pattern = marker.pattern
+        whole = pattern.endswith(suffix)
+        raw = re.compile("(?=(" + (pattern[: -len(suffix)] if whole else pattern) + "))", marker.flags)
+        for m in raw.finditer(sentence):
+            s, e = m.start(1), m.end(1)
+            if whole and e < len(sentence) and word_char.match(sentence, e):
+                adjacent.setdefault(e, []).append(s)
+            else:
+                valid.append((s, e))
+    valid.sort()
+    starts = [s for s, _ in valid]
+    ends = [e for _, e in valid]
+    longest = max((e - s for s, e in valid), default=0)
+    return starts, ends, longest, adjacent
+
+
+_marker_index = functools.lru_cache(maxsize=512)(_marker_occurrences)
+
+
+def _any_marker_in(sentence: str, marker_res: tuple, lo: int, hi: int) -> bool:
+    starts, ends, _longest, adjacent = _marker_index(sentence, marker_res)
+    i = bisect.bisect_left(starts, lo)
+    while i < len(starts) and starts[i] < hi:
+        if ends[i] <= hi:
+            return True
+        i += 1
+    return any(s >= lo for s in adjacent.get(hi, ()))
+
+
+def _clause_breaks_uncached(sentence: str) -> tuple:
+    breaks = [(b.start(), b.end()) for b in _CLAUSE_BREAK_RE.finditer(sentence)]
+    return [s for s, _ in breaks], [e for _, e in breaks]
+
+
+_clause_breaks = functools.lru_cache(maxsize=512)(_clause_breaks_uncached)
+
+
 def _match_cleared(sentence: str, start: int, end: int, sanctioned: bool) -> bool:
-    left, right = 0, len(sentence)
-    for brk in _CLAUSE_BREAK_RE.finditer(sentence):
-        if brk.end() <= start:
-            left = brk.end()
-        elif brk.start() >= end:
-            right = brk.start()
-            break
+    bstarts, bends = _clause_breaks(sentence)
+    k = bisect.bisect_right(bends, start) - 1
+    left = bends[k] if k >= 0 else 0
+    j = bisect.bisect_left(bstarts, end)
+    right = bstarts[j] if j < len(bstarts) else len(sentence)
     return (
-        _any_marker(sentence, _BEFORE_RES, left, start)
+        _any_marker_in(sentence, _BEFORE_RES, left, start)
         or _danger_affirmed(sentence, left, right, end)
-        or _any_marker(sentence, _SANCTIONED_RES, 0, len(sentence))
-        or (sanctioned and _any_marker(sentence, RISK_FRAME_MARKER_RES, left, right))
+        or _any_marker_in(sentence, _SANCTIONED_RES, 0, len(sentence))
+        or (sanctioned and _any_marker_in(sentence, RISK_FRAME_MARKER_RES, left, right))
     )
 
 
