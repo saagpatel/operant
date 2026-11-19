@@ -307,8 +307,11 @@ def _danger_profile_uncached(sentence):
     profile = []
     for marker in DANGER_MARKER_RES:
         for m in marker.finditer(sentence):
-            j = bisect.bisect_left(word_starts, m.start()) - 1
-            w3 = word_starts[max(j - DANGER_NEGATION_WINDOW_WORDS + 1, 0)] if j >= 0 else m.start()
+            # j is the token that contains the marker; the window is the three
+            # words before that token plus any part of it before the marker, so a leading
+            # quote, bracket or markdown never uses up a word and "not-bait" keeps its "not".
+            j = bisect.bisect_right(word_starts, m.start()) - 1
+            w3 = word_starts[max(j - DANGER_NEGATION_WINDOW_WORDS, 0)] if j >= 0 else m.start()
             k = bisect.bisect_right(neg_ends, m.start()) - 1
             last = negations[k][0] if k >= 0 and negations[k][0] >= w3 else -1
             profile.append((m.start(), m.end(), w3, last))
