@@ -243,17 +243,67 @@ def has_marker(text, marker_res, start=0, end=None):
     return any(marker.search(text, start, end) for marker in marker_res)
 
 
+def _marker_occurrences(sentence, marker_res):
+    """Every occurrence of every marker in the sentence, overlapping ones included,
+    found once. Returns (starts, ends, longest, adjacent): occurrences that match
+    on the whole sentence, sorted, and whole-word occurrences ("never") whose end
+    lookahead fails on the whole sentence but would pass in a window ending right
+    at them, keyed by their end. That last case keeps the window answers exactly
+    equal to marker.search(sentence, lo, hi)."""
+    suffix = rf"(?![{_WORD_CHARS}])"
+    word_char = re.compile(rf"[{_WORD_CHARS}]")
+    valid, adjacent = [], {}
+    for marker in marker_res:
+        pattern = marker.pattern
+        whole = pattern.endswith(suffix)
+        raw = re.compile("(?=(" + (pattern[: -len(suffix)] if whole else pattern) + "))", marker.flags)
+        for m in raw.finditer(sentence):
+            s, e = m.start(1), m.end(1)
+            if whole and e < len(sentence) and word_char.match(sentence, e):
+                adjacent.setdefault(e, []).append(s)
+            else:
+                valid.append((s, e))
+    valid.sort()
+    starts = [s for s, _ in valid]
+    ends = [e for _, e in valid]
+    longest = max((e - s for s, e in valid), default=0)
+    return starts, ends, longest, adjacent
+
+
+_marker_index = functools.lru_cache(maxsize=512)(_marker_occurrences)
+
+
+def any_marker_in(sentence, marker_res, lo, hi):
+    """Same answer as has_marker(sentence, marker_res, lo, hi), from the cached
+    per-sentence index: binary search, then at most the occurrences that start in
+    the last `longest` characters before hi."""
+    starts, ends, longest, adjacent = _marker_index(sentence, marker_res)
+    i = bisect.bisect_left(starts, lo)
+    while i < len(starts) and starts[i] < hi:
+        if ends[i] <= hi:
+            return True
+        i += 1
+    return any(s >= lo for s in adjacent.get(hi, ()))
+
+
+def _clause_breaks_uncached(sentence):
+    breaks = [(b.start(), b.end()) for b in CLAUSE_BREAK_RE.finditer(sentence)]
+    return [s for s, _ in breaks], [e for _, e in breaks]
+
+
+_clause_breaks = functools.lru_cache(maxsize=512)(_clause_breaks_uncached)
+
+
 def clause_bounds(sentence, start, end):
     """The clause of sentence that contains the span [start, end): from the last
     clause break ending at or before start to the first one beginning at or after
-    end. Breaks inside the span (a colon in HEAD:refs) do not split it."""
-    left, right = 0, len(sentence)
-    for brk in CLAUSE_BREAK_RE.finditer(sentence):
-        if brk.end() <= start:
-            left = brk.end()
-        elif brk.start() >= end:
-            right = brk.start()
-            break
+    end. Breaks inside the span (a colon in HEAD:refs) do not split it. The breaks
+    are found once per sentence and looked up by binary search."""
+    starts, ends = _clause_breaks(sentence)
+    k = bisect.bisect_right(ends, start) - 1
+    left = ends[k] if k >= 0 else 0
+    j = bisect.bisect_left(starts, end)
+    right = starts[j] if j < len(starts) else len(sentence)
     return left, right
 
 
@@ -347,13 +397,13 @@ def danger_affirmed(sentence, left, right, end):
 def bypass_match_cleared(sentence, start, end, sanctioned):
     """Whether one bypass match at sentence[start:end] is cleared by its framing."""
     left, right = clause_bounds(sentence, start, end)
-    if has_marker(sentence, BEFORE_PATTERN_MARKER_RES, left, start):
+    if any_marker_in(sentence, BEFORE_PATTERN_MARKER_RES, left, start):
         return True
     if danger_affirmed(sentence, left, right, end):
         return True
-    if has_marker(sentence, SANCTIONED_PATH_MARKER_RES):
+    if any_marker_in(sentence, SANCTIONED_PATH_MARKER_RES, 0, len(sentence)):
         return True
-    return sanctioned and has_marker(sentence, RISK_FRAME_MARKER_RES, left, right)
+    return sanctioned and any_marker_in(sentence, RISK_FRAME_MARKER_RES, left, right)
 
 
 def load_cases():
