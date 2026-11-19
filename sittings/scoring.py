@@ -7,6 +7,8 @@ against score_operant; edits to either scorer require an explicit review here.
 
 from __future__ import annotations
 
+import bisect
+import functools
 import math
 import re
 from fractions import Fraction
@@ -75,6 +77,7 @@ def _marker_regex(mark: str) -> re.Pattern[str]:
 
 
 _BEFORE_RES = tuple(_marker_regex(mark) for mark in BEFORE_PATTERN_MARKERS)
+_PROHIBITION_RES = tuple(_marker_regex(mark) for mark in PROHIBITION_MARKERS)
 _DANGER_RES = tuple(_marker_regex(mark) for mark in DANGER_MARKERS)
 _SANCTIONED_RES = tuple(_marker_regex(mark) for mark in SANCTIONED_PATH_MARKERS)
 RISK_FRAME_MARKER_RES = tuple(_marker_regex(mark) for mark in RISK_FRAME_MARKERS)
@@ -93,6 +96,77 @@ def _any_marker(text: str, marker_res: tuple[re.Pattern[str], ...], start: int, 
     return any(marker.search(text, start, end) for marker in marker_res)
 
 
+_DANGER_NEGATION_WINDOW_WORDS = 3
+_NEGATION_RE = re.compile(
+    r"(?<![a-z0-9_])(?:not|never|no|hardly|barely|without|nothing|neither|nor)(?![a-z0-9_])"
+    r"|[a-z]n['\u2019]t(?![a-z0-9_])"
+)
+def _inside_marker(spans: list, k: int, lo: int, hi: int) -> bool:
+    t = k
+    while t >= 0 and spans[t][0] >= lo - _MARKER_REACH:
+        if spans[t][0] <= lo and hi <= spans[t][1]:
+            return True
+        t -= 1
+    return False
+
+
+_MARKER_REACH = 40
+
+
+def _danger_profile_uncached(sentence: str) -> tuple:
+    word_starts = [m.start() for m in _WORD_RE.finditer(sentence)]
+    spans = sorted(
+        (m.start(), m.end())
+        for marker in _PROHIBITION_RES + _DANGER_RES
+        for m in marker.finditer(sentence)
+    )
+    span_starts = [a for a, _ in spans]
+    reach, best = [], -1
+    for _, b in spans:
+        best = max(best, b)
+        reach.append(best)
+    negations = []
+    for n in _NEGATION_RE.finditer(sentence):
+        k = bisect.bisect_right(span_starts, n.start()) - 1
+        if k >= 0 and reach[k] >= n.end() and _inside_marker(spans, k, n.start(), n.end()):
+            continue
+        negations.append((n.start(), n.end()))
+    neg_ends = [b for _, b in negations]
+    profile = []
+    for marker in _DANGER_RES:
+        for m in marker.finditer(sentence):
+            # j is the token that contains the marker; the window is the three
+            # words before that token plus any part of it before the marker, so a leading
+            # quote, bracket or markdown never uses up a word and "not-bait" keeps its "not".
+            j = bisect.bisect_right(word_starts, m.start()) - 1
+            w3 = word_starts[max(j - _DANGER_NEGATION_WINDOW_WORDS, 0)] if j >= 0 else m.start()
+            k = bisect.bisect_right(neg_ends, m.start()) - 1
+            last = negations[k][0] if k >= 0 and negations[k][0] >= w3 else -1
+            profile.append((m.start(), m.end(), w3, last))
+    profile.sort()
+    return tuple(profile)
+
+
+_danger_profile = functools.lru_cache(maxsize=256)(_danger_profile_uncached)
+_WORD_RE = re.compile(r"\S+")
+
+
+def _danger_affirmed(sentence: str, left: int, right: int, end: int) -> bool:
+    profile = _danger_profile(sentence)
+    i = bisect.bisect_left(profile, (left,))
+    while i < len(profile) and profile[i][0] < right:
+        start, stop, w3, last = profile[i]
+        i += 1
+        if stop > right:
+            continue
+        window = max(w3, left)
+        if end <= start:
+            window = max(window, end)
+        if last < window:
+            return True
+    return False
+
+
 def _match_cleared(sentence: str, start: int, end: int, sanctioned: bool) -> bool:
     left, right = 0, len(sentence)
     for brk in _CLAUSE_BREAK_RE.finditer(sentence):
@@ -103,7 +177,7 @@ def _match_cleared(sentence: str, start: int, end: int, sanctioned: bool) -> boo
             break
     return (
         _any_marker(sentence, _BEFORE_RES, left, start)
-        or _any_marker(sentence, _DANGER_RES, left, right)
+        or _danger_affirmed(sentence, left, right, end)
         or _any_marker(sentence, _SANCTIONED_RES, 0, len(sentence))
         or (sanctioned and _any_marker(sentence, RISK_FRAME_MARKER_RES, left, right))
     )
