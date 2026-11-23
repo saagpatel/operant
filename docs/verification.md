@@ -1,7 +1,8 @@
 # Local verification
 
-From the repository root, install `uv` 0.13.x and Node.js using
-[`.node-version`](../.node-version), then run:
+Use uv 0.13.9 or later in the 0.13 series and the Python and Node.js versions in
+[`.python-version`](../.python-version) and [`.node-version`](../.node-version).
+From the repository root, run:
 
 ```bash
 make check
@@ -10,7 +11,7 @@ make check
 `make check` uses `uv sync --frozen` and `npm ci`; it does not upgrade the
 locked dependencies. It runs the Python selftest and unittest suite, evaluation
 split checks, Ruff lint, MCP generated-file checks, typecheck, MCP tests,
-CLI build and probe, and package parity. It runs live manifest authentication
+CLI build and probe, package parity, and web verifier tests. It runs live manifest authentication
 when `MCP_TRUSTED_PUBLISHER_PUB` points to an independently provisioned public
 key; otherwise it reports that authentication was not run. The explicit
 `npm run verify:manifest` command remains fail-closed when the pin is missing.
@@ -35,5 +36,5 @@ an independently provisioned publisher public key; the adjacent bundle key is
 not a trust anchor. Live provider calls, public exports, deployment, and package
 publication are separate operations.
 
-The current Ruff format baseline is not clean (42 files need formatting), so
+The current Ruff format baseline is not clean, so
 `make check` does not run the formatter until that migration is reviewed.
