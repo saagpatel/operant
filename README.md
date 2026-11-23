@@ -47,7 +47,7 @@ bytes. Automated observation or candidate-authored approval alone never admits a
 
 ## Try it in 10 seconds
 
-With Python 3.12+ installed, the bundled heuristic needs no packages, API key, or model spend. Its decision scores are deterministic and offline:
+Run the bundled heuristic with Python 3.12+ in a POSIX environment such as macOS, Linux, or WSL. It scores decisions deterministically offline and requires no additional packages or API key.
 
 ```bash
 python3 score_my_agent.py --adapter examples/heuristic_agent.py:respond \
@@ -90,7 +90,7 @@ Clearing is clause-scoped. Within each sentence, only the clause that holds the 
 
 Each case presents a task spec; the agent emits an operating plan — tier (solo / parallel subagents / coordinated team), per-subtask model routing, worktree-or-not, delegate-vs-inline. The corpus includes surface twins designed to distinguish structural from visual complexity (e.g., `looks-big-but-solo`: 9 files but a mechanical rename → solo; `eight-stream-migration`: genuinely parallel → Tier-3 team).
 
-The keyword-anchor scorer is retained as a legacy cross-check but is **not** the metric of record: it saturates and can penalize articulate plans that cite machinery they correctly decline. The LLM-judge is the metric of record. Its deterministic core (prompt build, JSON extraction, verdict normalization) is selftested without model calls; its dispatch is calibration-validated (`--validate`) against ORACLE, OVER, and UNDER synthetic plans. The historical `--ensemble` calculation averages the Sonnet and Opus judge scores for each cell present in both indexes.
+The keyword-anchor scorer is retained as a legacy cross-check but is **not** the metric of record: it saturates and can penalize articulate plans that cite machinery they correctly decline. The LLM-judge is the metric of record. Its deterministic core (prompt build, JSON extraction, verdict normalization) is selftested without model calls; its dispatch is calibration-validated (`--validate`) against ORACLE, OVER, and UNDER synthetic plans. The historical `--ensemble` calculation averages the Sonnet and Opus judge scores for each matched `(run_label, case_id)` where both scores are non-null.
 
 ### Case grounding and split limits
 
@@ -341,8 +341,10 @@ A complete run writes the following files under `results/self-serve/`:
 
 Decision-axis OCS scores deterministically and free. The orchestration axis runs an LLM
 judge by default (needs a judge model); pass `--no-judge` to skip it, or `--axes decision`
-for the decision OCS only. A judge dispatch exception makes the attempt incomplete (exit 2, no report card).
-If dispatch completes but every judge verdict is unparseable, the report marks orchestration unscored. Drop in a harder corpus with
+for the decision OCS only. If an exception escapes the judge, the runner marks the
+attempt incomplete and exits with status 2 before writing a report card. A judge
+timeout yields an unparseable verdict. If every verdict is unparseable, an otherwise
+complete run writes the decision report with orchestration unscored. Drop in a harder corpus with
 `--cases '/path/to/operant*_cases.json'` (e.g. an adversarial expansion) with no code
 change. The agent is scored *as an operator under a contract* (your `--operator-contract`
 file, else `$OPERANT_OPERATOR_CONTRACT`, else `~/.claude/CLAUDE.md`, else a bundled
@@ -388,11 +390,14 @@ submission governance.
 ### Static public artifacts
 
 To rebuild the historical Claude export, substitute your own source results
-directory below. These private inputs are separate from the checkout. The
-exporter writes to `lab/public/`:
+directory below. These private inputs are separate from the checkout. Export
+to a fresh directory to preserve the active Codex model cards in `lab/public/`,
+then validate that directory.
 
 ```bash
-python3 operant_lab_cli.py export-public --source-results "/path/to/source-results"
+claude_public=$(mktemp -d ./claude-public.XXXXXX)
+python3 operant_lab_cli.py export-public --source-results "/path/to/source-results" --out "$claude_public"
+python3 operant_lab_cli.py check-public-artifacts --public-dir "$claude_public"
 ```
 
 Include selected local native-shell lab runs only when they are intentionally
@@ -434,7 +439,7 @@ python3 operant_lab_cli.py check-public-artifacts \
   --private-case-overlays "/path/to/private-cases"
 ```
 
-`export-public` writes:
+With its default output directory, `export-public` writes:
 
 - `lab/public/README.md`
 - `lab/public/benchmark-card.json`

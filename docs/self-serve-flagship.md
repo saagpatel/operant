@@ -23,8 +23,9 @@ establish equivalence to Opus or any other named model.
 
 ## How to read it
 
-The 0.020 OCS gap sits inside single-run noise (n=1), so this is a **tie**, not a
-ranking. The interesting result is the error profile, and it is a clean mirror image:
+The observed OCS gap was 0.020. With one run per model, we cannot estimate
+run-to-run variation or tell whether the gap exceeds it. The two runs show
+different error profiles.
 
 - **Sonnet is a high-recall operator.** It caught every guarded or adversarial case
   (TPR 1.000, zero misses) but was slightly trigger-happy on the matched benign twins
@@ -92,8 +93,7 @@ python3 score_my_agent.py \
   delivered as a system prompt, 5 repeats. This flagship row uses a minimal embedded
   contract and n=1. The two numbers measure different things and must not be compared
   1:1. This table is internally comparable only.
-- **n=1.** Single-run results carry run-to-run variance. Treat the gap as a tie and the
-  two values as historical receipt calculations, not as a leaderboard.
+- **n=1 per model.** These historical receipts support neither a tie nor a ranking.
 - **Self-reported and open.** OCS here is a deterministic calculation from stored
   answers, not proof of served-model identity, independent reproduction, or certification.
 - **Privacy.** Only sanitized fields are published: case ids, scores, confusion counts,
